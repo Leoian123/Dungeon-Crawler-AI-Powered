@@ -9,12 +9,12 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from contracts import Archetipo, Blocco, Durata, Rarita
+from contracts import Archetipo, Blocco, Durata, Grado
 from contracts import schema as S
 from motore import (
     REGISTRY_ARCHETIPI,
     REGISTRY_BLOCCHI,
-    rango_rarita,
+    rango_grado,
     valida_turno,
 )
 from tests.narr_helpers import budget, turno
@@ -38,7 +38,7 @@ def test_F5_strato_schema_rifiuta_non_conforme() -> None:
 
 def test_F5_strato_catalogo_e_budget_insieme() -> None:
     # Candidato pienamente legale → passa.
-    assert valida_turno(turno(rarita=Rarita.COMUNE, blocchi=(Blocco.VELENO,)), budget()) is not None
+    assert valida_turno(turno(grado=Grado.BRONZO, blocchi=(Blocco.VELENO,)), budget()) is not None
 
 
 def test_F5_gate_nel_motore_non_nella_membrana_ne_nel_bus() -> None:
@@ -46,18 +46,18 @@ def test_F5_gate_nel_motore_non_nella_membrana_ne_nel_bus() -> None:
     # nel bus; vive nel motore (narrazione.py). Cerchiamo i marcatori del gate.
     bus = (_CONTRACTS / "bus.py").read_text(encoding="utf-8")
     assert "budget" not in bus.lower()
-    assert "rarita_ammesse" not in bus
+    assert "gradi_ammessi" not in bus
     narr = (_MOTORE / "narrazione.py").read_text(encoding="utf-8")
     assert "def valida_turno" in narr
-    assert "rarita_ammesse" in narr and "blocchi_ammessi" in narr
+    assert "gradi_ammessi" in narr and "blocchi_ammessi" in narr
 
 
 def test_F5_budget_obbligatorio_anche_sotto_grammatica() -> None:
     # Sotto grammatica schema+catalogo sono garantiti per costruzione; il BUDGET no.
     # Un candidato grammaticalmente perfetto ma fuori budget deve cadere sullo strato 3.
-    bud = budget(rarita=(Rarita.COMUNE,), blocchi=(Blocco.VELENO,))
-    fuori = turno(rarita=Rarita.RARO, blocchi=(Blocco.VELENO,))  # RARO non ammesso
-    assert fuori.entita.rarita in Rarita  # grammaticalmente valido
+    bud = budget(gradi=(Grado.BRONZO,), blocchi=(Blocco.VELENO,))
+    fuori = turno(grado=Grado.ARGENTO, blocchi=(Blocco.VELENO,))  # ARGENTO non ammesso
+    assert fuori.entita.grado in Grado  # grammaticalmente valido
     assert valida_turno(fuori, bud) is None  # ma il budget lo respinge
 
 
@@ -71,16 +71,16 @@ def test_F6_ogni_archetipo_ha_un_binding() -> None:
     assert set(REGISTRY_ARCHETIPI) == set(Archetipo), "ogni Archetipo deve avere un profilo"
 
 
-def test_F6_ogni_rarita_ha_un_rango() -> None:
-    # Ordine totale sulle rarità: ogni membro mappa a un int, tutti distinti.
-    ranghi = [rango_rarita(r) for r in Rarita]
-    assert len(set(ranghi)) == len(list(Rarita))
+def test_F6_ogni_grado_ha_un_rango() -> None:
+    # Ordine totale sui gradi: ogni membro mappa a un int, tutti distinti.
+    ranghi = [rango_grado(g) for g in Grado]
+    assert len(set(ranghi)) == len(list(Grado))
 
 
 def test_F6_nessun_nome_accettabile_ma_non_istanziabile() -> None:
     # Per ogni blocco legale, il gate lo accetta E il registry lo sa istanziare.
     for blocco in Blocco:
-        cand = turno(rarita=Rarita.COMUNE, blocchi=(blocco,))
+        cand = turno(grado=Grado.BRONZO, blocchi=(blocco,))
         bud = budget(blocchi=tuple(Blocco))  # budget largo: isola lo strato catalogo
         assert valida_turno(cand, bud) is not None
         cls = REGISTRY_BLOCCHI[blocco]
@@ -94,20 +94,20 @@ def test_F10_budget_nel_prompt_soft() -> None:
     from contracts import SchedaProiezione
     from motore import costruisci_prompt
 
-    bud = budget(rarita=(Rarita.COMUNE,), blocchi=(Blocco.VELENO,))
+    bud = budget(gradi=(Grado.BRONZO,), blocchi=(Blocco.VELENO,))
     prompt = costruisci_prompt(bud, SchedaProiezione(descrittori=("integro",)), voce="V")
     # Il set ammissibile è iniettato come testo (soft): l'AI lo rispetta se glielo dici.
-    assert "comune" in prompt
+    assert "bronzo" in prompt
     assert "veleno" in prompt
 
 
 def test_F10_gate_hard_non_sostituito_dal_prompt() -> None:
     # Anche se il prompt "diceva" il budget, un candidato fuori budget passa comunque
     # dal provider: solo il gate (hard) lo respinge. È l'unica garanzia vera.
-    bud = budget(rarita=(Rarita.COMUNE,), blocchi=(Blocco.VELENO,))
-    fuori_rarita = turno(rarita=Rarita.RARO, blocchi=(Blocco.VELENO,))
-    fuori_blocco = turno(rarita=Rarita.COMUNE, blocchi=(Blocco.RIGENERAZIONE,))
-    assert valida_turno(fuori_rarita, bud) is None
+    bud = budget(gradi=(Grado.BRONZO,), blocchi=(Blocco.VELENO,))
+    fuori_grado = turno(grado=Grado.ARGENTO, blocchi=(Blocco.VELENO,))
+    fuori_blocco = turno(grado=Grado.BRONZO, blocchi=(Blocco.RIGENERAZIONE,))
+    assert valida_turno(fuori_grado, bud) is None
     assert valida_turno(fuori_blocco, bud) is None
 
 
@@ -115,7 +115,7 @@ def test_F10_il_gate_non_e_nel_provider() -> None:
     # Statico: il provider (trasporto) non valida catalogo/budget — è dominio del motore.
     # I marcatori del gate (set ammissibile, funzione di gate) NON vivono nel provider.
     fake = (_SRC / "provider" / "fake.py").read_text(encoding="utf-8")
-    assert "rarita_ammesse" not in fake
+    assert "gradi_ammessi" not in fake
     assert "blocchi_ammessi" not in fake
     assert "valida_turno" not in fake
     tree = ast.parse(fake)

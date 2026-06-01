@@ -21,7 +21,7 @@ import random
 from dataclasses import dataclass, field
 from enum import Enum
 
-from contracts import Archetipo, Blocco, ClasseProva, Durata, Rarita
+from contracts import Archetipo, Blocco, ClasseProva, Durata, Grado, StatId
 
 from .status import Brucia, Confusione, Rigenerazione, Status, Stordito, Veleno
 
@@ -53,20 +53,33 @@ REGISTRY_ARCHETIPI: dict[Archetipo, ProfiloArchetipo] = {
 }
 
 
-# --- Ordine totale sulle rarità + mappa rango(rarità) → int (G §4.3) -----------
+# --- Profilo-base delle primarie di Carl (SEGNAPOSTO Gruppo 2 §11) -------------
 
-# Ordine di dichiarazione dell'enum = ordine totale. La mappa è SEGNAPOSTO Gruppo 2;
-# l'**esistenza** dell'ordine totale e della mappa è forma (G §4.3).
-_RANGHI: dict[Rarita, int] = {r: i for i, r in enumerate(Rarita)}
+# `DESTREZZA`/`COSTITUZIONE` qui sono fallback: `crea_protagonista` li sovrascrive con i
+# valori passati (destrezza scelta, HP iniziale). Forza/Saggezza/Fortuna sono SEGNAPOSTO.
+PRIMARIE_BASE_CARL: dict[StatId, int] = {
+    StatId.FORZA: 10,
+    StatId.DESTREZZA: 10,
+    StatId.COSTITUZIONE: 30,
+    StatId.SAGGEZZA: 8,
+    StatId.FORTUNA: 5,
+}
 
 
-def rango_rarita(rarita: Rarita) -> int:
-    """Rango intero di una rarità (più alto = più rara). Usato come rango di uno
-    status applicato da un'entità composta dall'AI (G §4.3)."""
-    return _RANGHI[rarita]
+# --- Mappa `Grado → rango:int` (G §4.3; override Gruppo 2 §1.1) ----------------
+
+# A senso unico: `Grado` (nome, AI-facing) → `rango:int` (1–6) che i sistemi confrontano.
+# L'**anomalia** assegna `rango > 6` lato motore, mai un membro dell'enum. SEGNAPOSTO §11.
+RANGO_GRADO: dict[Grado, int] = {grado: i for i, grado in enumerate(Grado, start=1)}
 
 
-# --- Formula-madre: (archetipo, rarità, livello) → statistiche (FNC §5.5) ------
+def rango_grado(grado: Grado) -> int:
+    """Il `rango:int` (1–6) del `Grado`. Usato come rango di uno status applicato da
+    un'entità composta dall'AI (G §4.3) e per la scelta deterministica del fallback."""
+    return RANGO_GRADO[grado]
+
+
+# --- Formula-madre: (archetipo, grado, livello) → statistiche (FNC §5.5) -------
 
 @dataclass(frozen=True)
 class Statistiche:
@@ -77,17 +90,17 @@ class Statistiche:
     danno: int
 
 
-def deriva_statistiche(archetipo: Archetipo, rarita: Rarita, livello: int) -> Statistiche:
+def deriva_statistiche(archetipo: Archetipo, grado: Grado, livello: int) -> Statistiche:
     """La formula-madre (SEGNAPOSTO Gruppo 2): quanto picchia un mob è funzione di
-    rarità e livello, NON una scelta dell'AI (FNC §5.5).
+    grado e livello, NON una scelta dell'AI (FNC §5.5).
 
-    Forma: profilo-base scalato da un fattore-rarità e dalla profondità del piano.
-    I *numeri* sono placeholder; la *struttura* (deriva, non legge dall'AI) è completa.
+    Forma: profilo-base scalato da un fattore-grado e dalla profondità del piano. I
+    *numeri* sono placeholder; la *struttura* (deriva, non legge dall'AI) è completa.
     """
     profilo = REGISTRY_ARCHETIPI[archetipo]
-    fattore = (rango_rarita(rarita) + 1) * max(1, livello)
+    fattore = rango_grado(grado) * max(1, livello)
     return Statistiche(
-        destrezza=profilo.destrezza_base + rango_rarita(rarita),
+        destrezza=profilo.destrezza_base + rango_grado(grado),
         punti_vita=profilo.pv_base * fattore,
         danno=profilo.danno_base * fattore,
     )
@@ -111,7 +124,7 @@ class Budget:
     """
 
     livello: int
-    rarita_ammesse: frozenset[Rarita]
+    gradi_ammessi: frozenset[Grado]
     blocchi_ammessi: frozenset[Blocco]
     archetipo_default: Archetipo
     anomala: bool = False
@@ -126,11 +139,11 @@ ARCHETIPO_DEFAULT = Archetipo.SLIME
 
 def _budget_normale(livello: int) -> Budget:
     """Budget ordinario per profondità (SEGNAPOSTO Gruppo 2)."""
-    rarita = {Rarita.COMUNE, Rarita.RARO}
+    gradi = {Grado.BRONZO, Grado.ARGENTO}
     blocchi = {Blocco.VELENO, Blocco.RIGENERAZIONE}
     return Budget(
         livello=livello,
-        rarita_ammesse=frozenset(rarita),
+        gradi_ammessi=frozenset(gradi),
         blocchi_ammessi=frozenset(blocchi),
         archetipo_default=ARCHETIPO_DEFAULT,
         anomala=False,
@@ -144,7 +157,7 @@ def _budget_anomalo(livello: int) -> Budget:
     """
     return Budget(
         livello=livello,
-        rarita_ammesse=frozenset(Rarita),       # incl. LEGGENDARIO
+        gradi_ammessi=frozenset(Grado),         # incl. LEGGENDARIO/CELESTIALE
         blocchi_ammessi=frozenset(Blocco),      # tutti i blocchi
         archetipo_default=ARCHETIPO_DEFAULT,
         anomala=True,

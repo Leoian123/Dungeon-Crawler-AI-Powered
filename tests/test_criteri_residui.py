@@ -13,6 +13,7 @@ import esper
 from contracts import Durata, EntitaGenerata, Flavor, MortePersonaggio
 from motore import (
     REGISTRY_BLOCCHI,
+    Primarie,
     Scheda,
     Status,
     fast_forward,
@@ -39,13 +40,17 @@ def test_F7_prosa_puo_mancare_senza_mutare_stato() -> None:
     assert asyncio.run(genera_prosa(prov, "p")) is None  # nessuna eccezione, nessuno stato toccato
 
 
-# --- G-2: la scheda-placeholder porta i tre pezzi obbligatori -----------------
+# --- G-2 / Gruppo 2 §5: la scheda è la risorsa-vita; le primarie nel vettore --
 
-def test_G2_scheda_porta_i_tre_pezzi() -> None:
+def test_G2_scheda_porta_i_pezzi_obbligatori() -> None:
     campi = {f.name for f in dataclasses.fields(Scheda)}
-    assert "destrezza" in campi          # iniziativa (§2.2)
     assert "vivo" in campi               # stato-vita del death-check (§6.2)
-    assert "punti_vita" in campi and "punti_vita_max" in campi  # alimentano la proiezione (§6.6)
+    assert "punti_vita" in campi         # HP corrente: risorsa posseduta (§5)
+    # Il massimo HP NON è depositato: deriva da Costituzione (GR2-10).
+    assert "punti_vita_max" not in campi
+    # La destrezza vive nel vettore Primarie, non in Scheda (una strada sola, §3.3).
+    assert "destrezza" not in campi
+    assert "valori" in {f.name for f in dataclasses.fields(Primarie)}
 
 
 # --- G-17: `livello` NON è un input dell'AI -----------------------------------

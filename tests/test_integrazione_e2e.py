@@ -16,7 +16,7 @@ import random
 import esper
 import pytest
 
-from contracts import ClasseProva, MortePersonaggio, PlayerDiscende
+from contracts import ClasseProva, MortePersonaggio, PlayerDiscende, StatId
 from guscio import NOME_DEFAULT, NOME_RUN, Guscio, StatoGuscio, Terminale
 from motore import (
     Fase,
@@ -30,6 +30,7 @@ from motore import (
     proietta_scheda,
     protagonista,
     risolvi_prova,
+    stat_eff,
     tick,
 )
 from motore.persistenza.disco import path_stato
@@ -75,7 +76,7 @@ def test_e2e_piano_intero_capo_a_fine(guscio_pulito, tmp_path) -> None:
     assert esper.entity_exists(mob)
 
     # --- esplora: una prova di abilità (motore TIRA seeded) -------------------
-    esito = risolvi_prova(scheda.destrezza, ClasseProva.BRONZO, rng)
+    esito = risolvi_prova(stat_eff(pent, StatId.DESTREZZA), ClasseProva.BRONZO, rng)
     assert isinstance(esito, bool)
 
     # --- incontro + combatti fino alla vittoria -------------------------------

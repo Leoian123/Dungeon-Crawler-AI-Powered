@@ -25,9 +25,11 @@ import functools
 import typing
 
 from ..fase import FaseCorrente
+from ..modificatori import Modificatori
 from ..piano import ProfonditaPiano, TempoPiano
 from ..scheda import Protagonista, Scheda
 from ..seme import SemeRun
+from ..statistiche import Primarie
 from ..status import Brucia, Rigenerazione, Stordito, Veleno
 
 # --- Registry: tipo → tag STABILE (H-3). I tag non seguono i nomi di classe. -----
@@ -35,6 +37,8 @@ from ..status import Brucia, Rigenerazione, Stordito, Veleno
 _TAG_PER_TIPO: dict[type, str] = {
     Protagonista: "protagonista",
     Scheda: "scheda",
+    Primarie: "primarie",
+    Modificatori: "modificatori",
     Veleno: "veleno",
     Brucia: "brucia",
     Rigenerazione: "rigenerazione",
@@ -68,34 +72,76 @@ def tipo_di(tag: str) -> type:
 
 
 # --- Traduzione generica dataclass↔dict (vive in H, non nei componenti) ---------
+#
+# Un solo translator ricorsivo, **guidato dall'annotazione del campo** (mai da tipi
+# hardcoded): chiude scalari, enum, `dict[enum, X]`, `list[dataclass]` e dataclass
+# annidate — gli enum sono gestiti *ovunque compaiano* (chiave di mappa **e** campo
+# scalare dentro una dataclass annidata). Restare davvero generici è la metà difficile:
+# `Primarie.valori: dict[StatId, int]` e `Modificatori.voci: list[Modificatore]` (con tre
+# campi-enum dentro `Modificatore`) round-trippano senza una riga dedicata a `StatId`.
 
 @functools.lru_cache(maxsize=None)
 def _hints(tipo: type) -> dict[str, object]:
     """Type-hint risolti (le annotazioni stringa di `from __future__ import
-    annotations` diventano tipi reali). Serve a riconoscere i campi-enum."""
+    annotations` diventano tipi reali). Serve a ricavare i tipi di chiavi/elementi."""
     return typing.get_type_hints(tipo)
 
 
+def _e_enum(annot: object) -> bool:
+    return isinstance(annot, type) and issubclass(annot, enum.Enum)
+
+
+def _verso_jsonable(valore: object, annot: object) -> object:
+    """Valore vivo → forma JSON-able, guidato dall'annotazione del campo."""
+    if isinstance(valore, enum.Enum):
+        return valore.value
+    origine = typing.get_origin(annot)
+    if origine is dict:
+        k_t, v_t = typing.get_args(annot)
+        return {_verso_jsonable(k, k_t): _verso_jsonable(v, v_t) for k, v in valore.items()}
+    if origine in (list, tuple):
+        (item_t, *_) = typing.get_args(annot) or (object,)
+        return [_verso_jsonable(x, item_t) for x in valore]
+    if dataclasses.is_dataclass(valore):
+        hints = _hints(type(valore))
+        return {
+            campo.name: _verso_jsonable(getattr(valore, campo.name), hints.get(campo.name))
+            for campo in dataclasses.fields(valore)
+        }
+    return valore
+
+
+def _da_jsonable(dato: object, annot: object) -> object:
+    """Forma JSON-able → valore vivo, ricostruendo enum/dataclass dai type-hint."""
+    if _e_enum(annot):
+        return annot(dato)  # type: ignore[operator]
+    origine = typing.get_origin(annot)
+    if origine is dict:
+        k_t, v_t = typing.get_args(annot)
+        return {_da_jsonable(k, k_t): _da_jsonable(v, v_t) for k, v in dato.items()}
+    if origine in (list, tuple):
+        (item_t, *_) = typing.get_args(annot) or (object,)
+        return [_da_jsonable(x, item_t) for x in dato]
+    if isinstance(annot, type) and dataclasses.is_dataclass(annot):
+        hints = _hints(annot)
+        kwargs = {nome: _da_jsonable(v, hints.get(nome)) for nome, v in dato.items()}
+        return annot(**kwargs)
+    return dato
+
+
 def serializza_componente(comp: object) -> tuple[str, dict]:
-    """Componente → (tag, dati JSON-able). Enum → `.value`; primitivi invariati."""
+    """Componente → (tag, dati JSON-able). Enum → `.value` ovunque; primitivi invariati."""
     tipo = type(comp)
+    hints = _hints(tipo)
     dati: dict[str, object] = {}
     for campo in dataclasses.fields(comp):
-        valore = getattr(comp, campo.name)
-        dati[campo.name] = valore.value if isinstance(valore, enum.Enum) else valore
+        dati[campo.name] = _verso_jsonable(getattr(comp, campo.name), hints.get(campo.name))
     return _TAG_PER_TIPO[tipo], dati
 
 
 def deserializza_componente(tag: str, dati: dict) -> object:
-    """(tag, dati) → istanza del componente. I campi-enum si ricostruiscono dal
-    `.value` usando i type-hint risolti del tipo."""
+    """(tag, dati) → istanza del componente, ricostruita dai type-hint risolti del tipo."""
     tipo = tipo_di(tag)
     hints = _hints(tipo)
-    kwargs: dict[str, object] = {}
-    for nome, valore in dati.items():
-        annot = hints.get(nome)
-        if isinstance(annot, type) and issubclass(annot, enum.Enum):
-            kwargs[nome] = annot(valore)
-        else:
-            kwargs[nome] = valore
+    kwargs = {nome: _da_jsonable(valore, hints.get(nome)) for nome, valore in dati.items()}
     return tipo(**kwargs)

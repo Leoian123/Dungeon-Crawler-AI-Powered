@@ -20,9 +20,10 @@ from contracts import (
     EncounterStarted,
     MortePersonaggio,
     PlayerDiscende,
+    StatId,
 )
 from guscio import NOME_DEFAULT, NOME_RUN, Guscio, StatoGuscio, Terminale
-from motore import MessaggioIntento, leggi_fase, Fase, protagonista
+from motore import MessaggioIntento, leggi_fase, Fase, protagonista, stat_eff
 from motore.persistenza.disco import path_stato
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
@@ -86,8 +87,8 @@ def test_E5_protagonista_nasce_al_confine_non_a_una_fase(guscio_pulito, tmp_path
     g.nuova_partita(uuid="carl", destrezza=11)
     # Nato esattamente all'ingresso run, nel contesto "run".
     assert esper.current_world == NOME_RUN
-    _pe, marker, scheda = protagonista()
-    assert marker.id_dominio == "carl" and scheda.destrezza == 11
+    pe, marker, _scheda = protagonista()
+    assert marker.id_dominio == "carl" and stat_eff(pe, StatId.DESTREZZA) == 11
     g._terminale = Terminale.USCITA_VOLONTARIA
     g.concludi()
 
@@ -111,8 +112,8 @@ def test_E5_caricamento_deserializza_al_confine(guscio_pulito, tmp_path) -> None
     # Caricamento: il protagonista è deserializzato al confine guscio→run.
     assert g.carica("bob") is True
     assert esper.current_world == NOME_RUN
-    _pe, marker, scheda = protagonista()
-    assert marker.id_dominio == "bob" and scheda.destrezza == 9
+    pe, marker, _scheda = protagonista()
+    assert marker.id_dominio == "bob" and stat_eff(pe, StatId.DESTREZZA) == 9
     g._terminale = Terminale.USCITA_VOLONTARIA
     g.concludi()
 

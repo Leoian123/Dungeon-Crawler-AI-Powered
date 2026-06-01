@@ -11,8 +11,8 @@ from contracts import (
     Blocco,
     Durata,
     EntitaGenerata,
+    Grado,
     Opzione,
-    Rarita,
     TipoAzione,
     TurnoNarrazione,
 )
@@ -22,14 +22,14 @@ from motore import Budget, ARCHETIPO_DEFAULT
 def budget(
     *,
     livello: int = 1,
-    rarita=(Rarita.COMUNE, Rarita.RARO),
+    gradi=(Grado.BRONZO, Grado.ARGENTO),
     blocchi=(Blocco.VELENO, Blocco.RIGENERAZIONE),
     archetipo_default: Archetipo = ARCHETIPO_DEFAULT,
     anomala: bool = False,
 ) -> Budget:
     return Budget(
         livello=livello,
-        rarita_ammesse=frozenset(rarita),
+        gradi_ammessi=frozenset(gradi),
         blocchi_ammessi=frozenset(blocchi),
         archetipo_default=archetipo_default,
         anomala=anomala,
@@ -39,7 +39,7 @@ def budget(
 def turno(
     *,
     archetipo: Archetipo = Archetipo.SLIME,
-    rarita: Rarita = Rarita.COMUNE,
+    grado: Grado = Grado.BRONZO,
     blocchi=(Blocco.VELENO,),
     durata: Durata = Durata.TURNO,
     prosa: str = "Una stanza.",
@@ -50,7 +50,7 @@ def turno(
         prosa=prosa,
         entita=EntitaGenerata(
             archetipo=archetipo,
-            rarita=rarita,
+            grado=grado,
             blocchi=list(blocchi),
             nome=nome,
             descrizione=descrizione,

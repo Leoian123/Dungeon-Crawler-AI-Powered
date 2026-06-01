@@ -9,7 +9,7 @@ Tre proprietà strutturali, verificabili staticamente (F §2):
   - **Zero campi numerici in `EntitaGenerata`** — niente hp/danno/difesa/durate, e
     niente `livello` (profondità di piano, del motore). I numeri li deriva il motore
     (F-3, §4.2; G-17).
-  - **Tutto ciò che ha conseguenza meccanica è un enum chiuso** (Archetipo, Rarità,
+  - **Tutto ciò che ha conseguenza meccanica è un enum chiuso** (Archetipo, Grado,
     Blocco, TipoAzione, Durata). Solo `prosa/nome/descrizione/etichetta/testo` sono
     testo libero (F-4).
   - **Nessun campo per invocare l'anomalia o alzarsi il budget**: lo schema non lo
@@ -42,12 +42,36 @@ class Archetipo(str, Enum):
     GOBLIN = "goblin"
 
 
-class Rarita(str, Enum):
-    """Vocabolario chiuso delle rarità. Valori SEGNAPOSTO (contenuti in G)."""
+class Grado(str, Enum):
+    """Vocabolario chiuso del **grado** di un'entità (ex `Rarita`, override Gruppo 2 §1.1).
 
-    COMUNE = "comune"
-    RARO = "raro"
+    Un solo enum AI-facing: l'AI **sceglie un nome**, mai un numero. La mappa
+    `Grado → rango:int` (1–6) e gli altri consumatori (moltiplicatore-stat, soglia,
+    valore-loot) vivono **lato motore**, a senso unico (catalogo). La parola "rarità"
+    sopravvive solo come prosa per "il `Grado` di un'entità". Valori SEGNAPOSTO.
+    """
+
+    BRONZO = "bronzo"
+    ARGENTO = "argento"
+    ORO = "oro"
+    PLATINO = "platino"
     LEGGENDARIO = "leggendario"
+    CELESTIALE = "celestiale"
+
+
+class StatId(str, Enum):
+    """Vocabolario chiuso delle statistiche primarie (Gruppo 2 §2.2): SOLO nomi.
+
+    È vocabolario, non comportamento: i **flag** per stat (visibilità, modificabilità,
+    derivazione, prova, sblocco) vivono nel **registry del motore** (`statistiche.py`),
+    MAI qui. Set MVP che esercita i tre assi di visibilità (§2.4); valori SEGNAPOSTO.
+    """
+
+    FORZA = "forza"
+    DESTREZZA = "destrezza"
+    COSTITUZIONE = "costituzione"
+    SAGGEZZA = "saggezza"      # valore-nascosto, solo-privilegiati (canone DCC)
+    FORTUNA = "fortuna"        # esistenza-negata (canone DCC)
 
 
 class Blocco(str, Enum):
@@ -89,7 +113,7 @@ class ClasseProva(str, Enum):
 class Durata(str, Enum):
     """Vocabolario del tempo (J §3.1) — enum chiuso con **ordine totale**.
 
-    NON è un numero (F-14): è una categoria, come `Rarità`. L'ordine totale è
+    NON è un numero (F-14): è una categoria, come `Grado`. L'ordine totale è
     sull'**ordine di dichiarazione** (dal minimo `TURNO` in su), non lessicografico:
     il motore lo mappa a un carico-tick via catalogo (mai nel contratto). Valori e
     carico-tick sono di G/Gruppo 2 (F §9).
@@ -134,13 +158,13 @@ class EntitaGenerata(BaseModel):
     """L'entità proposta dall'AI: SOLO nomi categoriali + flavor testuale.
 
     NESSUN campo numerico: niente hp/danno/difesa/durate, niente `livello` (F-3,
-    §4.2). I numeri li deriva/lega il motore da `(archetipo, rarità, livello)`.
+    §4.2). I numeri li deriva/lega il motore da `(archetipo, grado, livello)`.
     """
 
     model_config = _CHIUSO
 
     archetipo: Archetipo
-    rarita: Rarita
+    grado: Grado
     blocchi: list[Blocco]
     nome: str          # libero (flavor)
     descrizione: str   # libero (flavor)

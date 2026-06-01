@@ -37,8 +37,8 @@ from contracts import (
     EncounterStarted,
     EntitaGenerata,
     Flavor,
+    Grado,
     Opzione,
-    Rarita,
     SchedaProiezione,
     TipoAzione,
     TurnoNarrazione,
@@ -52,11 +52,13 @@ from .catalogo import (
     Statistiche,
     deriva_statistiche,
     prepara_contesto,
-    rango_rarita,
+    rango_grado,
 )
 from .combattimento import PianoIncontro, SpecNemico
+from .derivate import max_hp
 from .prove import risolvi_prova
 from .scheda import Scheda
+from .statistiche import REGISTRY_STAT, Primarie, Visibilita, stat_eff
 from .status import Rigenerazione, Stordito, Veleno
 
 # --- Politica di retry, selezionata dallo SCHEMA (F §5.1, F-8) -----------------
@@ -90,7 +92,7 @@ class EntitaMob:
     `Statistiche` (derivate), MAI qui."""
 
     archetipo: Archetipo
-    rarita: Rarita
+    grado: Grado
     nome: str
     descrizione: str
     livello: int
@@ -99,16 +101,18 @@ class EntitaMob:
 # --- Proiezione di sola lettura della scheda (G §6.6, G-13) -------------------
 
 def proietta_scheda(entita_protagonista: int) -> SchedaProiezione:
-    """Costruisce il DTO di sola lettura dallo stato VIVO (G-13).
+    """Costruisce il DTO di sola lettura dallo stato VIVO (G-13; Gruppo 2 §2.4/GR2-9).
 
-    L'AI riceve `("ferito", "avvelenato")`, MAI `hp: 7/30` né un componente ECS vivo.
-    È il motore — non l'AI — a derivare i descrittori; il DTO vive in `contracts`.
+    L'AI riceve `("ferito", "avvelenato")` + le primarie **filtrate per visibilità**, MAI
+    un componente ECS vivo. È il motore — non l'AI — a derivare i descrittori e ad
+    applicare il filtro: il registry `REGISTRY_STAT` vive QUI (motore), il DTO in
+    `contracts` riceve mappe già filtrate (membrana C-3).
     """
     scheda = esper.component_for_entity(entita_protagonista, Scheda)
     descrittori: list[str] = []
     if not scheda.vivo:
         descrittori.append("morente")
-    elif scheda.punti_vita < scheda.punti_vita_max:
+    elif scheda.punti_vita < max_hp(entita_protagonista):  # massimo DERIVATO (§5)
         descrittori.append("ferito")
     else:
         descrittori.append("integro")
@@ -118,7 +122,25 @@ def proietta_scheda(entita_protagonista: int) -> SchedaProiezione:
         descrittori.append("stordito")
     if esper.try_component(entita_protagonista, Rigenerazione) is not None:
         descrittori.append("in rigenerazione")
-    return SchedaProiezione(descrittori=tuple(descrittori))
+
+    # Primarie filtrate per visibilità (GR2-9): PALESE → valore effettivo; VALORE_NASCOSTO
+    # → solo il nome; ESISTENZA_NEGATA → omessa del tutto. Ordine stabile dal registry.
+    valori = esper.component_for_entity(entita_protagonista, Primarie).valori
+    primarie: dict[str, int] = {}
+    occulte: list[str] = []
+    for stat, riga in REGISTRY_STAT.items():
+        if stat not in valori:
+            continue
+        if riga.visibilita is Visibilita.PALESE:
+            primarie[stat.value] = stat_eff(entita_protagonista, stat)
+        elif riga.visibilita is Visibilita.VALORE_NASCOSTO:
+            occulte.append(stat.value)
+        # ESISTENZA_NEGATA: la proiezione la tratta come se non esistesse.
+    return SchedaProiezione(
+        descrittori=tuple(descrittori),
+        primarie=primarie,
+        primarie_occulte=tuple(occulte),
+    )
 
 
 # --- Costruzione del prompt: budget iniettato NEL testo (soft, F §4.1, F-10) ---
@@ -132,16 +154,16 @@ def costruisci_prompt(budget: Budget, proiezione: SchedaProiezione, voce: str) -
     Se il budget è anomalo, il prompt **lo sa già** (così la stanza è all'altezza,
     FNC §5.5): l'anomalia entra solo come budget gonfiato, mai come campo.
     """
-    rarita = ", ".join(sorted(r.value for r in budget.rarita_ammesse))
+    gradi = ", ".join(sorted(g.value for g in budget.gradi_ammessi))
     blocchi = ", ".join(sorted(b.value for b in budget.blocchi_ammessi))
     stato = ", ".join(proiezione.descrittori) if proiezione.descrittori else "ignoto"
     righe = [
         voce,
         f"[contesto] profondità del piano: {budget.livello}",
         f"[contesto] stato del protagonista (vista): {stato}",
-        f"[budget] rarità ammesse: {rarita}",
+        f"[budget] gradi ammessi: {gradi}",
         f"[budget] blocchi ammessi: {blocchi}",
-        "[budget] scegli archetipo/rarità/blocchi DENTRO il budget; "
+        "[budget] scegli archetipo/grado/blocchi DENTRO il budget; "
         "non emettere numeri né livello.",
     ]
     if budget.anomala:
@@ -187,7 +209,7 @@ def valida_turno(
             return None
 
     # Strato 3: rispetto del budget (HARD, oltre al soft del prompt).
-    if eg.rarita not in budget.rarita_ammesse:
+    if eg.grado not in budget.gradi_ammessi:
         return None
     if not set(eg.blocchi) <= budget.blocchi_ammessi:
         return None
@@ -228,10 +250,10 @@ def fallback_turno(budget: Budget, *, ingresso_combattimento: bool = False) -> R
       consuma il seed stream del gioco** (F-13, §8). Niente RNG qui.
     """
     archetipo = budget.archetipo_default
-    rarita = min(budget.rarita_ammesse, key=rango_rarita)  # deterministico
+    grado = min(budget.gradi_ammessi, key=rango_grado)  # deterministico
     entita = EntitaGenerata(
         archetipo=archetipo,
-        rarita=rarita,
+        grado=grado,
         blocchi=[],
         nome=NOME_NEUTRO,
         descrizione=DESCRIZIONE_NEUTRA,
@@ -340,13 +362,13 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
     componenti, FNC §5.5), col **rango copiato dalla rarità** (G §4.3). Il `livello`
     (profondità) è legato qui, dopo il gate — l'AI non lo ha emesso (G-17).
     """
-    stat: Statistiche = deriva_statistiche(entita.archetipo, entita.rarita, livello)
-    rango = rango_rarita(entita.rarita)
+    stat: Statistiche = deriva_statistiche(entita.archetipo, entita.grado, livello)
+    rango = rango_grado(entita.grado)
 
     componenti: list[object] = [
         EntitaMob(
             archetipo=entita.archetipo,
-            rarita=entita.rarita,
+            grado=entita.grado,
             nome=entita.nome,
             descrizione=entita.descrizione,
             livello=livello,

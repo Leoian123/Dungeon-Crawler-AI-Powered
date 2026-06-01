@@ -11,6 +11,7 @@ import json
 
 import esper
 
+from contracts import StatId
 from motore import (
     Fase,
     Veleno,
@@ -21,6 +22,7 @@ from motore import (
     master_seed,
     protagonista,
     salva_run,
+    stat_eff,
 )
 from motore.persistenza.disco import leggi_intestazione, path_archivio, path_stato
 from tests.persist_helpers import costruisci_run
@@ -53,7 +55,8 @@ def test_HL1_roundtrip_fedele(mondo_isolato: str, tmp_path) -> None:
     assert master_seed() == 987654
     pe, marker, scheda = protagonista()
     assert marker.id_dominio == "carl"
-    assert scheda.destrezza == 13
+    # La destrezza (nel vettore Primarie) sopravvive al round-trip via il fold.
+    assert stat_eff(pe, StatId.DESTREZZA) == 13
     assert scheda.punti_vita == 21
     # Lo status sopravvive col rango (copiato) e la durata.
     vel = esper.try_component(pe, Veleno)

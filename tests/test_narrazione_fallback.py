@@ -12,7 +12,7 @@ from contracts import (
     Archetipo,
     Blocco,
     Flavor,
-    Rarita,
+    Grado,
     SchedaProiezione,
     TipoAzione,
     TurnoNarrazione,
@@ -46,7 +46,7 @@ def test_F8_none_trasporto_collassa_su_fallback() -> None:
 
 def test_F8_rifiuto_di_gate_collassa_sullo_stesso_fallback() -> None:
     # Candidato che parsa ma è fuori budget (LEGGENDARIO non ammesso): rifiuto-di-gate.
-    fuori = turno(rarita=Rarita.LEGGENDARIO, blocchi=())
+    fuori = turno(grado=Grado.LEGGENDARIO, blocchi=())
     prov = FakeProvider([fuori, fuori])  # anche il retry resta fuori budget
     bud = budget()
     res = asyncio.run(procura_turno(prov, bud, _PROIEZIONE))
@@ -59,7 +59,7 @@ def _verifica_fallback_atomico(res, bud) -> None:
     t: TurnoNarrazione = res.turno
     assert t.prosa == PROSA_NEUTRA
     assert t.entita.archetipo == bud.archetipo_default
-    assert t.entita.rarita in bud.rarita_ammesse
+    assert t.entita.grado in bud.gradi_ammessi
     assert [o.tipo for o in t.opzioni] == [o.tipo for o in MENU_FISSO]
 
 
@@ -70,7 +70,7 @@ def test_F8_archetipo_default_designato_deterministico() -> None:
     a = fallback_turno(bud)
     b = fallback_turno(bud)
     assert a.turno.entita.archetipo == b.turno.entita.archetipo
-    assert a.turno.entita.rarita == b.turno.entita.rarita
+    assert a.turno.entita.grado == b.turno.entita.grado
 
 
 def test_F8_narrazione_ritenta_prosa_fallisce_in_fretta() -> None:
@@ -92,7 +92,7 @@ def test_F8_narrazione_ritenta_prosa_fallisce_in_fretta() -> None:
 def test_F9_nessun_secondo_modello_decide_stato() -> None:
     # Un fuori-budget va in fallback: il provider NON è interpellato una seconda volta
     # con uno schema-giudice. Solo lo schema di narrazione compare.
-    fuori = turno(rarita=Rarita.LEGGENDARIO)
+    fuori = turno(grado=Grado.LEGGENDARIO)
     prov = FakeProvider([fuori, fuori])
     res = asyncio.run(procura_turno(prov, budget(), _PROIEZIONE))
     assert res.fallback is True
@@ -106,7 +106,7 @@ def test_F9_nessun_secondo_modello_decide_stato() -> None:
 def test_F9_fuori_budget_resta_violazione_mai_anomalia() -> None:
     # Il motore non ha tirato l'anomalia (budget normale): un candidato fuori budget è
     # SEMPRE una violazione, mai "un'anomalia mancata" ripromossa a valle.
-    fuori = turno(rarita=Rarita.LEGGENDARIO)
+    fuori = turno(grado=Grado.LEGGENDARIO)
     prov = FakeProvider([fuori, fuori])
     bud = budget(anomala=False)
     res = asyncio.run(procura_turno(prov, bud, _PROIEZIONE))

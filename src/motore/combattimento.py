@@ -15,10 +15,11 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import CombatResolved, EncounterStarted, MortePersonaggio
+from contracts import CombatResolved, EncounterStarted, MortePersonaggio, StatId
 
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
 from .scheda import Protagonista, Scheda, protagonista
+from .statistiche import stat_eff
 from .turno import azzera_turno_attivo, segna_turno_attivo
 
 # AP max clampato a 1 nell'MVP; i talenti (post-MVP) alzano il max o danno azioni
@@ -281,13 +282,14 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
         )
 
         # Il protagonista entra in combattimento con un Combattente effimero (chiave 0).
-        pent, _marker, pscheda = protagonista()
+        # La destrezza è snapshot dal fold (GR2-3): l'iniziativa passa da `stat_eff`.
+        pent, _marker, _pscheda = protagonista()
         _st_ent, stato = stato_combattimento()  # type: ignore[misc]
         chiave_prot = stato.prossima_chiave
         stato.prossima_chiave += 1
         esper.add_component(
             pent,
-            Combattente(destrezza=pscheda.destrezza, chiave_ordine=chiave_prot,
+            Combattente(destrezza=stat_eff(pent, StatId.DESTREZZA), chiave_ordine=chiave_prot,
                         ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
         )
 

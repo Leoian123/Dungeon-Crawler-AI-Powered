@@ -17,8 +17,8 @@ from contracts import (
     Durata,
     EntitaGenerata,
     Flavor,
+    Grado,
     Opzione,
-    Rarita,
     TipoAzione,
     TurnoNarrazione,
 )
@@ -66,9 +66,9 @@ def test_F3_entita_generata_non_ha_livello() -> None:
 
 
 def test_F3_campi_attesi_di_entita_generata() -> None:
-    # Esattamente: archetipo, rarità, blocchi, nome, descrizione (F-1/§2).
+    # Esattamente: archetipo, grado, blocchi, nome, descrizione (F-1/§2).
     assert set(EntitaGenerata.model_fields) == {
-        "archetipo", "rarita", "blocchi", "nome", "descrizione",
+        "archetipo", "grado", "blocchi", "nome", "descrizione",
     }
 
 
@@ -83,7 +83,7 @@ def _enum_chiuso(annotazione: object) -> bool:
 
 def test_F4_campi_meccanici_sono_enum_chiusi() -> None:
     assert _enum_chiuso(EntitaGenerata.model_fields["archetipo"].annotation)
-    assert _enum_chiuso(EntitaGenerata.model_fields["rarita"].annotation)
+    assert _enum_chiuso(EntitaGenerata.model_fields["grado"].annotation)
     assert _enum_chiuso(EntitaGenerata.model_fields["blocchi"].annotation)
     assert _enum_chiuso(Opzione.model_fields["tipo"].annotation)
     assert _enum_chiuso(TurnoNarrazione.model_fields["durata"].annotation)

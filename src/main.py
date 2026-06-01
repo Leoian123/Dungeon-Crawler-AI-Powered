@@ -40,8 +40,9 @@ from contracts import (
     Opzione,
     OpzioneVista,
     PlayerChoseOption,
-    Rarita,
+    Grado,
     SnapshotVista,
+    StatId,
     TipoAzione,
     TurnoNarrazione,
 )
@@ -54,9 +55,11 @@ from motore import (
     ingaggia_combattimento,
     livello_corrente,
     materializza_turno,
+    max_hp,
     proietta_scheda,
     protagonista,
     salva_run,
+    stat_eff,
     tenta_disimpegno,
     tick,
 )
@@ -137,8 +140,9 @@ class SessioneGioco:
     def _agisci_narrazione(self, opzione: OpzioneVista) -> None:
         if opzione.tipo is TipoAzione.SCAPPA:
             # Disimpegno: prova su stat PRIMA di ingaggiare (FNC §5.3, tirata dal motore).
-            _p, _m, scheda = protagonista()
-            if tenta_disimpegno(scheda.destrezza, ClasseProva.BRONZO, self.rng):
+            # La destrezza passa dal fold (GR2-3), non da un campo della scheda.
+            pent, _m, _scheda = protagonista()
+            if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), ClasseProva.BRONZO, self.rng):
                 self._attendi_narrazione()  # fuga riuscita → nuovo turno
                 return
         # Combatti (o disimpegno fallito): si compone l'incontro e si ingaggia a confine.
@@ -171,7 +175,7 @@ class SessioneGioco:
 
     def _descrittori(self) -> tuple[str, ...]:
         pent, _marker, scheda = protagonista()
-        hp = f"HP {scheda.punti_vita}/{scheda.punti_vita_max}"
+        hp = f"HP {scheda.punti_vita}/{max_hp(pent)}"  # massimo DERIVATO (§5)
         return (hp, *proietta_scheda(pent).descrittori)
 
 
@@ -229,7 +233,7 @@ def _turni_scriptati() -> list[TurnoNarrazione]:
             "tra rifiuti e un Rolex digerito.",
             entita=EntitaGenerata(
                 archetipo=Archetipo.SLIME,
-                rarita=Rarita.COMUNE,
+                grado=Grado.BRONZO,
                 blocchi=[Blocco.VELENO],
                 nome="Slime Mangiascarti",
                 descrizione="Verde, acido, vagamente offeso dalla tua presenza.",

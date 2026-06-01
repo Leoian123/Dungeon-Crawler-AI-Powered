@@ -13,7 +13,7 @@ import random
 
 import esper
 
-from contracts import AnomalyTriggered, BusEventi, Rarita, SchedaProiezione
+from contracts import AnomalyTriggered, BusEventi, Grado, SchedaProiezione
 from motore import (
     EntitaMob,
     PROB_ANOMALIA,
@@ -34,7 +34,7 @@ def test_anomalia_e_un_tiro_seeded_riproducibile() -> None:
         a = prepara_contesto(1, random.Random(s))
         b = prepara_contesto(1, random.Random(s))
         assert a.anomala == b.anomala
-        assert a.rarita_ammesse == b.rarita_ammesse
+        assert a.gradi_ammessi == b.gradi_ammessi
 
 
 def test_anomalia_gonfia_il_budget() -> None:
@@ -44,10 +44,10 @@ def test_anomalia_gonfia_il_budget() -> None:
     )
     bud = prepara_contesto(1, random.Random(seed))
     assert bud.anomala is True
-    # Il budget anomalo ammette anche la rarità più alta (LEGGENDARIO), che il normale no.
-    assert Rarita.LEGGENDARIO in bud.rarita_ammesse
+    # Il budget anomalo ammette anche il grado più alto (CELESTIALE), che il normale no.
+    assert Grado.CELESTIALE in bud.gradi_ammessi
     normale = prepara_contesto(1, random.Random(_seed_normale()))
-    assert Rarita.LEGGENDARIO not in normale.rarita_ammesse
+    assert Grado.CELESTIALE not in normale.gradi_ammessi
 
 
 def _seed_normale() -> int:
@@ -65,8 +65,8 @@ def test_reveal_anomalyTriggered_alla_materializzazione(mondo_isolato: str) -> N
     bus.registra(AnomalyTriggered, adapter.on_event)
 
     # Budget anomalo costruito a mano: alla materializzazione esce il reveal.
-    bud = budget(anomala=True, rarita=(Rarita.COMUNE, Rarita.RARO, Rarita.LEGGENDARIO))
-    prov = FakeProvider([turno(rarita=Rarita.LEGGENDARIO)])
+    bud = budget(anomala=True, gradi=(Grado.BRONZO, Grado.ARGENTO, Grado.LEGGENDARIO))
+    prov = FakeProvider([turno(grado=Grado.LEGGENDARIO)])
     res = asyncio.run(procura_turno(prov, bud, _PROIEZIONE))
     assert res.anomala is True
 

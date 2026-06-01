@@ -30,7 +30,8 @@ from .intenti import (
 )
 from .schema import (
     Archetipo,
-    Rarita,
+    Grado,
+    StatId,
     Blocco,
     TipoAzione,
     ClasseProva,
@@ -64,7 +65,8 @@ __all__ = [
     "PlayerDiscende",
     # schema AI↔motore
     "Archetipo",
-    "Rarita",
+    "Grado",
+    "StatId",
     "Blocco",
     "TipoAzione",
     "ClasseProva",
