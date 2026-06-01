@@ -1,13 +1,17 @@
-"""Composition root della v1: cabla il motore (headless) all'adattatore Textual.
+"""Composition root della v1 — **headless**: cabla il motore e lo pilota senza UI.
 
-È l'**unico** punto che importa entrambi i lati della membrana — `adattatore` (Textual) e
-`motore`/`guscio`/`provider`. Non è un layer con membrana: è la *colla*. Il motore resta
-ignaro di Textual (C-2a); l'adattatore resta ignaro del `World` (C-2b); qui si incontrano.
+Il game engine è indipendente dalla presentazione: una UI futura (web, Electron, TUI…)
+si innesterà su questo stesso strato attraverso le **porte** di `SessioneGioco` e gli
+eventi tipizzati del **bus** — tutto espresso sui DTO di `contracts`, mai sul `World`.
+Qui non c'è nessuna dipendenza di presentazione: il motore resta ignaro dell'host (C-2a)
+e nessun layer importa Textual (C-5). Questo modulo è la *colla* + un driver headless di
+riferimento, non un layer con membrana.
 
-`SessioneGioco` è la **porta** verso il motore vista dall'adattatore: produce la
-narrazione (coroutine host-agnostica, per il worker), drena gli intenti del giocatore sul
-turno e ricostruisce lo `SnapshotVista` da renderizzare. Il giocatore gioca un incontro
-completo: narrazione → scelta → combattimento deterministico → ritorno alla narrazione.
+`SessioneGioco` è la **porta** verso il motore vista da un qualunque host: produce la
+narrazione (coroutine host-agnostica, `await`-abile da un worker UI o da `asyncio.run`),
+drena gli intenti del giocatore sul turno e ricostruisce lo `SnapshotVista` da
+renderizzare. Il giocatore gioca un incontro completo: narrazione → scelta →
+combattimento deterministico → ritorno alla narrazione.
 
 Nell'MVP il provider è il **FakeProvider** (offline, scriptato); il backend Anthropic
 reale (fase 5) si innesta dietro la stessa interfaccia `genera`.
@@ -15,17 +19,24 @@ reale (fase 5) si innesta dietro la stessa interfaccia `genera`.
 
 from __future__ import annotations
 
+import asyncio
 import random
 import tempfile
 from pathlib import Path
+from typing import Callable
 
-from adattatore import GiocoApp
 from contracts import (
+    AnomalyTriggered,
     Archetipo,
     Blocco,
+    BusEventi,
     ClasseProva,
+    CombatResolved,
+    DiscesaPiano,
     Durata,
+    EncounterStarted,
     EntitaGenerata,
+    MortePersonaggio,
     Opzione,
     OpzioneVista,
     PlayerChoseOption,
@@ -60,11 +71,11 @@ _MENU_COMBATTIMENTO = (OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzio
 
 
 class SessioneGioco:
-    """La porta motore↔vista per la v1: narrazione async, intenti sul turno, snapshot.
+    """La porta motore↔host per la v1: narrazione async, intenti sul turno, snapshot.
 
     Possiede il run-World (via `Guscio`), il provider e una piccola macchina di modo
     (attesa-narrazione / scelta-narrazione / combattimento). Vive nel composition root:
-    può importare il motore — l'adattatore no.
+    può importare il motore — l'host (UI o driver headless) no, vi parla solo via porte.
     """
 
     def __init__(self, provider, *, directory: Path, seed: int = 0) -> None:
@@ -73,16 +84,16 @@ class SessioneGioco:
         self.guscio = Guscio(directory)
         self.guscio.nuova_partita(uuid="carl", destrezza=10, hp=30, seed=seed)
         self.bus = self.guscio.bus
-        self.coda = self.guscio.coda  # CodaIntenti: i widget vi accodano gli intenti
+        self.coda = self.guscio.coda  # CodaIntenti: l'host vi accoda gli intenti
         self._modo = "attesa_narrazione"
         self._opzioni: tuple[OpzioneVista, ...] = ()
 
-    # --- Porte verso l'adattatore --------------------------------------------
+    # --- Porte verso l'host ---------------------------------------------------
 
     async def prossima_narrazione(self) -> SnapshotVista:
-        """Coroutine host-agnostica (il worker la `await`-a, C-6): prepara il contesto,
-        chiama l'AI (1 `genera`, gate, fallback) e materializza l'entità. Ritorna lo
-        snapshot con prosa + menu di narrazione."""
+        """Coroutine host-agnostica (un worker UI o `asyncio.run` la `await`-a, C-6):
+        prepara il contesto, chiama l'AI (1 `genera`, gate, fallback) e materializza
+        l'entità. Ritorna lo snapshot con prosa + menu di narrazione."""
         pent, _marker, _scheda = protagonista()
         proiezione = proietta_scheda(pent)
         risultato = await esegui_turno_narrazione(
@@ -99,9 +110,9 @@ class SessioneGioco:
         )
 
     def avanza(self) -> SnapshotVista:
-        """Il **turno del motore** per la UI: drena la coda degli intenti (vista→motore,
+        """Il **turno del motore** per l'host: drena la coda degli intenti (host→motore,
         IC §7.1) e li serve nella fase corrente, poi ricostruisce lo snapshot. Gli
-        intenti stanno nella coda tra l'emissione del widget e questo turno (mai nel bus)."""
+        intenti stanno nella coda tra l'emissione dell'host e questo turno (mai nel bus)."""
         for intento in self.coda.preleva_tutti():
             if isinstance(intento, PlayerChoseOption):
                 self._agisci(intento.opzione)
@@ -146,7 +157,7 @@ class SessioneGioco:
 
     def _attendi_narrazione(self) -> None:
         self._modo = "attesa_narrazione"
-        self._opzioni = ()  # menu vuoto ⇒ l'adattatore lancia il worker per il turno
+        self._opzioni = ()  # menu vuoto ⇒ l'host chiede un nuovo turno di narrazione
 
     # --- Costruzione dello snapshot dal World corrente ------------------------
 
@@ -162,6 +173,51 @@ class SessioneGioco:
         pent, _marker, scheda = protagonista()
         hp = f"HP {scheda.punti_vita}/{scheda.punti_vita_max}"
         return (hp, *proietta_scheda(pent).descrittori)
+
+
+# --- Cronaca del bus: eventi di dominio → righe di testo (headless, read-only) ----
+#
+# Lo stesso ruolo "consumatore read-only di eventi" che avrà una Ui (IC §2.3), qui
+# ridotto a testo: l'host headless si sottoscrive al bus e raccoglie ciò che il motore
+# emette. Una UI futura sostituirà questo collettore senza toccare il motore.
+_MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
+    (EncounterStarted, lambda _e: "Lo scontro ha inizio."),
+    (CombatResolved, lambda e: (
+        "Hai vinto lo scontro." if getattr(e, "vittoria", False) else "Lo scontro si chiude."
+    )),
+    (MortePersonaggio, lambda e: f"Sei morto: {getattr(e, 'causa', '')}."),
+    (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
+    (DiscesaPiano, lambda e: f"Scendi: piano {getattr(e, 'piano', '?')}."),
+)
+
+
+class CronacaBus:
+    """Raccoglie gli eventi di dominio dal bus e li rende come righe (host headless)."""
+
+    def __init__(self, bus: BusEventi) -> None:
+        self._bus = bus
+        self._righe: list[str] = []
+        self._coppie: list[tuple[type, Callable[[object], None]]] = []
+        for tipo, formatta in _MAPPA_EVENTI:
+            handler = self._fai_handler(formatta)
+            bus.registra(tipo, handler)
+            self._coppie.append((tipo, handler))
+
+    def _fai_handler(self, formatta: Callable[[object], str]) -> Callable[[object], None]:
+        def handler(evento: object) -> None:
+            self._righe.append(formatta(evento))
+        return handler
+
+    def preleva(self) -> list[str]:
+        """Restituisce e svuota le righe accumulate dall'ultima chiamata."""
+        righe, self._righe = self._righe, []
+        return righe
+
+    def chiudi(self) -> None:
+        """Deregistra gli handler: il bus è process-global, sopravvive all'host."""
+        for tipo, handler in self._coppie:
+            self._bus.deregistra(tipo, handler)
+        self._coppie = []
 
 
 def _turni_scriptati() -> list[TurnoNarrazione]:
@@ -187,22 +243,65 @@ def _turni_scriptati() -> list[TurnoNarrazione]:
     ]
 
 
-def costruisci_app(*, seed: int = 0, directory: Path | None = None) -> GiocoApp:
-    """Cabla provider fake → `SessioneGioco` → `GiocoApp` (iniezione delle porte)."""
+def costruisci_sessione(*, seed: int = 0, directory: Path | None = None) -> SessioneGioco:
+    """Cabla provider fake → `SessioneGioco` (la porta del motore vista dall'host)."""
     directory = directory or Path(tempfile.mkdtemp(prefix="dcc-"))
     provider = FakeProvider([t.model_dump() for t in _turni_scriptati()])
-    sessione = SessioneGioco(provider, directory=directory, seed=seed)
-    return GiocoApp(
-        bus=sessione.bus,
-        prossima_narrazione=sessione.prossima_narrazione,
-        avanza=sessione.avanza,
-        accoda_intento=sessione.coda.accoda,
-        salva=sessione.salva,
-    )
+    return SessioneGioco(provider, directory=directory, seed=seed)
 
 
-def main() -> None:  # pragma: no cover (entry point interattivo)
-    costruisci_app().run()
+def _rendi(snapshot: SnapshotVista, stampa: Callable[[str], None]) -> None:
+    """Rende uno snapshot come testo (sostituito in blocco, C-4)."""
+    if snapshot.prosa:
+        stampa(snapshot.prosa)
+    stato = ", ".join(snapshot.stato) if snapshot.stato else "—"
+    stampa(f"[{snapshot.fase}] {stato}")
+    for opz in snapshot.opzioni:
+        stampa(f"  {opz.indice + 1}. {opz.etichetta}")
+
+
+def _passo(
+    sessione: SessioneGioco, indice: int, cronaca: CronacaBus, stampa: Callable[[str], None]
+) -> SnapshotVista:
+    """Un passo dell'host: accoda un intento tipizzato (host→motore, C-7), avanza il
+    turno, drena la cronaca del bus e rende lo snapshot risultante."""
+    sessione.coda.accoda(PlayerChoseOption(indice))
+    snapshot = sessione.avanza()
+    for riga in cronaca.preleva():
+        stampa(riga)
+    _rendi(snapshot, stampa)
+    return snapshot
+
+
+async def gioca_un_incontro(
+    sessione: SessioneGioco,
+    *,
+    stampa: Callable[[str], None] = print,
+    limite: int = 100,
+) -> SnapshotVista:
+    """Driver headless di riferimento: gioca un incontro completo via le sole porte.
+
+    Narrazione (await della coroutine) → "Combatti" → "Attacca" finché lo scontro non si
+    chiude e si torna alla narrazione. È la prova che il game engine gira end-to-end
+    senza alcuna UI: una presentazione reale farebbe gli stessi passi via i suoi widget.
+    """
+    cronaca = CronacaBus(sessione.bus)
+    try:
+        snapshot = await sessione.prossima_narrazione()
+        _rendi(snapshot, stampa)
+        snapshot = _passo(sessione, 0, cronaca, stampa)  # "Combatti" → ingaggia
+        guardia = 0
+        while snapshot.fase == "combattimento" and guardia < limite:
+            snapshot = _passo(sessione, 0, cronaca, stampa)  # "Attacca"
+            guardia += 1
+        return snapshot
+    finally:
+        cronaca.chiudi()
+
+
+def main() -> None:  # pragma: no cover (entry point)
+    sessione = costruisci_sessione(seed=1)
+    asyncio.run(gioca_un_incontro(sessione))
 
 
 if __name__ == "__main__":  # pragma: no cover

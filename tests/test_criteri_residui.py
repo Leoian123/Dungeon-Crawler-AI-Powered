@@ -64,23 +64,19 @@ def test_G23_blocchi_sono_primitivi_componibili() -> None:
         assert {f.name for f in dataclasses.fields(tipo)} == {"rango", "durata"}
 
 
-# --- C-3: motore e vista importano solo `contracts`, mai l'uno l'altro ---------
+# --- C-3: il motore non importa una vista/adattatore (host-agnostico) -----------
 
-def test_C3_motore_e_adattatore_non_si_importano() -> None:
+def test_C3_motore_non_importa_una_vista() -> None:
     import ast
     from pathlib import Path
 
     src = Path(__file__).resolve().parents[1] / "src"
-    # Il motore non importa l'adattatore…
+    # Il motore resta host-agnostico: niente import di un adattatore di presentazione
+    # (rimosso nel ritorno a headless) né di una libreria di UI.
     for py in (src / "motore").rglob("*.py"):
         for nodo in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
             if isinstance(nodo, ast.ImportFrom) and not nodo.level and nodo.module:
-                assert nodo.module.split(".")[0] != "adattatore", py.name
-    # …e l'adattatore non importa il motore (già in C-2b; qui la simmetria di C-3).
-    for py in (src / "adattatore").rglob("*.py"):
-        for nodo in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
-            if isinstance(nodo, ast.ImportFrom) and not nodo.level and nodo.module:
-                assert nodo.module.split(".")[0] != "motore", py.name
+                assert nodo.module.split(".")[0] not in {"adattatore", "textual"}, py.name
 
 
 # --- H-L2: un crash a metà scrittura non lascia un save inservibile ------------

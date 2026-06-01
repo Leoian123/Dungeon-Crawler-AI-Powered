@@ -3,10 +3,10 @@
 # esper NON è qui: è VENDORIZZATO in vendor/esper/ (pinnato 3.7), non risolto da
 # un indice esterno. Vedi vendor/esper/VENDOR.md.
 #
-# Textual è l'UNICA dipendenza "viva": ogni aggiornamento è un evento deliberato e
-# revisionato (IC §1.3), mai un `pip install -U` silenzioso.
+# Il game engine è HEADLESS: nessuna libreria di UI tra le dipendenze. Una
+# presentazione futura (web, Electron, TUI…) porterà le proprie dipendenze nel
+# proprio strato, fuori dal motore.
 #
 # Il lockfile con la chiusura transitiva pinnata è requirements.lock.
 
 pydantic==2.10.6
-textual==8.2.7

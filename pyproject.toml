@@ -6,10 +6,10 @@ description = "RPG a turni AI-empowered (MVP, fetta verticale)"
 # dall'interprete, non solo dalla libreria).
 requires-python = "==3.12.*"
 # Dipendenze dirette pinnate esatte; la chiusura transitiva sta in requirements.lock.
-# esper NON è qui: è vendorizzato (vendor/esper/).
+# esper NON è qui: è vendorizzato (vendor/esper/). Nessuna libreria di UI: il game
+# engine è headless (una presentazione futura porterà le proprie dipendenze).
 dependencies = [
     "pydantic==2.10.6",
-    "textual==8.2.7",
 ]
 
 [tool.pytest.ini_options]
