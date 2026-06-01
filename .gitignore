@@ -38,3 +38,4 @@ Thumbs.db
 
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/
+docs/
