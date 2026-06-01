@@ -1,0 +1,55 @@
+"""Helper condiviso per l'arnia di combattimento (non è un modulo di test).
+
+Assembla uno scontro headless: protagonista + nemici da `PianoIncontro`, i sistemi
+nei bucket giusti, le transizioni e il ciclo di vita, poi pubblica `EncounterStarted`
+per materializzare. Ritorna (bus, adapter, entità-incontro).
+"""
+
+from __future__ import annotations
+
+import esper
+
+from contracts import BusEventi, CombatResolved, EncounterStarted, MortePersonaggio
+from motore import (
+    Fase,
+    PianoIncontro,
+    SistemaBrucia,
+    SistemaDeathCheck,
+    SistemaRigenerazione,
+    SistemaRinforzi,
+    SistemaTurnoCombattimento,
+    SistemaVeleno,
+    avvia_run,
+    collega_combattimento,
+    collega_transizioni_fase,
+    crea_protagonista,
+)
+from tests.harness import NullAdapter
+
+
+def avvia_scontro(*, nemici, seed: int = 1, hp_prot: int = 10_000, destrezza_prot: int = 10):
+    bus = BusEventi()
+    adapter = NullAdapter()
+    for tipo in (EncounterStarted, CombatResolved, MortePersonaggio):
+        bus.registra(tipo, adapter.on_event)
+
+    crea_protagonista(destrezza=destrezza_prot, punti_vita=hp_prot)
+    enc = esper.create_entity(PianoIncontro(nemici=list(nemici), seed=seed))
+
+    avvia_run(
+        # Ordine dichiarato dentro il bucket: rinforzi (confine di turno) PRIMA del
+        # sistema-turno (G-9).
+        solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(bus)],
+        sempre_attivi=[
+            SistemaVeleno(),
+            SistemaBrucia(),
+            SistemaRigenerazione(),
+            SistemaDeathCheck(bus),
+        ],
+        fase_iniziale=Fase.NARRAZIONE,
+    )
+    collega_transizioni_fase(bus)
+    collega_combattimento(bus)
+
+    bus.pubblica(EncounterStarted(entita=enc))  # flip a COMBATTIMENTO + materializza
+    return bus, adapter, enc

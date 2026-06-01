@@ -1,0 +1,40 @@
+# Bytecode / cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Ambienti virtuali
+.venv/
+venv/
+env/
+
+# Packaging / build
+build/
+dist/
+*.egg-info/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Artefatti di runtime del gioco (save in chiaro + sidecar compressi + temp atomici +
+# backup di recovery): sono stato di gioco locale, MAI da versionare. I test scrivono
+# in tmp, ma questa è la rete di sicurezza contro un save che finisce nel repo.
+*.stato.json
+*.archivio.gz
+*.bak.stato.json
+*.bak.archivio.gz
+*.tmp
+
+# esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
+!vendor/

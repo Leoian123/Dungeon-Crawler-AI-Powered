@@ -1,0 +1,16 @@
+# Fine-riga normalizzati: nel repository SEMPRE LF, anche su Windows. Evita il churn
+# CRLF↔LF (diff "tutto il file cambiato") fra macchine diverse.
+* text=auto eol=lf
+
+# Script che DEVONO restare LF anche nella working copy.
+*.py   text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+*.txt  text eol=lf
+*.lock text eol=lf
+
+# Binari noti: nessuna conversione di fine-riga.
+*.gz  binary
+*.png binary
+*.jpg binary
+*.ico binary

@@ -1,0 +1,20 @@
+[project]
+name = "dcc-rpg"
+version = "0.0.0"
+description = "RPG a turni AI-empowered (MVP, fetta verticale)"
+# Python PINNATO alla 3.12 (ESP §0: la riproducibilità del build dipende anche
+# dall'interprete, non solo dalla libreria).
+requires-python = "==3.12.*"
+# Dipendenze dirette pinnate esatte; la chiusura transitiva sta in requirements.lock.
+# esper NON è qui: è vendorizzato (vendor/esper/).
+dependencies = [
+    "pydantic==2.10.6",
+    "textual==8.2.7",
+]
+
+[tool.pytest.ini_options]
+# La membrana e i layer sono package top-level sotto src/; esper è vendorizzato
+# sotto vendor/; le utilità di test (arnia) sotto la root come package `tests`.
+pythonpath = [".", "src", "vendor"]
+testpaths = ["tests"]
+addopts = "-q"

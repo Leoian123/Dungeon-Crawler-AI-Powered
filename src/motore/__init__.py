@@ -1,0 +1,283 @@
+"""motore — logica di gioco (ECS su esper, Processor, phase-gate, coda intenti).
+
+NON importa MAI Textual (criterio C-2a). Parla con la vista solo via `contracts`.
+
+Questa fase fissa le **fondamenta del ciclo di gioco** (FNC §6):
+  - `FaseCorrente` — fase come componente-singleton nel World (fase.py);
+  - `PhasedProcessor` + i tre bucket — phase-gate strutturale (phased.py);
+  - `CodaIntenti` + `DrenaggioIntenti` — coda intenti drenata dal turno (intenti_coda.py);
+  - `avvia_run` / `tick` / `collega_transizioni_fase` — assemblaggio e avanzamento (run.py).
+
+Nessuna logica di gioco vera (sistemi di combattimento, status, generazione): arriva
+dopo. Qui c'è lo scheletro deterministico su cui si agganciano.
+"""
+
+from .fase import Fase, FaseCorrente, crea_entita_fase, imposta_fase, leggi_fase
+from .phased import (
+    PhasedProcessor,
+    SistemaSempreAttivo,
+    SistemaSoloNarrazione,
+    SistemaSoloCombattimento,
+)
+from .intenti_coda import CodaIntenti, DrenaggioIntenti, MessaggioIntento
+from .run import (
+    PRIORITA_DRENAGGIO_INTENTI,
+    BANDA_SOLO_COMBATTIMENTO,
+    BANDA_SOLO_NARRAZIONE,
+    BANDA_SEMPRE_ATTIVO,
+    DT_TURNO,
+    avvia_run,
+    tick,
+    collega_transizioni_fase,
+)
+from .scheda import Protagonista, Scheda, crea_protagonista, protagonista
+from .turno import TurnoAttivo, entita_attiva, segna_turno_attivo, azzera_turno_attivo
+from .status import (
+    Status,
+    Veleno,
+    Brucia,
+    Rigenerazione,
+    Stordito,
+    applica_status,
+    SistemaVeleno,
+    SistemaBrucia,
+    SistemaRigenerazione,
+    SistemaStordito,
+)
+from .combattimento import (
+    AP_MAX_MVP,
+    DANNO_BASE,
+    Nemico,
+    PuntiVita,
+    Combattente,
+    SpecNemico,
+    PianoIncontro,
+    StatoCombattimento,
+    calcola_iniziativa,
+    decidi_azione_nemico,
+    stato_combattimento,
+    infliggi_danno,
+    spawn_nemico,
+    SistemaTurnoCombattimento,
+    SistemaDeathCheck,
+    collega_combattimento,
+)
+from .mutazione import OndataRinforzi, PianoRinforzi, SistemaRinforzi
+from .catalogo import (
+    REGISTRY_BLOCCHI,
+    REGISTRY_ARCHETIPI,
+    PROB_ANOMALIA,
+    ARCHETIPO_DEFAULT,
+    DURATA_BLOCCO_DEFAULT,
+    ProfiloArchetipo,
+    Statistiche,
+    Budget,
+    rango_rarita,
+    deriva_statistiche,
+    prepara_contesto,
+    soglia_classe,
+    ancore_classe,
+)
+from .prove import Prova, risolvi_prova
+from .piano import (
+    LIVELLO_INIZIALE,
+    ProfonditaPiano,
+    TempoPiano,
+    Piano,
+    crea_profondita,
+    crea_tempo_piano,
+    livello_corrente,
+    attiva_discesa,
+    SistemaDiscesa,
+    raggiungibili,
+    piano_completabile,
+    valida_piano,
+)
+from .seme import SemeRun, crea_seme, master_seed
+from .narrazione import (
+    RETRY_NARRAZIONE,
+    RETRY_PROSA,
+    MENU_FISSO,
+    PROSA_NEUTRA,
+    EntitaMob,
+    RisultatoTurno,
+    proietta_scheda,
+    costruisci_prompt,
+    valida_turno,
+    fallback_turno,
+    genera_prosa,
+    procura_turno,
+    esegui_turno_narrazione,
+    istanzia_entita,
+    materializza_turno,
+    tenta_disimpegno,
+    ingaggia_combattimento,
+)
+from . import persistenza
+from .persistenza import (
+    SCHEMA_VERSION,
+    MODEL_ID_DEFAULT,
+    NOME_RUN,
+    NOME_DEFAULT,
+    Archivio,
+    Stato,
+    CaricamentoFallito,
+    VoceIndice,
+    StatoCorrotto,
+    VersioneIncompatibile,
+    serializza_stato,
+    applica_stato,
+    salva_run,
+    carica_da_disco,
+    carica_archivio,
+    invalida,
+    indice_crawler,
+    entra_run_nuova,
+    carica_crawler,
+    teardown_run,
+    parcheggia_default,
+)
+
+__all__ = [
+    # fase
+    "Fase",
+    "FaseCorrente",
+    "crea_entita_fase",
+    "leggi_fase",
+    "imposta_fase",
+    # phase-gate
+    "PhasedProcessor",
+    "SistemaSempreAttivo",
+    "SistemaSoloNarrazione",
+    "SistemaSoloCombattimento",
+    # coda intenti
+    "CodaIntenti",
+    "DrenaggioIntenti",
+    "MessaggioIntento",
+    # assemblaggio
+    "PRIORITA_DRENAGGIO_INTENTI",
+    "BANDA_SOLO_COMBATTIMENTO",
+    "BANDA_SOLO_NARRAZIONE",
+    "BANDA_SEMPRE_ATTIVO",
+    "DT_TURNO",
+    "avvia_run",
+    "tick",
+    "collega_transizioni_fase",
+    # scheda protagonista
+    "Protagonista",
+    "Scheda",
+    "crea_protagonista",
+    "protagonista",
+    # segnale di turno
+    "TurnoAttivo",
+    "entita_attiva",
+    "segna_turno_attivo",
+    "azzera_turno_attivo",
+    # status
+    "Status",
+    "Veleno",
+    "Brucia",
+    "Rigenerazione",
+    "Stordito",
+    "applica_status",
+    "SistemaVeleno",
+    "SistemaBrucia",
+    "SistemaRigenerazione",
+    "SistemaStordito",
+    # combattimento
+    "AP_MAX_MVP",
+    "DANNO_BASE",
+    "Nemico",
+    "PuntiVita",
+    "Combattente",
+    "SpecNemico",
+    "PianoIncontro",
+    "StatoCombattimento",
+    "calcola_iniziativa",
+    "decidi_azione_nemico",
+    "stato_combattimento",
+    "infliggi_danno",
+    "spawn_nemico",
+    "SistemaTurnoCombattimento",
+    "SistemaDeathCheck",
+    "collega_combattimento",
+    # mutazione intra-fase
+    "OndataRinforzi",
+    "PianoRinforzi",
+    "SistemaRinforzi",
+    # catalogo (faccia-motore: registry, formula, budget, ranghi, classi)
+    "REGISTRY_BLOCCHI",
+    "REGISTRY_ARCHETIPI",
+    "PROB_ANOMALIA",
+    "ARCHETIPO_DEFAULT",
+    "DURATA_BLOCCO_DEFAULT",
+    "ProfiloArchetipo",
+    "Statistiche",
+    "Budget",
+    "rango_rarita",
+    "deriva_statistiche",
+    "prepara_contesto",
+    "soglia_classe",
+    "ancore_classe",
+    # prove di abilità
+    "Prova",
+    "risolvi_prova",
+    # livello / piano / discesa
+    "LIVELLO_INIZIALE",
+    "ProfonditaPiano",
+    "TempoPiano",
+    "Piano",
+    "crea_profondita",
+    "crea_tempo_piano",
+    "livello_corrente",
+    "attiva_discesa",
+    "SistemaDiscesa",
+    "raggiungibili",
+    "piano_completabile",
+    "valida_piano",
+    # master seed della run (persistenza H)
+    "SemeRun",
+    "crea_seme",
+    "master_seed",
+    # narrazione (socket, gate, fallback, materializzazione)
+    "RETRY_NARRAZIONE",
+    "RETRY_PROSA",
+    "MENU_FISSO",
+    "PROSA_NEUTRA",
+    "EntitaMob",
+    "RisultatoTurno",
+    "proietta_scheda",
+    "costruisci_prompt",
+    "valida_turno",
+    "fallback_turno",
+    "genera_prosa",
+    "procura_turno",
+    "esegui_turno_narrazione",
+    "istanzia_entita",
+    "materializza_turno",
+    "tenta_disimpegno",
+    "ingaggia_combattimento",
+    # persistenza (nodo H): UNICA autorità su current_world (ESP §0.1)
+    "persistenza",
+    "SCHEMA_VERSION",
+    "MODEL_ID_DEFAULT",
+    "NOME_RUN",
+    "NOME_DEFAULT",
+    "Archivio",
+    "Stato",
+    "CaricamentoFallito",
+    "VoceIndice",
+    "StatoCorrotto",
+    "VersioneIncompatibile",
+    "serializza_stato",
+    "applica_stato",
+    "salva_run",
+    "carica_da_disco",
+    "carica_archivio",
+    "invalida",
+    "indice_crawler",
+    "entra_run_nuova",
+    "carica_crawler",
+    "teardown_run",
+    "parcheggia_default",
+]

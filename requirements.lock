@@ -1,0 +1,18 @@
+# LOCKFILE — chiusura transitiva pinnata esatta. Nessun range aperto (C-1).
+# Python pinnato: 3.12 (vedi .python-version).
+# esper escluso di proposito: vendorizzato in vendor/esper/ (3.7), non da indice.
+#
+# Pydantic: chiusura transitiva reale, verificata sull'interprete 3.12 del repo.
+pydantic==2.10.6
+pydantic_core==2.27.2
+annotated-types==0.7.0
+typing_extensions==4.12.2
+
+# Textual: PLACEHOLDER di fase. Il pin diretto è esatto (textual==8.2.7), ma la sua
+# chiusura transitiva (Rich, ecc.) NON è ancora congelata qui perché Textual non è
+# provisionato in questa fase (solo fondamenta + arnia headless, niente UI).
+# Quando si introduce la UI: provisionare textual==8.2.7 e rigenerare la chiusura
+# transitiva con pip-compile/pip freeze --all, sostituendo questo blocco. È un
+# evento deliberato e revisionato (IC §1.3), non un aggiornamento silenzioso.
+textual==8.2.7
+# transitive di textual: DA CONGELARE alla provisione (rich==..., markdown-it-py==..., ...)
