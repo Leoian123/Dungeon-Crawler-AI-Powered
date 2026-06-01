@@ -41,6 +41,7 @@ from .schema import (
     Flavor,
 )
 from .proiezione import SchedaProiezione
+from .vista import OpzioneVista, SnapshotVista
 from .provider import Provider, TCandidato
 
 __all__ = [
@@ -74,6 +75,9 @@ __all__ = [
     "Flavor",
     # proiezione scheda (sola lettura)
     "SchedaProiezione",
+    # snapshot di rendering per la vista
+    "OpzioneVista",
+    "SnapshotVista",
     # provider
     "Provider",
     "TCandidato",

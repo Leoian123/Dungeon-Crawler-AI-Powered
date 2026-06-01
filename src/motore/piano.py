@@ -60,6 +60,15 @@ def crea_tempo_piano(tick: int = 0) -> int:
     return esper.create_entity(TempoPiano(tick))
 
 
+def tempo_piano_corrente() -> int:
+    """Legge il contatore di tempo-piano (J §10). È stato del World serializzato in H;
+    J ne possiede la semantica (avanza in entrambe le fasi, nessun cap in 1.0)."""
+    trovati = esper.get_component(TempoPiano)
+    if len(trovati) != 1:
+        raise RuntimeError(f"TempoPiano deve essere un singleton: trovati {len(trovati)}")
+    return trovati[0][1].tick
+
+
 def _singleton() -> ProfonditaPiano:
     trovati = esper.get_component(ProfonditaPiano)
     if len(trovati) != 1:

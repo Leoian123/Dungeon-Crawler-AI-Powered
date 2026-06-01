@@ -52,6 +52,23 @@ def leggi_fase() -> Fase:
     return trovati[0][1].fase
 
 
+def in_combattimento() -> bool:
+    """Query di fase per l'**orchestrazione** (NON un gate di Processor).
+
+    I gate dei sistemi sono strutturali in `PhasedProcessor` (phased.py): `leggi_fase`
+    serve solo lì. Questa è una *lettura di stato* di alto livello per decidere la
+    **disponibilità di un comando del giocatore** — es. i predicati safe di J §5/§6, che
+    si auto-disabilitano in combattimento (J-13). Vive qui, in fase.py, così non si
+    sparpagliano letture-di-fase a mano nei moduli (resta una sola fonte)."""
+    return leggi_fase() is Fase.COMBATTIMENTO
+
+
+def in_narrazione() -> bool:
+    """Vero se la fase corrente è NARRAZIONE. Query di fase per l'orchestrazione,
+    gemella di `in_combattimento` (le due fasi sono mutuamente esclusive, FNC §3)."""
+    return leggi_fase() is Fase.NARRAZIONE
+
+
 def imposta_fase(fase: Fase) -> None:
     """Cambia la fase corrente (proprietà delle sole transizioni FNC §4).
 

@@ -43,6 +43,7 @@ from motore import (
     SistemaRigenerazione,
     SistemaRinforzi,
     SistemaStordito,
+    SistemaTempoPiano,
     SistemaTurnoCombattimento,
     SistemaVeleno,
     avvia_run,
@@ -120,6 +121,7 @@ class Guscio:
                 SistemaRigenerazione(),
                 SistemaStordito(),
                 SistemaDeathCheck(self.bus),
+                SistemaTempoPiano(),  # contatore di tempo-piano, avanza al tick condiviso (J-14)
             ],
             solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(self.bus)],
             solo_narrazione=[SistemaDiscesa(self.bus)],

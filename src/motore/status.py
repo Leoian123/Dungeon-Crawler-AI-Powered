@@ -61,6 +61,18 @@ class Stordito(Status):
     """
 
 
+@dataclass
+class Confusione(Status):
+    """Status **unsafe** (risoluzione = AI): il suo tick *richiede l'LLM* perché altera
+    *come* agisci (J §7). Esiste qui come placeholder dell'**asse safe/unsafe**: i flag
+    di tipo (`valenza=DANNOSO`, `risoluzione=AI`) vivono nel catalogo (J-9).
+
+    La sua risoluzione AI-driven è **post-MVP**: nell'MVP nessun meccanismo lo applica
+    in gioco e non ha un avanzamento deterministico (è AI-risolto). Serve a far esistere
+    la categoria che blocca downtime *e* passa-turno (§5/§6).
+    """
+
+
 # --- Applicazione: competizione per rango (G-7) -------------------------------
 
 def applica_status(entita: int, status: Status) -> None:
@@ -127,3 +139,7 @@ class SistemaRigenerazione(_SistemaStatusBase):
 
 class SistemaStordito(_SistemaStatusBase):
     tipo_status = Stordito
+
+
+# NB: `Confusione` (unsafe, AI-risolto) NON ha un sistema-tick deterministico nell'MVP:
+# la sua risoluzione richiede l'LLM (post-MVP, §7). Esiste solo come asse safe/unsafe.

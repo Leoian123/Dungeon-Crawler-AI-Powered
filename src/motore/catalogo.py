@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
+from enum import Enum
 
-from contracts import Archetipo, Blocco, ClasseProva, Rarita
+from contracts import Archetipo, Blocco, ClasseProva, Durata, Rarita
 
-from .status import Rigenerazione, Status, Stordito, Veleno
+from .status import Brucia, Confusione, Rigenerazione, Status, Stordito, Veleno
 
 # --- Registry: nome → componente / profilo (F §3 faccia-motore, F-6) ----------
 
@@ -190,3 +191,93 @@ def soglia_classe(classe: ClasseProva) -> int:
 def ancore_classe(classe: ClasseProva) -> tuple[str, ...]:
     """Le ancore testuali di una classe (per il costruttore del prompt, G §7.4)."""
     return ANCORE_CLASSE[classe]
+
+
+# --- Mappa `Durata → carico-tick` + gate (J §3.2/§3.3, §3.5; F-14, J-1/J-3) ----
+# La `Durata` è solo vocabolario in `contracts`; QUI vive la sua traduzione in tick.
+# Monotòna non-decrescente rispetto a `Durata.ordine` (`TURNO` = minimo = cadenza base,
+# §3.1). Valori SEGNAPOSTO Gruppo 2; le etichette diegetiche ("≈ 6 s") si calibrano
+# dopo la cadenza (per-stanza, §4) e non sono cablate qui.
+_CARICO_TICK: dict[Durata, int] = {
+    Durata.TURNO: 1,        # cadenza base: un passo
+    Durata.UN_ATTIMO: 2,
+    Durata.UN_POCHINO: 4,
+    Durata.UN_BEL_PO: 8,
+}
+
+
+def carico_tick(durata: Durata) -> int:
+    """Quanti tick di cadenza comprime una `Durata` (formula del motore, J §3.2)."""
+    return _CARICO_TICK[durata]
+
+
+def gate_durata(durata: Durata) -> int:
+    """Gate `durata → carico-tick`, MAI `durata → tick diretto` (J §3.5, J-3).
+
+    Nell'MVP è **identità** (ci si fida dell'enum chiuso, nessun tetto): più tick = più
+    esposizione, non meno → niente exploit senza cap (§3.5). Il punto d'innesto esiste
+    per il clamp della fase di crollo (§11), post-1.0. È QUI che passa ogni durata: i
+    meccanismi di scorrimento chiamano `gate_durata`, non `carico_tick` diretto.
+    """
+    return carico_tick(durata)
+
+
+# --- Asse safe/unsafe degli status: flag di TIPO nel catalogo (J §7, J-9) ------
+# Due proprietà ortogonali del *tipo*-status (non del componente vivo): alimentano i
+# predicati di downtime/passa-turno (§5/§6). Di sola lettura, non toccano lo stacking.
+
+class Valenza(str, Enum):
+    """Il *segno* dello status — flag ESPLICITO, **non** derivato da `delta < 0` (uno
+    `Stordito`/`Confusione` senza delta-HP è comunque `DANNOSO`, J-9)."""
+
+    BENEFICO = "benefico"
+    DANNOSO = "dannoso"
+    NEUTRO = "neutro"
+
+
+class Risoluzione(str, Enum):
+    """*Come* si risolve il tick. `AI` ⟺ **unsafe** (richiede l'LLM: berserk,
+    confusione). `MOTORE` = deterministico, zero LLM (veleno, brucia, rigenerazione)."""
+
+    MOTORE = "motore"
+    AI = "ai"  # = unsafe
+
+
+# `tipo-status → (valenza, risoluzione)`. Valori (quali status sono DANNOSO/AI) = forma
+# qui, calibrazione Gruppo 2. Vivono sul TIPO nel catalogo, MAI sul componente (J-9).
+FLAG_STATUS: dict[type[Status], tuple[Valenza, Risoluzione]] = {
+    Veleno: (Valenza.DANNOSO, Risoluzione.MOTORE),
+    Brucia: (Valenza.DANNOSO, Risoluzione.MOTORE),
+    Rigenerazione: (Valenza.BENEFICO, Risoluzione.MOTORE),
+    Stordito: (Valenza.DANNOSO, Risoluzione.MOTORE),      # dannoso pur senza delta-HP
+    Confusione: (Valenza.DANNOSO, Risoluzione.AI),        # unsafe
+}
+
+
+def tipi_status_noti() -> frozenset[type[Status]]:
+    """I tipi-status con flag noti nel catalogo."""
+    return frozenset(FLAG_STATUS)
+
+
+def valenza_di(tipo_status: type[Status]) -> Valenza:
+    return FLAG_STATUS[tipo_status][0]
+
+
+def risoluzione_di(tipo_status: type[Status]) -> Risoluzione:
+    return FLAG_STATUS[tipo_status][1]
+
+
+def e_unsafe(tipo_status: type[Status]) -> bool:
+    """Vero se lo status è `AI`-risolto (unsafe): blocca anche il passa-turno (§6/§7)."""
+    return risoluzione_di(tipo_status) is Risoluzione.AI
+
+
+def e_dannoso(tipo_status: type[Status]) -> bool:
+    """Vero se lo status è `DANNOSO`: blocca il downtime (§5/§7)."""
+    return valenza_di(tipo_status) is Valenza.DANNOSO
+
+
+# --- Dado-evento: probabilità d'imboscata per tick di scorrimento (J §8) -------
+# La *forma* (un tiro seeded a ogni tick) è qui; la *tabella per contesto* (riposo/skip/
+# zona pericolosa) con probabilità e voci è Gruppo 2. SEGNAPOSTO unico per l'MVP.
+PROB_IMBOSCATA = 0.3
