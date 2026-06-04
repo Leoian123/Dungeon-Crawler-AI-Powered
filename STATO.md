@@ -7,7 +7,7 @@
 > ed è **versionato** (a differenza di `docs/`, che è in `.gitignore`).
 >
 > **Aggiornalo** quando: chiudi una fase, crei/fondi un branch, o prendi una decisione che
-> diverge da `docs/`. Ultima revisione: **2026-06-01**.
+> diverge da `docs/`. Ultima revisione: **2026-06-04**.
 
 ---
 
@@ -54,9 +54,18 @@ headless e seeded). Le fasi 0–10 del piano (`docs/I-piano-build-claude-code.md
 - **`guscio/`** — macchina-guscio (nodo E), tre terminali, confine `switch_world` guscio↔run.
 - **`src/main.py`** — composition root **headless**: cabla il motore e lo pilota con un **driver di riferimento** (`gioca_un_incontro`) via le sole porte + eventi di bus. Nessuna dipendenza di presentazione.
 
-**Verifica:** **274 test verdi + 2 skip** (i 2 skip = integrazione live Anthropic, saltata senza `ANTHROPIC_API_KEY`). "Giocabile capo-a-fine" dimostrato headless con provider deterministico.
+**Gruppo 2 — economia (FORMA fatta).** Sopra il pre-MVP sono atterrate le fasi **2a + 2b + layer
+tipi di danno** (`docs/gruppo 2/`): modello-stat a vettore `Primarie` + fold `stat_eff` con
+finalizzazione per-stat da registry; `Azione`/`Effetto`/`Danno` (atomo spezzato, interno al
+motore); risolutore di combattimento **a due check** (danno deterministico + colpire
+stocastico-ma-seeded a banda/graze); `ActionPoint` posseduto; nemici e mob di narrazione con
+`Primarie` (una sola strada-stat, §16.4); escalation a contatore (`SistemaCrollo`); `TipoDanno` +
+resistenze tipate (`ResistenzaMod`). **Tutti i numeri §11 in `motore/calibrazione.py`** (placeholder
+marcati). Restano **solo i numeri** da calibrare (la *forma* è completa).
 
-**Fuori scope per scelta (non ancora fatto):** i numeri d'economia (**Gruppo 2**), il **replay completo**, e le feature **post-MVP** dichiarate (vedi §4).
+**Verifica:** **340 test verdi + 2 skip** (i 2 skip = integrazione live Anthropic, saltata senza `ANTHROPIC_API_KEY`). "Giocabile capo-a-fine" dimostrato headless con provider deterministico.
+
+**Fuori scope per scelta (non ancora fatto):** i **numeri** d'economia (Gruppo 2 §11, da calibrare), il **tick degli status** (`applica_effetto` ancora no-op), il **replay completo**, e le feature **post-MVP** dichiarate (vedi §4).
 
 ---
 
@@ -90,10 +99,14 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual . ◀── headl
 ## 4. Base per continuare oltre il pre-MVP
 
 ### 4.1 Da fare per *chiudere* l'MVP (resta dentro lo scope dichiarato)
-- **Gruppo 2 — economia (numeri).** Formule di combattimento, tabelle di budget/anomalie,
-  numeri degli status, soglie delle classi di prova, mappa `Durata → carico-tick`. Oggi
-  sono **placeholder non bloccanti**: la *forma* c'è, i *valori* no. Vincolo da rispettare:
-  l'AI non emette numeri — il motore li deriva (gate catalogo+budget).
+- **Gruppo 2 — economia: i NUMERI.** La *forma* (2a+2b+tipi) è atterrata (vedi §2); restano i
+  **valori §11**, centralizzati e marcati in `motore/calibrazione.py`: costanti del check 1
+  (`s`, `F`, `δ`, `g`, `MIN_COLPO`), curva HP/TTK, soglia escalation, cap-resistenze, basi-archetipo,
+  + tabelle di budget/anomalie, numeri degli status, soglie classi di prova, `Durata → carico-tick`.
+  Vincolo: l'AI non emette numeri — il motore li deriva (gate catalogo+budget). I due **property-test**
+  del check 1 (`tests/test_calibrazione_check1.py`) sono la rete che li vincola.
+- **Tick degli status** (`status.applica_effetto` oggi no-op): un solo `SistemaStatus` generico
+  guidato dalla lista di `Effetto` (Gr2 §16.1), ora che l'atomo `Azione`/`Effetto` esiste.
 - **Calibrazione del gate del nodo A** (G-L1 "ogni scontro termina", G-L2 "ogni piano
   completabile") con i numeri reali del Gruppo 2, non solo con gli stub.
 
@@ -122,18 +135,21 @@ headless usa oggi. Quando si sceglierà, **aggiornare i docs del nodo C** (vedi 
 Quando si deciderà di consolidare, questi sono i punti dove la documentazione normativa va
 ritoccata per rispecchiare la realtà del branch headless:
 
-- [ ] **IC / nodo C** — il rendering non è più "Textual": riscrivere come "host pluggabile
-      via `contracts`; UI da decidere". Conservare la parte sulla membrana (resta valida).
-- [ ] **`progetto-indice-decisioni.md`** — invariante *«unica dipendenza viva (Textual)»*:
-      aggiornare a *«nessuna dipendenza di UI nel motore; Pydantic unica viva, esper
-      vendorizzato»*. Invariante *«l'adattatore non importa il World»*: riformulare come
-      *«il motore è pilotabile solo via contracts/porte»*.
-- [ ] **`CLAUDE.md`** — togliere "Textual pinnato (unica dipendenza viva)" dalla disciplina
-      delle dipendenze; aggiornare l'architettura a tre strati (l'`adattatore/` non esiste
-      più su questo branch).
+- [x] **IC / nodo C** — *(banner di divergenza in cima, 2026-06-04)*: il rendering non è più
+      "Textual" sul branch headless → la sezione "Decisione C" è **superata**; aggiunto un
+      rimando a questo file (§1 tabella valido/superato). La parte sulla **membrana** resta valida
+      (non riscritta).
+- [x] **`progetto-indice-decisioni.md`** — *(banner + reword invarianti, 2026-06-04)*: «unica
+      dipendenza viva (Textual)» → «nessuna dipendenza di UI nel motore; Pydantic unica viva, esper
+      vendorizzato»; «l'adattatore non importa il World» → «il motore è pilotabile solo via
+      contracts/porte»; nodo C marcato 🔄 riaperto.
+- [x] **`CLAUDE.md`** — *(2026-06-04)*: tolta "Textual pinnato (unica dipendenza viva)";
+      architettura a tre strati aggiornata (l'`adattatore/` non esiste più su questo branch);
+      tolto il punto "Worker API di Textual" da "verifica, non ricordare".
 - [ ] **Branch** — decidere il destino di `v1-textual-implementation` (tenere come archivio
       o cancellare) e **portare avanti `main`**: quando il branch headless è accettato,
-      fonderlo in `main` (fast-forward possibile: `main` è 0 commit avanti).
+      fonderlo in `main` (fast-forward possibile: `main` è 0 commit avanti). *(Lasciato all'utente:
+      i commit 2b+pulizia sono su `headless-game-engine`, `main` non è stato toccato.)*
 
 ---
 

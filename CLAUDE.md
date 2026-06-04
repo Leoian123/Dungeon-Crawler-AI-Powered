@@ -13,23 +13,26 @@ G combattimento-forma-run · H persistenza-salvataggio · J tempo-modello-scansi
 progetto-indice-decisioni = cruscotto + invarianti trasversali.
 
 ## Architettura a tre strati (membrana a tenuta sui due lati)
-- `motore/`     logica di gioco. NON importa MAI Textual.
+> **Branch `headless-game-engine`:** Textual e `src/adattatore/` sono stati **rimossi**; il
+> motore è **headless e host-agnostico**. La scelta della UI è riaperta (vedi `STATO.md §1/§5`).
+- `motore/`     logica di gioco. NON importa MAI una UI (né Textual né altro).
 - `contracts/`  DTO/eventi/intenti/schema Pydantic + interfaccia provider. ZERO
                 dipendenze di progetto (solo stdlib + Pydantic). Non importa esper,
-                Textual, provider.
-- `adattatore/` UNICO modulo che importa Textual. Importa SOLO contracts + Textual,
-                MAI esper/World/Processor.
-Motore e vista si parlano solo via `contracts`, mai a vicenda. (C-2a, C-2b, C-3)
+                UI, provider.
+- *(adattatore di presentazione)* — **non esiste** su questo branch. La presentazione futura
+                (web/Electron/TUI, da decidere) vivrà *fuori* dal motore e importerà SOLO
+                `contracts`, MAI esper/World/Processor.
+Il motore è pilotabile **solo via `contracts`/porte**; motore e vista non si importano mai a
+vicenda. (C-2a, C-2b, C-3)
 
 ## Disciplina delle dipendenze
 - Python pinnato (es. 3.12). esper VENDORIZZATO nel repo, pinnato 3.x, SOLO API a
-  livello di modulo (`esper.World()` VIETATO). Textual pinnato esatto + lockfile
-  (unica dipendenza "viva"). Pydantic pinnato. Nessun `pip install -U` silenzioso.
+  livello di modulo (`esper.World()` VIETATO). **Pydantic pinnato = unica dipendenza "viva"**
+  (nessuna dipendenza di UI nel motore). Nessun `pip install -U` silenzioso.
 
-## Verifica, non ricordare (l'agente sbaglia a memoria su queste tre)
+## Verifica, non ricordare (l'agente sbaglia a memoria su queste due)
 - API esper 3.x (modulo, non `World()`) — verifica sul codice vendorizzato.
 - Output strutturato nativo Anthropic — verifica sulla doc API attuale.
-- Worker API di Textual (`@work`/`run_worker`/`exclusive`/`group`/`cancel`) — doc attuale.
 
 ## Workflow di ogni task
 1. Leggi i documenti citati nel prompt della fase.
