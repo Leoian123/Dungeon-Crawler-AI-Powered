@@ -28,8 +28,10 @@ from .statistiche import stat_eff
 
 
 def max_hp(entita: int) -> int:
-    """Massimo HP derivato da Costituzione (risorsa-pool, §5): `HP_BASE + K_HP·Cost`."""
-    return cal.HP_BASE + cal.K_HP * stat_eff(entita, StatId.COSTITUZIONE)
+    """Massimo HP derivato da Costituzione (risorsa-pool, §5): `HP_BASE + K_HP·Cost`.
+
+    `round(...) → int`: l'HP è un intero anche con `K_HP` frazionario (leva di calibrazione)."""
+    return round(cal.HP_BASE + cal.K_HP * stat_eff(entita, StatId.COSTITUZIONE))
 
 
 def attacco(entita: int) -> int:
