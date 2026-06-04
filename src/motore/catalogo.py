@@ -61,6 +61,7 @@ PRIMARIE_BASE_CARL: dict[StatId, int] = {
     StatId.FORZA: 10,
     StatId.DESTREZZA: 10,
     StatId.COSTITUZIONE: 30,
+    StatId.INTELLIGENZA: 10,   # [§11] accuratezza magica (Gruppo 2 §5.4)
     StatId.SAGGEZZA: 8,
     StatId.FORTUNA: 5,
 }
@@ -79,31 +80,11 @@ def rango_grado(grado: Grado) -> int:
     return RANGO_GRADO[grado]
 
 
-# --- Formula-madre: (archetipo, grado, livello) → statistiche (FNC §5.5) -------
-
-@dataclass(frozen=True)
-class Statistiche:
-    """Statistiche DERIVATE dal motore (mai emesse dall'AI). SEGNAPOSTO Gruppo 2."""
-
-    destrezza: int
-    punti_vita: int
-    danno: int
-
-
-def deriva_statistiche(archetipo: Archetipo, grado: Grado, livello: int) -> Statistiche:
-    """La formula-madre (SEGNAPOSTO Gruppo 2): quanto picchia un mob è funzione di
-    grado e livello, NON una scelta dell'AI (FNC §5.5).
-
-    Forma: profilo-base scalato da un fattore-grado e dalla profondità del piano. I
-    *numeri* sono placeholder; la *struttura* (deriva, non legge dall'AI) è completa.
-    """
-    profilo = REGISTRY_ARCHETIPI[archetipo]
-    fattore = rango_grado(grado) * max(1, livello)
-    return Statistiche(
-        destrezza=profilo.destrezza_base + rango_grado(grado),
-        punti_vita=profilo.pv_base * fattore,
-        danno=profilo.danno_base * fattore,
-    )
+# --- Formula-madre: (archetipo, grado, livello) → primarie (FNC §5.5) ----------
+# La formula vive in `calibrazione.primarie_da_archetipo` (mappa `REGISTRY_ARCHETIPI` → vettore
+# `Primarie`, scalato per grado/profondità): UNA sola strada-stat, derivata via `stat_eff`
+# (§16.4). `REGISTRY_ARCHETIPI` qui resta il **binding F-6** (ogni `Archetipo` ha un profilo) e
+# la **base** che quella formula consuma.
 
 
 # Durata di default di uno status-blocco materializzato (SEGNAPOSTO Gruppo 2).

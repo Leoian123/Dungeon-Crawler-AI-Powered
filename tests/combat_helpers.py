@@ -14,6 +14,7 @@ from motore import (
     Fase,
     PianoIncontro,
     SistemaBrucia,
+    SistemaCrollo,
     SistemaDeathCheck,
     SistemaRigenerazione,
     SistemaRinforzi,
@@ -37,9 +38,10 @@ def avvia_scontro(*, nemici, seed: int = 1, hp_prot: int = 10_000, destrezza_pro
     enc = esper.create_entity(PianoIncontro(nemici=list(nemici), seed=seed))
 
     avvia_run(
-        # Ordine dichiarato dentro il bucket: rinforzi (confine di turno) PRIMA del
-        # sistema-turno (G-9).
-        solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(bus)],
+        # Ordine dichiarato dentro il bucket (priorità = registrazione): rinforzi (confine di
+        # turno) PRIMA del sistema-turno (G-9); l'escalation `SistemaCrollo` DOPO, così legge
+        # il `turni_scontro` appena avanzato dal turno (Gruppo 2 §8, GR2-15).
+        solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(bus), SistemaCrollo()],
         sempre_attivi=[
             SistemaVeleno(),
             SistemaBrucia(),

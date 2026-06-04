@@ -1,11 +1,14 @@
-"""Loop di combattimento: AP, iniziativa, decisione nemici, death-check, ciclo di vita
-delle entità effimere (G §2, §6.2; G-1/3/4/11; FNC §6.3).
+"""Loop di combattimento: AP, iniziativa, decisione nemici, risolutore a due check,
+escalation, death-check, ciclo di vita delle entità effimere (G §2, §6.2; Gruppo 2
+§6/§7/§8; G-1/3/4/11; GR2-10…15; FNC §6.3).
 
 Tutto deterministico e **seeded** (FNC §9). **Nessun LLM nel percorso di risoluzione**
-(G-4): questo modulo non importa né chiama il provider.
+(G-4): questo modulo non importa né chiama il provider. L'unica casualità del percorso
+base è il **check 1**, che pesca **una sola volta per colpo** dall'**unico** stream RNG
+seeded (`StatoCombattimento.rng`); il check 2 e il layer dei tipi pescano **zero** volte.
 
-I *numeri* (to-hit, danno, formula-madre) sono Gruppo 2: qui sono segnaposto
-(`DANNO_BASE`), la **forma** è completa.
+I *numeri* (`s`, `F`, `δ`, `g`, `MIN_COLPO`, soglia di crollo, cap-resistenze, formula-madre)
+sono `§11` e vivono in `calibrazione.py`, importati qui — la **forma** è completa.
 """
 
 from __future__ import annotations
@@ -15,18 +18,32 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import CombatResolved, EncounterStarted, MortePersonaggio, StatId
+from contracts import CombatResolved, EncounterStarted, MortePersonaggio, StatId, TipoDanno
 
+from .azione import Azione, Danno, QuantitaDa
+from .calibrazione import (
+    AP_MAX_MVP,
+    CROLLO_INCREMENTO,
+    DELTA_BANDA,
+    F_AUTOHIT,
+    G_GRAZE,
+    MIN_COLPO,
+    MULT_MAX,
+    MULT_MIN,
+    R_SOGLIA_CROLLO,
+    S_CONTEST,
+    primarie_da_scalari,
+)
+from .derivate import acc_eff, atk_eff, def_eff, eva_eff
+from .modificatori import Resistenze
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
-from .scheda import Protagonista, Scheda, protagonista
-from .statistiche import stat_eff
+from .scheda import ActionPoint, Protagonista, Scheda, protagonista
+from .statistiche import Primarie, stat_eff
 from .turno import azzera_turno_attivo, segna_turno_attivo
 
-# AP max clampato a 1 nell'MVP; i talenti (post-MVP) alzano il max o danno azioni
-# bonus. Il loop è scritto AP-driven fin da subito (§2.1).
-AP_MAX_MVP = 1
-
-# Segnaposto Gruppo 2.
+# Witness storico del floor positivo del danno (G-L1): oggi il colpo a segno toglie
+# `max(1, round(m·(atk−def/100)·mult)) ≥ 1` (check 2), ma la garanzia "ogni colpo che
+# connette fa progredire lo stato" resta vera verbatim. Conservato per quel contratto.
 DANNO_BASE = 1
 
 
@@ -50,13 +67,12 @@ class Combattente:
     """Stato di combattimento di un partecipante (protagonista o nemico).
 
     `chiave_ordine` è la **chiave stabile seeded** (ordine di spawn) per il tiebreak
-    d'iniziativa — MAI l'id di entità esper (sequenziale e riciclato, G-3/§6.3).
+    d'iniziativa — MAI l'id di entità esper (sequenziale e riciclato, G-3/§6.3). L'AP **non**
+    vive qui: è `ActionPoint`, componente posseduto per-entità (single-owner, guida §6.1).
     """
 
     destrezza: int
     chiave_ordine: int
-    ap: int
-    ap_max: int
 
 
 @dataclass
@@ -88,7 +104,9 @@ class StatoCombattimento:
     indice: int
     round: int
     prossima_chiave: int           # contatore stabile per `chiave_ordine` (spawn order)
-    rng: random.Random             # RNG seeded del motore (decisioni nemici)
+    rng: random.Random             # UNICO stream RNG seeded del motore (decisioni nemici + check 1)
+    turni_scontro: int = 0         # turni-combattente risolti (contatore cieco dell'escalation, §8)
+    crollo: int = 0                # danno inevitabile corrente dell'escalation (cresce oltre la soglia)
 
 
 # --- Iniziativa (G-3): destrezza desc, tiebreak su chiave stabile seeded -------
@@ -157,7 +175,13 @@ def _e_vivo(entita: int) -> bool:
 
 def spawn_nemico(*, destrezza: int, punti_vita: int) -> int:
     """Crea un nemico effimero con la prossima `chiave_ordine` stabile. NON tocca
-    l'ordine d'iniziativa: lo gestisce il chiamante (materializzazione o rinforzi)."""
+    l'ordine d'iniziativa: lo gestisce il chiamante (materializzazione o rinforzi).
+
+    Dota il nemico di un vettore `Primarie` (GR2-10, 2b-E) — costruito dalla formula-madre
+    `primarie_da_scalari` — così atk/def/eva/acc derivano **identiche** al protagonista
+    (`stat_eff`, nessuna seconda strada). `PuntiVita` resta il **pool vivo** del nemico;
+    `Primarie[COSTITUZIONE]` è la fonte di **mitigazione** (`def_eff`) — doppio ruolo. Le
+    entità di combattimento sono effimere → escluse dal save (come da Gr2 §16.2)."""
     st = stato_combattimento()
     if st is None:
         raise RuntimeError("spawn_nemico richiede uno StatoCombattimento attivo")
@@ -166,13 +190,94 @@ def spawn_nemico(*, destrezza: int, punti_vita: int) -> int:
     stato.prossima_chiave += 1
     return esper.create_entity(
         Nemico(),
-        Combattente(destrezza=destrezza, chiave_ordine=chiave, ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
+        Combattente(destrezza=destrezza, chiave_ordine=chiave),
+        ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
+        Primarie(valori=primarie_da_scalari(destrezza=destrezza, punti_vita=punti_vita)),
         PuntiVita(attuali=punti_vita, massimi=punti_vita),
     )
 
 
 def _nemici_vivi() -> list[int]:
     return [ent for ent, _ in esper.get_component(Nemico) if _e_vivo(ent)]
+
+
+def _tutti_combattenti_vivi() -> list[int]:
+    """Tutti i combattenti vivi (nemici + protagonista) — bersagli dell'escalation (§8)."""
+    vivi = _nemici_vivi()
+    pent, _marker, pscheda = protagonista()
+    if pscheda.vivo and pscheda.punti_vita > 0:
+        vivi.append(pent)
+    return vivi
+
+
+# --- Risolutore a due check (Gruppo 2 §6; GR2-11; layer tipi DT-5/6/7) ----------
+# Modello Mordheim: check 1 (il *se*, stocastico-ma-seeded a banda+graze) → check 2 (il
+# *quanto*, deterministico). Funzioni pure module-level, testabili in isolamento.
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+
+def esito_contest(acc: float, eva: float, rng: random.Random) -> float:
+    """Cuore puro del check 1: contest `acc` vs `eva` a banda, esito a tre vie (GR2-11).
+
+    Ritorna `m ∈ {1.0, G_GRAZE, 0.0}` (pieno / graze / schivata). **Sotto la banda** (`eva <
+    acc/F`) è **auto-hit deterministico** (`m=1`, **zero pescate**); dentro la banda pesca
+    **una sola volta** dall'unico stream seeded. I bordi della banda graze sono **clampati**
+    nella finestra dei floor gemelli (preserva `P(danno)` e `P(schivata piena) ≥ MIN_COLPO`).
+
+    Funzione di `(acc, eva)` (scala-invariante al rapporto, Bradley–Terry): separa la *forma
+    del contest* dalla *derivazione* delle due magnitudini (`acc_eff`/`eva_eff`), così il
+    property-test del vincolo accoppiato (§11) la esercita coi due scalari direttamente."""
+    if eva < acc / F_AUTOHIT:
+        return 1.0                                     # auto-hit: zero pescate
+    P = _clamp(acc ** S_CONTEST / (acc ** S_CONTEST + eva ** S_CONTEST), MIN_COLPO, 1 - MIN_COLPO)
+    lo = _clamp(P - DELTA_BANDA / 2, MIN_COLPO, 1 - MIN_COLPO)
+    hi = _clamp(P + DELTA_BANDA / 2, MIN_COLPO, 1 - MIN_COLPO)
+    u = rng.random()                                   # UNA sola estrazione per colpo (FNC §9)
+    return 1.0 if u < lo else (G_GRAZE if u < hi else 0.0)
+
+
+def check1(att: int, ber: int, rng: random.Random) -> float:
+    """Check 1 a livello-entità: deriva `acc_eff(att)`/`eva_eff(ber)` (da `stat_eff`, GR2-3) e
+    delega il contest a `esito_contest`. Con la geometria di default dell'MVP (nudo/taglia
+    media) `eva ≪ acc/F` → **auto-hit deterministico** per tutti; la forma stocastica si
+    attiva solo quando un'entità porta dati d'evasione (seam gear, post-MVP)."""
+    return esito_contest(acc_eff(att), eva_eff(ber), rng)
+
+
+def mult_resistenza(ber: int, tipo: TipoDanno) -> float:
+    """Moltiplicatore del layer dei tipi (DT-5/6/7): aggrega le resistenze che **matchano**
+    il tipo dell'attacco. **Assenza = identità** (`mult=1.0`): nessun `Resistenze`, o nessun
+    `ResistenzaMod` con `contro` pari al tipo → danno identico al percorso senza tipi. **Solo
+    un filtro-dato** (`r.contro == tipo`), nessun ramo che dirami sul *valore* del tipo. **Zero
+    RNG**: funzione pura di dati, il contatore di stream non avanza."""
+    cont = esper.try_component(ber, Resistenze)
+    if cont is None:
+        return 1.0
+    somma = sum(r.valore for r in cont.voci if r.contro == tipo)
+    return _clamp(1 + somma / 100, MULT_MIN, MULT_MAX)
+
+
+def check2(m: float, att: int, ber: int, danno: Danno) -> int:
+    """Check 2 — il *quanto*: danno vs difesa, **deterministico** (GR2-11, DT-5).
+
+    `atk_eff` in UNITÀ, `def_eff` in CENTESIMI → `/100`. La **schivata (`m=0`) corto-circuita
+    PRIMA del floor** → 0 danni (il colpo non connette). Sui colpi che connettono (`m ∈ {g,
+    1}`): `max(1, round(m·(atk−def/100)·mult))` — **un solo `round`, un solo `max(1,·)`**, con
+    `m` (graze) e `mult` (resistenza) **dentro lo stesso `round`** (no doppio arrotondamento)."""
+    if m == 0:
+        return 0                                       # SCHIVATA piena: niente floor (GR2-11/§7.2)
+    base = m * (atk_eff(att) - def_eff(ber) / 100)     # PRE-round: non arrotondare qui
+    mult = mult_resistenza(ber, danno.tipo)
+    return max(1, round(base * mult))                  # UNICO round, UNICO floor → GR2-11/DT-5
+
+
+def risolvi_danno(danno: Danno, att: int, ber: int, rng: random.Random) -> int:
+    """Risolve un effetto `Danno`: check 1 (una pescata, o zero su auto-hit) poi check 2
+    (zero pescate). `danno.quantita_da == ATK_EFF` → magnitudine da `atk_eff(att)`."""
+    m = check1(att, ber, rng)
+    return check2(m, att, ber, danno)
 
 
 # --- Sistema-turno: AP loop + risoluzione (bucket solo-combattimento) ----------
@@ -211,34 +316,63 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         if attivo is None:
             return
 
+        # Un turno-combattente risolto in più: alimenta il contatore cieco dell'escalation (§8).
+        stato.turni_scontro += 1
+
         # Marca l'entità attiva: i sistemi-status (sempre-attivo) ticcano solo lei (G-24).
         segna_turno_attivo(attivo)
 
-        combattente = esper.component_for_entity(attivo, Combattente)
-        combattente.ap = combattente.ap_max
+        ap_comp = esper.component_for_entity(attivo, ActionPoint)
+        ap_comp.ap = ap_comp.ap_max
 
-        # Loop a Action Point — scritto AP-driven anche con max=1 (G-1).
-        while combattente.ap > 0:
-            self._risolvi_azione(attivo, stato)
-            combattente.ap -= 1
+        # Loop a Action Point — scritto AP-driven anche con max=1 (G-1). Esegue UNA `Azione`.
+        while ap_comp.ap > 0:
+            if not self._risolvi_azione(attivo, stato, ap_comp):
+                break  # nessuna azione disponibile/pagabile: il turno finisce
 
         # Condizione di vittoria: nessun nemico vivo → torna in narrazione.
         if not _nemici_vivi():
             self.bus.pubblica(CombatResolved(entita=attivo, vittoria=True))
 
-    def _risolvi_azione(self, attivo: int, stato: StatoCombattimento) -> None:
+    def _risolvi_azione(self, attivo: int, stato: StatoCombattimento, ap_comp: ActionPoint) -> bool:
+        """Esegue **una `Azione`** percorrendo le tre giunture (GR2-12/13): (1) selezione da
+        un insieme (oggi di uno), (2) costo verificato PRIMA, (3) lista di `effetti` iterata.
+        Ritorna `True` se ha pagato il costo e agito, `False` se non c'è azione/non è pagabile."""
+        azione = self._scegli_azione(attivo, stato)
+        if azione is None:                                   # giuntura 1: insieme vuoto (niente bersaglio)
+            return False
+        costo = azione.costo.get("AP", 1)
+        if ap_comp.ap < costo:                               # giuntura 2: costo pagabile? (GR2-13)
+            return False
+        ap_comp.ap -= costo
+        for effetto in azione.effetti:                       # giuntura 3: itera la lista (oggi di uno)
+            if isinstance(effetto, Danno):
+                # Risolvi PRIMA (motore, seeded), narra DOPO (sul bus): mai LLM qui (G-4).
+                inflitto = risolvi_danno(effetto, azione.sorgente, azione.bersaglio, stato.rng)
+                if inflitto:
+                    infliggi_danno(azione.bersaglio, inflitto)
+        return True
+
+    def _scegli_azione(self, attivo: int, stato: StatoCombattimento) -> Azione | None:
+        """Sceglie un'`Azione` dall'insieme disponibile sull'entità (oggi `[attacco_base]`).
+        Per il protagonista il bersaglio è il primo nemico vivo; per il nemico la scelta è del
+        **motore**, seeded (`decidi_azione_nemico`), mai l'LLM (G-4)."""
         if esper.has_component(attivo, Protagonista):
             bersagli = _nemici_vivi()
-            if bersagli:
-                infliggi_danno(bersagli[0], DANNO_BASE)
-            return
-        # Nemico: decisione del MOTORE, seeded (G-4). Mai LLM.
-        pent, _marker, pscheda = protagonista()
-        bersagli = [pent] if (pscheda.vivo and pscheda.punti_vita > 0) else []
-        azione = decidi_azione_nemico(stato.rng, bersagli)
-        if azione is not None:
-            bersaglio, _mossa = azione
-            infliggi_danno(bersaglio, DANNO_BASE)
+            bersaglio = bersagli[0] if bersagli else None
+        else:
+            pent, _marker, pscheda = protagonista()
+            bersagli = [pent] if (pscheda.vivo and pscheda.punti_vita > 0) else []
+            decisione = decidi_azione_nemico(stato.rng, bersagli)
+            bersaglio = decisione[0] if decisione is not None else None
+        if bersaglio is None:
+            return None
+        # Attacco base = l'UNICA istanza dell'MVP: effetti=[Danno], costo={"AP": 1}.
+        return Azione(
+            sorgente=attivo,
+            bersaglio=bersaglio,
+            effetti=[Danno(quantita_da=QuantitaDa.ATK_EFF)],
+        )
 
 
 # --- Death-check (G-11): seeded, emette MortePersonaggio, NON CombatResolved ---
@@ -259,6 +393,32 @@ class SistemaDeathCheck(SistemaSempreAttivo):
         if scheda.vivo and scheda.punti_vita <= 0:
             scheda.vivo = False
             self.bus.pubblica(MortePersonaggio(causa="sconfitta"))
+
+
+# --- Escalation a contatore (Gruppo 2 §8, G §3/§5; GR2-15): fine per costruzione --
+
+class SistemaCrollo(SistemaSoloCombattimento):
+    """Rete di terminazione **per costruzione** (G-L1), **attiva nell'MVP**. A confine di
+    turno, **oltre la soglia `R`**, infligge danno **inevitabile e crescente** a **tutti** i
+    combattenti — **bypassa** il risolutore a due check, **indipendente dalle stat** (§8).
+
+    È un **contatore cieco** (non il watchdog a delta-danno di G §5.6-b né una curva
+    modellata): cresce illimitato e supera qualunque `def` + rigenerazione in un numero
+    **limitato** di round (aritmetica monotòna). Bucket solo-combattimento, priorità
+    dichiarata (registrato **dopo** il sistema-turno, così legge il `turni_scontro` appena
+    avanzato). I numeri (`R`, incremento) sono `§11` in `calibrazione.py`."""
+
+    def run(self, dt: int) -> None:
+        st = stato_combattimento()
+        if st is None:
+            return
+        _ent_stato, stato = st
+        if stato.turni_scontro <= R_SOGLIA_CROLLO:
+            return
+        stato.crollo += CROLLO_INCREMENTO
+        for ent in _tutti_combattenti_vivi():
+            # Danno inevitabile, indipendente dalle stat: NON passa dal risolutore a due check.
+            infliggi_danno(ent, stato.crollo)
 
 
 # --- Ciclo di vita delle entità di combattimento (effimere) -------------------
@@ -289,9 +449,10 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
         stato.prossima_chiave += 1
         esper.add_component(
             pent,
-            Combattente(destrezza=stat_eff(pent, StatId.DESTREZZA), chiave_ordine=chiave_prot,
-                        ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
+            Combattente(destrezza=stat_eff(pent, StatId.DESTREZZA), chiave_ordine=chiave_prot),
         )
+        # L'AP del protagonista è già su `ActionPoint` (persistente, da crea_protagonista):
+        # il Combattente effimero non lo porta (single-owner, guida §6.1).
 
         for spec in piano.nemici:
             spawn_nemico(destrezza=spec.destrezza, punti_vita=spec.punti_vita)

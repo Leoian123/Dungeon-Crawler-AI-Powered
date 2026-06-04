@@ -44,13 +44,12 @@ from contracts import (
     TurnoNarrazione,
 )
 
+from .calibrazione import primarie_da_archetipo
 from .catalogo import (
     DURATA_BLOCCO_DEFAULT,
     REGISTRY_ARCHETIPI,
     REGISTRY_BLOCCHI,
     Budget,
-    Statistiche,
-    deriva_statistiche,
     prepara_contesto,
     rango_grado,
 )
@@ -88,8 +87,8 @@ MENU_FISSO: tuple[Opzione, ...] = (
 @dataclass
 class EntitaMob:
     """Dato puro dell'entità generata: i campi categoriali scelti dall'AI + flavor +
-    la profondità legata dal motore dopo il gate. Le statistiche stanno in
-    `Statistiche` (derivate), MAI qui."""
+    la profondità legata dal motore dopo il gate. Le statistiche stanno nel vettore
+    `Primarie` (derivate via `stat_eff`, GR2-3) — una sola strada-stat (§16.4), MAI qui."""
 
     archetipo: Archetipo
     grado: Grado
@@ -358,11 +357,14 @@ async def esegui_turno_narrazione(
 def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
     """Istanzia l'entità validata nel World con le stat **derivate dal motore** (F-6).
 
-    I blocchi scelti diventano componenti-status (la chimera è una somma di
-    componenti, FNC §5.5), col **rango copiato dalla rarità** (G §4.3). Il `livello`
-    (profondità) è legato qui, dopo il gate — l'AI non lo ha emesso (G-17).
+    Le primarie escono dalla formula-madre `(archetipo, grado, livello) → Primarie`
+    (`calibrazione.primarie_da_archetipo`): **stesso vettore** del protagonista e dei nemici,
+    letto via `stat_eff` — una sola strada-stat (§16.4). I blocchi scelti diventano
+    componenti-status (la chimera è una somma di componenti, FNC §5.5), col **rango copiato
+    dalla rarità** (G §4.3). Il `livello` (profondità) è legato qui, dopo il gate — l'AI non
+    lo ha emesso (G-17).
     """
-    stat: Statistiche = deriva_statistiche(entita.archetipo, entita.grado, livello)
+    primarie = Primarie(valori=primarie_da_archetipo(entita.archetipo, entita.grado, livello))
     rango = rango_grado(entita.grado)
 
     componenti: list[object] = [
@@ -373,7 +375,7 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
             descrizione=entita.descrizione,
             livello=livello,
         ),
-        stat,
+        primarie,
     ]
     for blocco in entita.blocchi:
         cls = REGISTRY_BLOCCHI[blocco]

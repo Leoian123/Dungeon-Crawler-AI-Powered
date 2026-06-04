@@ -23,7 +23,7 @@ from enum import Enum
 
 import esper
 
-from contracts import StatId
+from contracts import StatId, TipoDanno
 
 
 class TipoMod(str, Enum):
@@ -89,3 +89,50 @@ def rimuovi_per_fonte(entita: int, fonte: str) -> None:
     if cont is None:
         return
     cont.voci = [m for m in cont.voci if m.fonte != fonte]
+
+
+# --- Resistenza tipata: un canale a sé, fuori dal fold (layer tipi, DT-3) -------
+# **Riusa** la disciplina dato-puro di §4, ma è chiavettata su un `TipoDanno` (non uno
+# `StatId`) e vive in un componente-resistenza letto **solo dal risolutore del check 2**,
+# **mai** dal fold `stat_eff` (che resta context-free, DT-4). Multi-fonte e **additiva**
+# (PCT additivi, somma commutativa → replay-safe); rimozione **per `fonte`**.
+
+@dataclass
+class ResistenzaMod:
+    """Mitigazione/vulnerabilità condizionata a un `TipoDanno` (DT-3). Dato puro, stessa
+    disciplina del `Modificatore` (§4): `valore < 0` = resistenza (riduce), `valore > 0` =
+    vulnerabilità (aumenta); `fonte` = tag di dominio stabile (mai id esper né ref vivo). È
+    **PCT** per costruzione (moltiplicativa, §5), distinta dal FLAT di `DIFESA` (il tank)."""
+
+    contro: TipoDanno
+    valore: float
+    fonte: str
+    tipo_mod: TipoMod = TipoMod.PCT
+    origine: Origine = Origine.NORMALE
+
+
+@dataclass
+class Resistenze:
+    """Componente-contenitore delle resistenze tipate di un'entità. Letto **solo** dal
+    risolutore del danno (mai da `stat_eff`): un fascio di `ResistenzaMod`, filtrato per
+    `contro == tipo` al momento del colpo."""
+
+    voci: list[ResistenzaMod] = field(default_factory=list)
+
+
+def applica_resistenza(entita: int, res: ResistenzaMod) -> None:
+    """Aggiunge una resistenza, creando il componente `Resistenze` se assente. Più fonti
+    sulla stessa coppia (entità, tipo) **coesistono e sommano** (come i modificatori, §4.2)."""
+    cont = esper.try_component(entita, Resistenze)
+    if cont is None:
+        esper.add_component(entita, Resistenze(voci=[res]))
+    else:
+        cont.voci.append(res)
+
+
+def rimuovi_resistenza_per_fonte(entita: int, fonte: str) -> None:
+    """Toglie le resistenze con quella `fonte` — niente `÷` inverso (come §4.1)."""
+    cont = esper.try_component(entita, Resistenze)
+    if cont is None:
+        return
+    cont.voci = [r for r in cont.voci if r.fonte != fonte]

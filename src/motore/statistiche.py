@@ -57,13 +57,27 @@ class RigaStat:
     """Una riga del registry: i flag per stat (valori SEGNAPOSTO Gruppo 2).
 
     `derivazione: None` è uno stato legittimo (un primitivo in attesa di un sistema, §2.2),
-    non un buco."""
+    non un buco. `finalizza` è la **chiave** (in `FINALIZZA`) della finalizzazione per-stat
+    (floor/round/scala): è un **dato della riga**, non un ramo nel fold (GR2-4)."""
 
     visibilita: Visibilita
     modificabile_da: Modificabilita
     derivazione: Callable[..., int] | None = None
     prova: ClasseProva | None = None
     sblocco: object | None = None
+    finalizza: str = "primaria"
+
+
+# Finalizzazione per-stat = DATO tabellare, non un ramo per-stat nel fold (GR2-4/§3.1).
+# L'accumulo (loop) è condiviso e uniforme; la finalizzazione (floor/round/scala) si legge
+# dalla riga di registry e si applica in coda. Interi fixed-point (DT-4): `round()` → int.
+FINALIZZA: dict[str, Callable[[float], int]] = {
+    # primarie: floor 1, in UNITÀ intere (nessuna primaria tocca mai 0, §3.1).
+    "primaria": lambda x: max(1, round(x)),
+    # DIFESA: floor 0, in CENTESIMI interi (il nudo non ha armatura, def_eff = 0 è
+    # legittimo); niente round-a-unità — resta in centesimi, il danno converte /100 (§6).
+    "centesimi_floor0": lambda x: max(0, round(x)),
+}
 
 
 # `StatId → RigaStat`. Aggiungere una stat = una voce all'enum (in `contracts`) + una riga
@@ -72,6 +86,11 @@ REGISTRY_STAT: dict[StatId, RigaStat] = {
     StatId.FORZA: RigaStat(Visibilita.PALESE, Modificabilita.TUTTI),
     StatId.DESTREZZA: RigaStat(Visibilita.PALESE, Modificabilita.TUTTI),
     StatId.COSTITUZIONE: RigaStat(Visibilita.PALESE, Modificabilita.TUTTI),
+    # Intelligenza: accuratezza magica (Gruppo 2 §5.4), primaria a tutti gli effetti.
+    StatId.INTELLIGENZA: RigaStat(Visibilita.PALESE, Modificabilita.TUTTI),
+    # Difesa: StatId base 0 (§5.3) — il canale-modificatori dell'armatura. Finalizza in
+    # CENTESIMI, floor 0 (non è una primaria): EVASIONE invece NON è una StatId (§4.1).
+    StatId.DIFESA: RigaStat(Visibilita.PALESE, Modificabilita.TUTTI, finalizza="centesimi_floor0"),
     # Saggezza: core ma non visualizzabile né modificabile direttamente (canone DCC).
     StatId.SAGGEZZA: RigaStat(Visibilita.VALORE_NASCOSTO, Modificabilita.SOLO_PRIVILEGIATI),
     # Fortuna: "ufficialmente non una stat reale" — usata nei tiri, negata alla proiezione.
@@ -103,16 +122,22 @@ def modificatori_su(entita: int) -> Iterable[Modificatore]:
 # --- La stat effettiva: UN solo fold, calcolato non depositato (GR2-3/4/5) ------
 
 def stat_eff(entita: int, stat: StatId) -> int:
-    """UNICO punto che combina base + modificatori (§3.2).
+    """UNICO punto che combina base + modificatori (§3.2). Context-free `(entità, stat)`
+    (DT-4): il `tipo` di un attacco non entra MAI qui.
 
-    `max(1, round((base + Σflat) × (1 + Σpct)))` — flat prima, pct dopo; pct **additivi**
-    (`+10% e +20% → ×1.30`); **floor 1** sulle primarie. Gli unici rami sono *FLAT vs PCT*
-    e i filtri bersaglio/ammissibilità: **nessun** `if stat == …` (parametrica su `stat`,
-    GR2-4). Calcolata a ogni lettura, mai depositata (GR2-5).
+    `finalizza[stat]((base + Σflat) × (1 + Σpct))` — flat prima, pct dopo; pct **additivi**
+    (`+10% e +20% → ×1.30`). L'**accumulo** (il loop) è uniforme; la **finalizzazione**
+    (floor/round/scala) è un **dato della riga di registry** (`finalizza[stat]`: primarie →
+    `max(1, round(·))` in unità; `DIFESA` → `max(0, ·)` in centesimi), **non** un ramo
+    per-stat (parametrica su `stat`, GR2-4). Calcolata a ogni lettura, mai depositata (GR2-5).
+
+    **Base assente = 0** (`.get(stat, 0)`): per `DIFESA` (base 0, di norma assente dal
+    vettore di chi non porta armatura) il fold parte da 0 e la finalizzazione `floor 0`
+    rende `def_eff = 0` legittimo — generico, nessun special-case per stat.
 
     Order-independent (flat e pct additivi, somma commutativa → replay-safe, GR2-6): il
     `round()` finale assorbe le differenze d'accumulo float a queste magnitudini."""
-    base = esper.component_for_entity(entita, Primarie).valori[stat]
+    base = esper.component_for_entity(entita, Primarie).valori.get(stat, 0)
     flat = 0.0
     pct = 0.0
     for mod in modificatori_su(entita):
@@ -124,4 +149,5 @@ def stat_eff(entita: int, stat: StatId) -> int:
             flat += mod.valore
         else:
             pct += mod.valore
-    return max(1, round((base + flat) * (1 + pct)))
+    grezzo = (base + flat) * (1 + pct)
+    return FINALIZZA[REGISTRY_STAT[stat].finalizza](grezzo)

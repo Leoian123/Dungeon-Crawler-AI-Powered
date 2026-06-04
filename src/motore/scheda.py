@@ -23,6 +23,7 @@ import esper
 
 from contracts import StatId
 
+from .calibrazione import AP_MAX_MVP
 from .catalogo import PRIMARIE_BASE_CARL
 from .statistiche import Primarie
 
@@ -47,6 +48,20 @@ class Scheda:
     punti_vita: int = _HP_DEFAULT
 
 
+@dataclass
+class ActionPoint:
+    """Risorsa-AP **posseduta per-entità** (G §2.1): il sistema-turno la legge e la spende.
+
+    Vive qui (e nella factory mob) come lo **stato-posseduto per-entità** — la stessa casa
+    di `HP_corrente` — **non** dentro un'`Azione` usa-e-getta (guida §6.1). Single-owner: il
+    loop la rinfresca a `ap_max` a inizio turno e la decrementa per azione risolta. Il
+    `costo` di un'`Azione` la referenzia **per chiave** (`{"AP": 1}`), ma la definizione del
+    componente sta qui."""
+
+    ap: int
+    ap_max: int
+
+
 def crea_protagonista(
     *,
     destrezza: int,
@@ -66,6 +81,9 @@ def crea_protagonista(
         Protagonista(id_dominio=id_dominio),
         Primarie(valori=valori),
         Scheda(vivo=True, punti_vita=punti_vita),
+        # AP posseduto e persistente: il Combattente effimero del combattimento non lo porta
+        # (single-owner, guida §6.1). Sopravvive a CombatResolved; il loop lo rinfresca.
+        ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
     )
 
 

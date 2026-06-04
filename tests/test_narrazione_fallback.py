@@ -14,6 +14,7 @@ from contracts import (
     Flavor,
     Grado,
     SchedaProiezione,
+    StatId,
     TipoAzione,
     TurnoNarrazione,
 )
@@ -21,11 +22,14 @@ from motore import (
     EntitaMob,
     MENU_FISSO,
     PROSA_NEUTRA,
+    Primarie,
     RETRY_NARRAZIONE,
     RETRY_PROSA,
+    atk_eff,
     fallback_turno,
     genera_prosa,
     materializza_turno,
+    max_hp,
     procura_turno,
 )
 from provider import FakeProvider
@@ -136,3 +140,18 @@ def test_F11_materializzazione_e_passo_separato(mondo_isolato: str) -> None:
     assert esper.get_component(EntitaMob) == []  # ancora niente
     ent = materializza_turno(res)
     assert esper.has_component(ent, EntitaMob)
+
+
+def test_mob_porta_primarie_una_sola_strada_stat(mondo_isolato: str) -> None:
+    # §16.4: il mob di narrazione usa il vettore `Primarie` come tutto il resto (niente più
+    # `Statistiche`, modello morto rimosso). Le stat si derivano via `stat_eff`/derivate.
+    prov = FakeProvider([turno()])
+    res = asyncio.run(procura_turno(prov, budget(), _PROIEZIONE))
+    ent = materializza_turno(res)
+
+    primarie = esper.component_for_entity(ent, Primarie)
+    assert isinstance(primarie, Primarie)
+    # FORZA/DESTREZZA/COSTITUZIONE/INTELLIGENZA presenti (formula-madre dall'archetipo).
+    assert {StatId.FORZA, StatId.DESTREZZA, StatId.COSTITUZIONE, StatId.INTELLIGENZA} <= set(primarie.valori)
+    # Le derivate del combattimento leggono `stat_eff` sul mob, come per chiunque altro.
+    assert max_hp(ent) >= 1 and atk_eff(ent) >= 1

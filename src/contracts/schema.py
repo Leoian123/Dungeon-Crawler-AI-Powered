@@ -70,6 +70,8 @@ class StatId(str, Enum):
     FORZA = "forza"
     DESTREZZA = "destrezza"
     COSTITUZIONE = "costituzione"
+    INTELLIGENZA = "intelligenza"  # accuratezza magica (Gruppo 2 §5.4); base di acc_eff con Des
+    DIFESA = "difesa"          # mitigazione piatta, base 0: canale-modificatori dell'armatura (§5.3)
     SAGGEZZA = "saggezza"      # valore-nascosto, solo-privilegiati (canone DCC)
     FORTUNA = "fortuna"        # esistenza-negata (canone DCC)
 
@@ -84,6 +86,24 @@ class Blocco(str, Enum):
     VELENO = "veleno"
     RIGENERAZIONE = "rigenerazione"
     STORDITO = "stordito"
+
+
+class TipoDanno(str, Enum):
+    """Tipo di danno di un attacco — enum chiuso AI-facing (Gruppo 2 tipi §2).
+
+    Stessa famiglia di `Grado`/`Durata`: l'AI lo **dichiara**, il gate-catalogo lo
+    **valida**, l'AI non lo **conia** mai. `GENERICO` è il default (untyped): un `Danno`
+    senza tipo non incrocia alcuna resistenza → comportamento identico al danno agnostico
+    odierno (è ciò che rende il layer dei tipi backward-compatible, DT-6). La gerarchia è
+    **dato**, non codice: aggiungere un tipo = **una riga di enum** (+ righe di
+    `ResistenzaMod` lato motore), zero righe nel risolutore (DT-2/DT-L1). Roster MVP
+    minimale (il resto post); valori SEGNAPOSTO.
+    """
+
+    GENERICO = "generico"   # default, untyped: nessuna resistenza vi si applica
+    MISCHIA = "mischia"
+    FUOCO = "fuoco"
+    VELENO = "veleno"
 
 
 class TipoAzione(str, Enum):

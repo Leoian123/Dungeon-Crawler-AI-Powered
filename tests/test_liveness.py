@@ -104,9 +104,11 @@ def test_GL1_economia_mvp_senza_sostentamento(mondo_isolato: str) -> None:
 def test_GL1_rinforzi_sono_finiti(mondo_isolato: str) -> None:
     # I rinforzi (binario di mutazione §5) sono BOUNDED: ogni ondata è rilasciata una
     # sola volta → niente ondate infinite (la sorgente di non-terminazione di §5.4).
-    # Nemico iniziale tosto abbastanza da raggiungere il round 1 (quando l'ondata esce).
+    # Nemico iniziale tosto abbastanza da raggiungere il round 1 (quando l'ondata esce):
+    # col danno deterministico 2b (atk_eff−def_eff/100), deve sopravvivere al primo colpo
+    # del protagonista, quindi HP > danno-per-colpo (ex `punti_vita=8`, tarato su DANNO_BASE=1).
     _bus, adapter, enc = avvia_scontro(
-        nemici=[SpecNemico(destrezza=5, punti_vita=8)],
+        nemici=[SpecNemico(destrezza=5, punti_vita=80)],
         hp_prot=10**9, destrezza_prot=100,
     )
     esper.add_component(
