@@ -24,6 +24,7 @@ from .azione import Azione, Danno, QuantitaDa
 from .calibrazione import (
     AP_MAX_MVP,
     CROLLO_INCREMENTO,
+    DANNO_BASE,
     DELTA_BANDA,
     F_AUTOHIT,
     G_GRAZE,
@@ -41,10 +42,9 @@ from .scheda import ActionPoint, Protagonista, Scheda, protagonista
 from .statistiche import Primarie, stat_eff
 from .turno import azzera_turno_attivo, segna_turno_attivo
 
-# Witness storico del floor positivo del danno (G-L1): oggi il colpo a segno toglie
-# `max(1, round(m·(atk−def/100)·mult)) ≥ 1` (check 2), ma la garanzia "ogni colpo che
-# connette fa progredire lo stato" resta vera verbatim. Conservato per quel contratto.
-DANNO_BASE = 1
+# `DANNO_BASE` (witness storico del floor positivo del danno, G-L1) vive in `calibrazione.py`
+# (rieasposto via l'import sopra): oggi il floor reale è nel check 2, ma il contratto
+# "ogni colpo che connette fa progredire lo stato" resta vero.
 
 
 # --- Componenti di combattimento (dato puro, ESP §1) --------------------------

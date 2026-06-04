@@ -56,13 +56,23 @@ def test_C2a_layer_headless_non_importano_ui() -> None:
     assert not offese, "UI importata in un layer headless (C-2a):\n" + "\n".join(offese)
 
 
-# --- C-5: l'INTERO sorgente regge senza alcuna libreria di UI -------------------
+# Host/tool OPT-IN che possono importare una UI (fuori dal motore, host-agnostico): non
+# fanno parte del game engine headless. Oggi solo la console admin di calibrazione, che
+# importa Textual **lazy** (la sua CLI gira senza). Il motore resta coperto da C-2a.
+_HOST_OPZIONALI = {"calibratore.py"}
+
+
+# --- C-5: l'INTERO game engine regge senza alcuna libreria di UI -----------------
 
 def test_C5_intero_src_indipendente_da_ui() -> None:
-    # Nessun modulo sotto src/ importa una libreria di UI: il contratto è l'unico
-    # canale verso un host, per costruzione. L'arnia headless gira senza Textual.
+    # Nessun modulo del game engine importa una libreria di UI: il contratto è l'unico
+    # canale verso un host, per costruzione. L'arnia headless gira senza Textual. Gli
+    # host/tool opt-in (`_HOST_OPZIONALI`) sono esclusi: sono presentazione/strumenti che
+    # vivono *fuori* dal motore (coperto da C-2a), con import di UI lazy.
     offese: list[str] = []
     for py in sorted(_SRC.rglob("*.py")):
+        if py.name in _HOST_OPZIONALI:
+            continue
         if _radici_import(py) & _UI_BANDITE:
             offese.append(str(py.relative_to(_SRC)))
     assert not offese, "una libreria di UI è importata sotto src/ (C-5):\n" + "\n".join(offese)

@@ -23,12 +23,11 @@ import esper
 
 from contracts import StatId
 
-from .calibrazione import AP_MAX_MVP
-from .catalogo import PRIMARIE_BASE_CARL
+from .calibrazione import AP_MAX_MVP, HP_DEFAULT, PRIMARIE_BASE_CARL
 from .statistiche import Primarie
 
-# Valori SEGNAPOSTO (Gruppo 2): non bloccano la forma.
-_HP_DEFAULT = 30
+# HP iniziale di default: §11 in `calibrazione.py` (editabile dalla console admin).
+_HP_DEFAULT = HP_DEFAULT
 
 
 @dataclass

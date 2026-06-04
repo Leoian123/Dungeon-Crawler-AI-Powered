@@ -17,6 +17,14 @@ Disciplina (ESP §0.1):
 
 from __future__ import annotations
 
+import os
+
+# I test asseriscono la calibrazione di **default** (§11): un eventuale file di override
+# locale (creato dalla console admin) NON deve cambiarne l'esito. Puntando il percorso a
+# `os.devnull` (illeggibile come JSON → nessun override) il motore carica sempre i default.
+# Va impostato PRIMA che `motore.calibrazione` venga importato dal primo test.
+os.environ["DCC_CALIBRAZIONE_OVERRIDE"] = os.devnull
+
 from contextlib import contextmanager
 from typing import Iterator
 

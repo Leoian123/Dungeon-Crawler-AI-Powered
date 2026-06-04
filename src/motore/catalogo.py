@@ -21,8 +21,20 @@ import random
 from dataclasses import dataclass, field
 from enum import Enum
 
-from contracts import Archetipo, Blocco, ClasseProva, Durata, Grado, StatId
+from contracts import Archetipo, Blocco, ClasseProva, Durata, Grado
 
+# I VALORI §11 vivono in `calibrazione.py` (un solo posto, guida §0); qui se ne **rieaspongono**
+# i migrati per non rompere i consumatori storici (`from .catalogo import REGISTRY_ARCHETIPI`…).
+from .calibrazione import (  # noqa: F401  (re-export)
+    CARICO_TICK,
+    DURATA_BLOCCO_DEFAULT,
+    PRIMARIE_BASE_CARL,
+    PROB_ANOMALIA,
+    PROB_IMBOSCATA,
+    REGISTRY_ARCHETIPI,
+    SOGLIE_PROVA,
+    ProfiloArchetipo,
+)
 from .status import Brucia, Confusione, Rigenerazione, Status, Stordito, Veleno
 
 # --- Registry: nome → componente / profilo (F §3 faccia-motore, F-6) ----------
@@ -36,35 +48,8 @@ REGISTRY_BLOCCHI: dict[Blocco, type[Status]] = {
 }
 
 
-@dataclass(frozen=True)
-class ProfiloArchetipo:
-    """Profilo-base di un archetipo (SEGNAPOSTO Gruppo 2). La formula lo scala."""
-
-    destrezza_base: int
-    pv_base: int
-    danno_base: int
-
-
-# Archetipo → profilo-base. Ogni archetipo del contratto ha un binding (F-6).
-REGISTRY_ARCHETIPI: dict[Archetipo, ProfiloArchetipo] = {
-    Archetipo.SLIME: ProfiloArchetipo(destrezza_base=3, pv_base=6, danno_base=1),
-    Archetipo.SCHELETRO: ProfiloArchetipo(destrezza_base=5, pv_base=8, danno_base=2),
-    Archetipo.GOBLIN: ProfiloArchetipo(destrezza_base=7, pv_base=5, danno_base=2),
-}
-
-
-# --- Profilo-base delle primarie di Carl (SEGNAPOSTO Gruppo 2 §11) -------------
-
-# `DESTREZZA`/`COSTITUZIONE` qui sono fallback: `crea_protagonista` li sovrascrive con i
-# valori passati (destrezza scelta, HP iniziale). Forza/Saggezza/Fortuna sono SEGNAPOSTO.
-PRIMARIE_BASE_CARL: dict[StatId, int] = {
-    StatId.FORZA: 10,
-    StatId.DESTREZZA: 10,
-    StatId.COSTITUZIONE: 30,
-    StatId.INTELLIGENZA: 10,   # [§11] accuratezza magica (Gruppo 2 §5.4)
-    StatId.SAGGEZZA: 8,
-    StatId.FORTUNA: 5,
-}
+# `ProfiloArchetipo`, `REGISTRY_ARCHETIPI` (binding F-6 + base §11) e `PRIMARIE_BASE_CARL`
+# vivono ora in `calibrazione.py` (rieasposti sopra): editabili dalla console admin.
 
 
 # --- Mappa `Grado → rango:int` (G §4.3; override Gruppo 2 §1.1) ----------------
@@ -87,8 +72,7 @@ def rango_grado(grado: Grado) -> int:
 # la **base** che quella formula consuma.
 
 
-# Durata di default di uno status-blocco materializzato (SEGNAPOSTO Gruppo 2).
-DURATA_BLOCCO_DEFAULT = 3
+# `DURATA_BLOCCO_DEFAULT` vive in `calibrazione.py` (rieasposto sopra).
 
 
 # --- Budget: set ammissibile per contesto, + anomalia seeded (FNC §5.5) --------
@@ -111,10 +95,10 @@ class Budget:
     anomala: bool = False
 
 
-# Probabilità dell'anomalia (SEGNAPOSTO Gruppo 2): basso, "l'ingiustizia assurda" rara.
-PROB_ANOMALIA = 0.05
+# `PROB_ANOMALIA` vive in `calibrazione.py` (rieasposto sopra).
 
 # Archetipo di default designato per il fallback (F §6.3): DETERMINISTICO, non pescato.
+# (Scelta categoriale, non un numero §11 → resta qui.)
 ARCHETIPO_DEFAULT = Archetipo.SLIME
 
 
@@ -159,13 +143,7 @@ def prepara_contesto(livello: int, rng: random.Random) -> Budget:
 
 # --- Classi di prova: soglia (motore) + ancore (catalogo) (G §7.2/§7.4) --------
 
-# `classe → soglia` (la "formula" della prova): del MOTORE (G §7.2). SEGNAPOSTO Gruppo 2.
-_SOGLIE: dict[ClasseProva, int] = {
-    ClasseProva.BRONZO: 8,
-    ClasseProva.ARGENTO: 12,
-    ClasseProva.ORO: 16,
-    ClasseProva.CELESTIALE: 22,
-}
+# `classe → soglia` (la "formula" della prova) vive in `calibrazione.SOGLIE_PROVA` (§11).
 
 # Ancore testuali delle classi: **materiale di calibrazione del prompt**, vivono nel
 # catalogo, MAI nel componente-prova (G §7.4, G-15). SEGNAPOSTO Gruppo 2.
@@ -179,7 +157,7 @@ ANCORE_CLASSE: dict[ClasseProva, tuple[str, ...]] = {
 
 def soglia_classe(classe: ClasseProva) -> int:
     """La soglia di una classe — calcolata dal MOTORE, mai fissata dall'AI (G-14)."""
-    return _SOGLIE[classe]
+    return SOGLIE_PROVA[classe]
 
 
 def ancore_classe(classe: ClasseProva) -> tuple[str, ...]:
@@ -188,21 +166,14 @@ def ancore_classe(classe: ClasseProva) -> tuple[str, ...]:
 
 
 # --- Mappa `Durata → carico-tick` + gate (J §3.2/§3.3, §3.5; F-14, J-1/J-3) ----
-# La `Durata` è solo vocabolario in `contracts`; QUI vive la sua traduzione in tick.
-# Monotòna non-decrescente rispetto a `Durata.ordine` (`TURNO` = minimo = cadenza base,
-# §3.1). Valori SEGNAPOSTO Gruppo 2; le etichette diegetiche ("≈ 6 s") si calibrano
-# dopo la cadenza (per-stanza, §4) e non sono cablate qui.
-_CARICO_TICK: dict[Durata, int] = {
-    Durata.TURNO: 1,        # cadenza base: un passo
-    Durata.UN_ATTIMO: 2,
-    Durata.UN_POCHINO: 4,
-    Durata.UN_BEL_PO: 8,
-}
+# La `Durata` è solo vocabolario in `contracts`; QUI vive la sua traduzione in tick
+# (`calibrazione.CARICO_TICK`, §11): monotòna non-decrescente rispetto a `Durata.ordine`
+# (`TURNO` = minimo = cadenza base, §3.1).
 
 
 def carico_tick(durata: Durata) -> int:
     """Quanti tick di cadenza comprime una `Durata` (formula del motore, J §3.2)."""
-    return _CARICO_TICK[durata]
+    return CARICO_TICK[durata]
 
 
 def gate_durata(durata: Durata) -> int:
@@ -272,6 +243,5 @@ def e_dannoso(tipo_status: type[Status]) -> bool:
 
 
 # --- Dado-evento: probabilità d'imboscata per tick di scorrimento (J §8) -------
-# La *forma* (un tiro seeded a ogni tick) è qui; la *tabella per contesto* (riposo/skip/
-# zona pericolosa) con probabilità e voci è Gruppo 2. SEGNAPOSTO unico per l'MVP.
-PROB_IMBOSCATA = 0.3
+# `PROB_IMBOSCATA` vive in `calibrazione.py` (rieasposto sopra): la *forma* (un tiro seeded
+# a ogni tick) è del motore; il *valore* è §11.

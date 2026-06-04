@@ -36,6 +36,10 @@ Thumbs.db
 *.bak.archivio.gz
 *.tmp
 
+# Override di calibrazione (§11) scritti dalla console admin (`calibratore`): numeri locali
+# in fase di taratura, MAI da versionare. I default vivono in `motore/calibrazione.py`.
+calibrazione.overrides.json
+
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/
 docs/

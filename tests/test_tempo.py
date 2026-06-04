@@ -106,11 +106,12 @@ def test_J1_durata_vocabolario_in_contracts_mappa_nel_motore() -> None:
     # I valori dell'enum sono stringhe (vocabolario), non numeri.
     for d in Durata:
         assert isinstance(d.value, str) and not isinstance(d.value, (int, float))
-    # La mappa Durata→tick vive nel catalogo del MOTORE, non in contracts né sul componente.
-    assert hasattr(C, "_CARICO_TICK")
+    # La mappa Durata→tick vive nel MOTORE (catalogo la riespone da `calibrazione`, §11),
+    # non in contracts né sul componente.
+    assert hasattr(C, "CARICO_TICK")
     from contracts import schema as S
 
-    assert not hasattr(S, "_CARICO_TICK") and not hasattr(S, "carico_tick")
+    assert not hasattr(S, "CARICO_TICK") and not hasattr(S, "carico_tick")
 
 
 def test_J1_carico_tick_monotono_non_decrescente() -> None:
