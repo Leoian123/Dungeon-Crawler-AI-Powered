@@ -57,9 +57,10 @@ def test_C2a_layer_headless_non_importano_ui() -> None:
 
 
 # Host/tool OPT-IN che possono importare una UI (fuori dal motore, host-agnostico): non
-# fanno parte del game engine headless. Oggi solo la console admin di calibrazione, che
-# importa Textual **lazy** (la sua CLI gira senza). Il motore resta coperto da C-2a.
-_HOST_OPZIONALI = {"calibratore.py"}
+# fanno parte del game engine headless. La console admin di calibrazione (`calibratore.py`)
+# e la UI di gioco (`gioco_textual.py`) importano Textual **lazy** e pilotano il motore solo
+# via le porte/`contracts`. Il motore resta coperto da C-2a.
+_HOST_OPZIONALI = {"calibratore.py", "gioco_textual.py"}
 
 
 # --- C-5: l'INTERO game engine regge senza alcuna libreria di UI -----------------

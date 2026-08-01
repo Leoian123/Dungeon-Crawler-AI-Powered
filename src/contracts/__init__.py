@@ -23,8 +23,11 @@ from .eventi import (
 )
 from .intenti import (
     Intento,
+    IntentoCombattimento,
+    IntentoEsplorazione,
     PlayerChoseOption,
     PlayerScappa,
+    PlayerSiMuove,
     PlayerTentaProva,
     PlayerDiscende,
 )
@@ -60,6 +63,9 @@ __all__ = [
     "DiscesaPiano",
     # intenti
     "Intento",
+    "IntentoCombattimento",
+    "IntentoEsplorazione",
+    "PlayerSiMuove",
     "PlayerChoseOption",
     "PlayerScappa",
     "PlayerTentaProva",

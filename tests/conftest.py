@@ -63,3 +63,33 @@ def mondo_condiviso() -> Iterator[str]:
     """Contesto esper a nome FISSO, riusato dalla demo di non-trapelamento."""
     with _isola("mondo-condiviso-di-prova") as name:
         yield name
+
+
+@pytest.fixture
+def cal_pulita() -> Iterator[None]:
+    """Snapshot/restore degli override di calibrazione in memoria: i test che
+    impostano override (`cal.imposta`) non si sporcano a vicenda."""
+    from motore import calibrazione as cal
+
+    prima = dict(cal._OVERRIDE)
+    try:
+        yield
+    finally:
+        cal._OVERRIDE.clear()
+        cal._OVERRIDE.update(prima)
+
+
+@pytest.fixture
+def run_pulita() -> Iterator[None]:
+    """Isolamento per i test che passano dal `Guscio`/`SessioneGioco` (che switcha al
+    run-World): run-World fresco prima e dopo, parcheggio nel default."""
+    from guscio import NOME_DEFAULT, NOME_RUN
+
+    def _pulisci() -> None:
+        esper.switch_world(NOME_DEFAULT)
+        if NOME_RUN in esper.list_worlds():
+            esper.delete_world(NOME_RUN)
+
+    _pulisci()
+    yield
+    _pulisci()

@@ -20,7 +20,6 @@ import esper
 
 from ..piano import ProfonditaPiano
 from ..scheda import Protagonista, Scheda
-from ..seme import SemeRun
 from .formato import (
     SCHEMA_VERSION,
     ComponenteSerializzato,
@@ -95,9 +94,15 @@ def applica_stato(stato: Stato) -> None:
     Ogni entità rinasce con i suoi componenti tradotti; i singleton tornano come
     entità a sé (`leggi_fase`/`livello_corrente`/`master_seed` ritrovano il loro
     singleton). Nessun riferimento esper durevole da risolvere (load diretto, §4.4).
+    Lo slot `esplorazione`, se popolato, ricostruisce il singleton `Mappa` (topologia,
+    stanza corrente, visitate — i mob effimeri non erano salvati: si ripopola).
     """
     for ent_ser in stato.corpo.entita:
         componenti = [
             deserializza_componente(c.tag, c.dati) for c in ent_ser.componenti
         ]
         esper.create_entity(*componenti)
+    if stato.corpo.esplorazione:
+        from ..mappa import mappa_da_dict  # import locale: H resta leggero all'import
+
+        mappa_da_dict(stato.corpo.esplorazione)

@@ -7,7 +7,9 @@
 > ed è **versionato** (a differenza di `docs/`, che è in `.gitignore`).
 >
 > **Aggiornalo** quando: chiudi una fase, crei/fondi un branch, o prendi una decisione che
-> diverge da `docs/`. Ultima revisione: **2026-06-04**.
+> diverge da `docs/`. Ultima revisione: **2026-07-31** — il delta del push corrente
+> (calibrazione per-entità, console web, drenaggio unificato, Mappa, host Textual di gioco)
+> è tracciato in **`README.md`**.
 
 ---
 
@@ -63,7 +65,7 @@ stocastico-ma-seeded a banda/graze); `ActionPoint` posseduto; nemici e mob di na
 resistenze tipate (`ResistenzaMod`). **Tutti i numeri §11 in `motore/calibrazione.py`** (placeholder
 marcati). Restano **solo i numeri** da calibrare (la *forma* è completa).
 
-**Verifica:** **340 test verdi + 2 skip** (i 2 skip = integrazione live Anthropic, saltata senza `ANTHROPIC_API_KEY`). "Giocabile capo-a-fine" dimostrato headless con provider deterministico.
+**Verifica:** **401 test verdi + 2 skip** (i 2 skip = integrazione live Anthropic, saltata senza `ANTHROPIC_API_KEY`). "Giocabile capo-a-fine" dimostrato headless con provider deterministico — e ora anche **dalla UI di gioco** (host Textual opt-in) attraverso la mappa: esplora → combatti → scala → discesa (vittoria). Delta dettagliato in `README.md`.
 
 **Fuori scope per scelta (non ancora fatto):** i **numeri** d'economia (Gruppo 2 §11, da calibrare), il **tick degli status** (`applica_effetto` ancora no-op), il **replay completo**, e le feature **post-MVP** dichiarate (vedi §4).
 
@@ -156,6 +158,10 @@ ritoccata per rispecchiare la realtà del branch headless:
 ## 6. Comandi utili
 
 ```bash
+# Giocare con la UI Textual (host opt-in) / calibrare dal browser — launcher a un click
+./gioca.bat
+./calibra.bat
+
 # Giocare un incontro headless (driver di riferimento)
 PYTHONPATH="src;vendor" .venv/Scripts/python.exe -m main   # Windows/PowerShell: usa ; nel PYTHONPATH
 

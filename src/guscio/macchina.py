@@ -28,6 +28,7 @@ guidata dal turno, eseguibile headless.
 from __future__ import annotations
 
 import inspect
+import random
 from enum import Enum
 from pathlib import Path
 
@@ -40,6 +41,7 @@ from motore import (
     SistemaBrucia,
     SistemaDeathCheck,
     SistemaDiscesa,
+    SistemaMovimento,
     SistemaRigenerazione,
     SistemaRinforzi,
     SistemaStordito,
@@ -50,14 +52,15 @@ from motore import (
     carica_crawler,
     collega_combattimento,
     collega_transizioni_fase,
+    crea_mappa,
     crea_profondita,
     crea_protagonista,
     crea_seme,
     crea_tempo_piano,
+    mappa_to_dict,
     entra_run_nuova,
     invalida,
     parcheggia_default,
-    protagonista,
     salva_run,
     teardown_run,
     tick,
@@ -124,7 +127,7 @@ class Guscio:
                 SistemaTempoPiano(),  # contatore di tempo-piano, avanza al tick condiviso (J-14)
             ],
             solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(self.bus)],
-            solo_narrazione=[SistemaDiscesa(self.bus)],
+            solo_narrazione=[SistemaMovimento(), SistemaDiscesa(self.bus)],
         )
 
     def _registra_handler_run(self) -> None:
@@ -170,6 +173,7 @@ class Guscio:
         crea_profondita()
         crea_seme(seed)
         crea_tempo_piano()
+        crea_mappa(random.Random(seed))  # topologia seeded dal seme di run (G-18 garantito)
         crea_protagonista(destrezza=destrezza, punti_vita=hp, id_dominio=uuid)
         self.coda = avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE, **self._sistemi_run())
         self._registra_handler_run()
@@ -241,7 +245,8 @@ class Guscio:
         uuid = self._uuid
 
         if terminale is Terminale.USCITA_VOLONTARIA:
-            salva_run(self.directory, model_id=self.model_id)
+            # La mappa viaggia nello slot `esplorazione` (topologia + posizione + visitate).
+            salva_run(self.directory, model_id=self.model_id, esplorazione=mappa_to_dict())
         else:  # SCONFITTA (6a) o PIANO_COMPLETATO (6b): fine-run → invalida
             if uuid is not None:
                 invalida(self.directory, uuid)

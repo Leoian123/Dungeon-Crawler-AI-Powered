@@ -36,7 +36,10 @@ from contracts import (
     Durata,
     EncounterStarted,
     EntitaGenerata,
+    IntentoEsplorazione,
     MortePersonaggio,
+    PlayerDiscende,
+    PlayerSiMuove,
     Opzione,
     OpzioneVista,
     PlayerChoseOption,
@@ -49,36 +52,45 @@ from contracts import (
 from guscio import Guscio
 from motore import (
     MODEL_ID_DEFAULT,
+    OpzioneScena,
     SpecNemico,
+    componi_opzioni_scena,
+    consuma_messaggi,
+    dissolvi_mob,
     esegui_turno_narrazione,
     in_combattimento,
     ingaggia_combattimento,
     livello_corrente,
+    mappa_to_dict,
     materializza_turno,
     max_hp,
+    messaggi_pendenti,
+    mob_corrente,
     proietta_scheda,
     protagonista,
+    registra_mob,
     salva_run,
+    segna_visitata,
+    stanza_visitata,
     stat_eff,
     tenta_disimpegno,
     tick,
+    travasa,
 )
 from provider import FakeProvider
 
-# Menu di narrazione (MVP): il terzetto noto ridotto a Combatti/Scappi (IC §7, niente creep).
-_MENU_NARRAZIONE = (
-    OpzioneVista(indice=0, etichetta="Combatti", tipo=TipoAzione.COMBATTI),
-    OpzioneVista(indice=1, etichetta="Scappi", tipo=TipoAzione.SCAPPA),
-)
+# Menu di combattimento (MVP). Il menu di NARRAZIONE non è più cablato qui: lo compone
+# il MOTORE dalla scena (`componi_opzioni_scena` sulla mappa) — la mappa dispone.
 _MENU_COMBATTIMENTO = (OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzione.COMBATTI),)
 
 
 class SessioneGioco:
     """La porta motore↔host per la v1: narrazione async, intenti sul turno, snapshot.
 
-    Possiede il run-World (via `Guscio`), il provider e una piccola macchina di modo
-    (attesa-narrazione / scelta-narrazione / combattimento). Vive nel composition root:
-    può importare il motore — l'host (UI o driver headless) no, vi parla solo via porte.
+    Possiede il run-World (via `Guscio`) e il provider. Non tiene una macchina di
+    modo propria: il "modo" è la verità del motore (`in_combattimento()` + la scena
+    composta dalla mappa). Vive nel composition root: può importare il motore —
+    l'host (UI o driver headless) no, vi parla solo via porte.
     """
 
     def __init__(self, provider, *, directory: Path, seed: int = 0) -> None:
@@ -88,80 +100,113 @@ class SessioneGioco:
         self.guscio.nuova_partita(uuid="carl", destrezza=10, hp=30, seed=seed)
         self.bus = self.guscio.bus
         self.coda = self.guscio.coda  # CodaIntenti: l'host vi accoda gli intenti
-        self._modo = "attesa_narrazione"
         self._opzioni: tuple[OpzioneVista, ...] = ()
+        self._scena: tuple[OpzioneScena, ...] = ()  # binding indice→azione di scena
 
     # --- Porte verso l'host ---------------------------------------------------
 
     async def prossima_narrazione(self) -> SnapshotVista:
-        """Coroutine host-agnostica (un worker UI o `asyncio.run` la `await`-a, C-6):
-        prepara il contesto, chiama l'AI (1 `genera`, gate, fallback) e materializza
-        l'entità. Ritorna lo snapshot con prosa + menu di narrazione."""
-        pent, _marker, _scheda = protagonista()
-        proiezione = proietta_scheda(pent)
-        risultato = await esegui_turno_narrazione(
-            self.provider, livello=livello_corrente(), proiezione=proiezione, rng=self.rng
-        )
-        materializza_turno(risultato, self.bus)  # può pubblicare AnomalyTriggered (reveal)
-        self._modo = "scelta_narrazione"
-        self._opzioni = _MENU_NARRAZIONE
+        """Coroutine host-agnostica (un worker UI o `asyncio.run` la `await`-a, C-6).
+
+        Il turno di narrazione è legato alla MAPPA: se la stanza corrente non è mai
+        stata visitata, prepara il contesto, chiama l'AI (1 `genera`, gate, fallback),
+        materializza l'entità e la **registra nella stanza** (il reveal è un contenuto
+        della mappa). Una stanza già visitata non richiama l'AI. Il menu è la scena."""
+        prosa = ""
+        if not stanza_visitata():
+            pent, _marker, _scheda = protagonista()
+            proiezione = proietta_scheda(pent)
+            risultato = await esegui_turno_narrazione(
+                self.provider, livello=livello_corrente(), proiezione=proiezione, rng=self.rng
+            )
+            ent = materializza_turno(risultato, self.bus)  # può pubblicare AnomalyTriggered
+            registra_mob(ent)  # il nemico rivelato appartiene alla stanza (la mappa dispone)
+            segna_visitata()
+            prosa = risultato.turno.prosa
+        self._sincronizza_scena()
         return SnapshotVista(
-            prosa=risultato.turno.prosa,
+            prosa=prosa,
             opzioni=self._opzioni,
             stato=self._descrittori(),
             fase="narrazione",
         )
 
     def avanza(self) -> SnapshotVista:
-        """Il **turno del motore** per l'host: drena la coda degli intenti (host→motore,
-        IC §7.1) e li serve nella fase corrente, poi ricostruisce lo snapshot. Gli
-        intenti stanno nella coda tra l'emissione dell'host e questo turno (mai nel bus)."""
-        for intento in self.coda.preleva_tutti():
-            if isinstance(intento, PlayerChoseOption):
-                self._agisci(intento.opzione)
+        """Il **turno del motore** per l'host (IC §7.1) — drenaggio UNIFICATO:
+
+        1. `travasa` (Canale A, l'unico travaso coda→World): il port NON preleva più
+           dalla coda in proprio e NON scarta nulla;
+        2. consuma SOLO gli intenti di menu (`PlayerChoseOption`) e li interpreta
+           sulla fase corrente del motore e sulla scena mostrata;
+        3. gli intenti di DOMINIO restano nel World per i sistemi phase-gated: quelli
+           di esplorazione si servono su un turno del motore in NARRAZIONE (qui sotto);
+           in COMBATTIMENTO attendono la fine dello scontro — la separazione
+           esplorazione/combattimento è il phase-gate, non un filtro del port."""
+        travasa(self.coda)
+        for intento in consuma_messaggi(PlayerChoseOption):
+            self._agisci(intento.opzione)
+        travasa(self.coda)  # le scelte di scena possono aver accodato intenti di dominio
+        if not in_combattimento() and messaggi_pendenti(IntentoEsplorazione):
+            tick()  # un atto di esplorazione = un turno del motore (movimento, discesa)
+        self._sincronizza_scena()
         return self._snapshot_corrente()
 
     def salva(self) -> str:
         """Salvataggio a mano, in-run (H-6): il World sopravvive, scrittura prima di
-        ogni teardown. Ritorna il messaggio da mostrare."""
-        salva_run(self.guscio.directory, model_id=MODEL_ID_DEFAULT)
+        ogni teardown. La mappa viaggia nello slot `esplorazione`."""
+        salva_run(self.guscio.directory, model_id=MODEL_ID_DEFAULT, esplorazione=mappa_to_dict())
         return "Partita salvata."
 
-    # --- Macchina di modo (interpretazione delle scelte) ----------------------
+    # --- Interpretazione delle scelte (sulla verità del motore, non su un modo) -
 
     def _agisci(self, indice: int) -> None:
-        if not (0 <= indice < len(self._opzioni)):
-            return
-        if self._modo == "scelta_narrazione":
-            self._agisci_narrazione(self._opzioni[indice])
-        elif self._modo == "combattimento":
-            self._agisci_combattimento()
+        if in_combattimento():
+            if 0 <= indice < len(_MENU_COMBATTIMENTO):
+                self._agisci_combattimento()
+        elif 0 <= indice < len(self._scena):
+            self._agisci_narrazione(self._scena[indice])
 
-    def _agisci_narrazione(self, opzione: OpzioneVista) -> None:
-        if opzione.tipo is TipoAzione.SCAPPA:
+    def _agisci_narrazione(self, azione: OpzioneScena) -> None:
+        if azione.tipo is TipoAzione.SCENDI:
+            self.coda.accoda(PlayerDiscende())  # la serve SistemaDiscesa (gate: scala)
+            return
+        if azione.tipo is TipoAzione.MUOVI and azione.stanza is not None:
+            self.coda.accoda(PlayerSiMuove(azione.stanza))  # la serve SistemaMovimento
+            return
+        if azione.tipo is TipoAzione.SCAPPA:
             # Disimpegno: prova su stat PRIMA di ingaggiare (FNC §5.3, tirata dal motore).
             # La destrezza passa dal fold (GR2-3), non da un campo della scheda.
             pent, _m, _scheda = protagonista()
             if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), ClasseProva.BRONZO, self.rng):
-                self._attendi_narrazione()  # fuga riuscita → nuovo turno
+                dissolvi_mob()  # fuga riuscita: l'incontro si dissolve, la scena si riapre
                 return
-        # Combatti (o disimpegno fallito): si compone l'incontro e si ingaggia a confine.
+        # Combatti (o disimpegno fallito): l'incontro è il nemico DELLA STANZA, arruolato
+        # col suo profilo calibrato (Primarie/Corredo/Resistenze). Il fallback per scalari
+        # resta solo per robustezza (scena senza mob registrato).
+        mob = mob_corrente()
         ingaggia_combattimento(
             self.bus,
-            nemici=[SpecNemico(destrezza=5, punti_vita=3)],
+            nemici=None if mob is not None else [SpecNemico(destrezza=5, punti_vita=3)],
+            arruolate=[mob] if mob is not None else None,
             seed=self.rng.randint(0, 10**9),
         )
-        self._modo = "combattimento"
-        self._opzioni = _MENU_COMBATTIMENTO
 
     def _agisci_combattimento(self) -> None:
         tick()  # un turno di combattimento risolto (deterministico, seeded)
-        if not in_combattimento():  # CombatResolved ha riportato in NARRAZIONE
-            self._attendi_narrazione()
 
-    def _attendi_narrazione(self) -> None:
-        self._modo = "attesa_narrazione"
-        self._opzioni = ()  # menu vuoto ⇒ l'host chiede un nuovo turno di narrazione
+    def _sincronizza_scena(self) -> None:
+        """Riallinea il menu alla verità del motore: in combattimento il menu di
+        combattimento; altrimenti la SCENA composta dalla mappa. Scena vuota = stanza
+        mai narrata ⇒ menu vuoto ⇒ l'host chiede un turno di narrazione."""
+        if in_combattimento():
+            self._scena = ()
+            self._opzioni = _MENU_COMBATTIMENTO
+            return
+        self._scena = componi_opzioni_scena()
+        self._opzioni = tuple(
+            OpzioneVista(indice=i, etichetta=az.etichetta, tipo=az.tipo)
+            for i, az in enumerate(self._scena)
+        )
 
     # --- Costruzione dello snapshot dal World corrente ------------------------
 
@@ -181,7 +226,7 @@ class SessioneGioco:
 
 # --- Cronaca del bus: eventi di dominio → righe di testo (headless, read-only) ----
 #
-# Lo stesso ruolo "consumatore read-only di eventi" che avrà una Ui (IC §2.3), qui
+# Lo stesso ruolo "consumatore read-only di eventi" che avrà una UI (IC §2.3), qui
 # ridotto a testo: l'host headless si sottoscrive al bus e raccoglie ciò che il motore
 # emette. Una UI futura sostituirà questo collettore senza toccare il motore.
 _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (

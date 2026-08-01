@@ -27,7 +27,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import Archetipo, ClasseProva, Durata, StatId
+from contracts import Archetipo, ClasseProva, Durata, StatId, TipoDanno
 
 
 # --- Il catalogo: ogni placeholder con la sua spiegazione (cosa dovrebbe essere) -
@@ -66,7 +66,84 @@ CAT_PROB = "Probabilità (anomalia, imboscata)"
 CAT_TEMPO = "Tempo (durate, durata-blocco)"
 CAT_PROVE = "Prove — soglie delle classi"
 CAT_CARL = "Protagonista (Carl) — primarie base e HP"
-CAT_ARCH = "Archetipi nemici — profili base"
+CAT_MAPPA = "Mappa / esplorazione"
+CAT_ARCH_SLIME = "Nemico — Slime"
+CAT_ARCH_SCHELETRO = "Nemico — Scheletro"
+CAT_ARCH_GOBLIN = "Nemico — Goblin"
+
+
+# Scelte condivise (categorie di gear), riusate dai Param "scelta" globali e per-archetipo.
+_SCELTE_ARMATURA = ("veste", "leggera", "media", "pesante")
+_SCELTE_TAGLIA = ("colossale", "enorme", "grossa", "media", "piccola", "infima")
+_SCELTE_ARMA = ("pari", "piu_piccola", "mismatch", "naturale")
+
+# Profilo-default per archetipo (§11). `intelligenza_base` di default = ex-proxy
+# `destrezza_base // 2` → il comportamento odierno resta invariato finché non si edita.
+_ARCH_PROFILI_DEFAULT: tuple[tuple[str, str, str, dict[str, object]], ...] = (
+    ("slime", "lo Slime", CAT_ARCH_SLIME, dict(
+        destrezza_base=3, pv_base=6, danno_base=1, intelligenza_base=1, difesa_base=0,
+        saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
+        res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
+    ("scheletro", "lo Scheletro", CAT_ARCH_SCHELETRO, dict(
+        destrezza_base=5, pv_base=8, danno_base=2, intelligenza_base=2, difesa_base=0,
+        saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
+        res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
+    ("goblin", "il Goblin", CAT_ARCH_GOBLIN, dict(
+        destrezza_base=7, pv_base=5, danno_base=2, intelligenza_base=3, difesa_base=0,
+        saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
+        res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
+)
+
+
+def _archetipi_defs() -> tuple[Param, ...]:
+    """Genera le foglie di catalogo per ogni archetipo: stat base + geometria + resistenze
+    (13 per archetipo). La `spiegazione` di ogni foglia è il testo d'impatto che console/UI
+    mostrano — così *tutta* la parte numerica di un'entità è dato editabile, non codice."""
+    out: list[Param] = []
+    for nome, disp, cat, d in _ARCH_PROFILI_DEFAULT:
+        out += [
+            Param(f"ARCH.{nome}.destrezza_base", d["destrezza_base"],
+                  f"Destrezza base di {disp}: iniziativa ed evasione (nel vettore: +rango per grado).",
+                  cat, "intero ≥1", "int"),
+            Param(f"ARCH.{nome}.pv_base", d["pv_base"],
+                  f"PV base di {disp} (→ Costituzione, scala con grado·livello).", cat, "intero ≥1", "int"),
+            Param(f"ARCH.{nome}.danno_base", d["danno_base"],
+                  f"Danno base di {disp} (→ Forza, scala con grado·livello).", cat, "intero ≥1", "int"),
+            Param(f"ARCH.{nome}.intelligenza_base", d["intelligenza_base"],
+                  f"Intelligenza base di {disp}: accuratezza magica (nel vettore: +rango). "
+                  "Prima era un proxy della Destrezza.", cat, "intero ≥1", "int"),
+            Param(f"ARCH.{nome}.difesa_base", d["difesa_base"],
+                  f"Difesa base di {disp} in centesimi: mitigazione piatta d'armatura (0 = nudo). "
+                  "Flat, non scala col grado.", cat, "intero ≥0", "int", "centesimi"),
+            Param(f"ARCH.{nome}.saggezza_base", d["saggezza_base"],
+                  f"Saggezza base di {disp}: stat nascosta (nel vettore: +rango).", cat, "intero ≥1", "int"),
+            Param(f"ARCH.{nome}.fortuna_base", d["fortuna_base"],
+                  f"Fortuna base di {disp}: usata nei tiri (nel vettore: +rango).", cat, "intero ≥1", "int"),
+            Param(f"ARCH.{nome}.armatura", d["armatura"],
+                  f"Categoria d'armatura di {disp}: la mobilità che diventa evasione "
+                  "(veste = massima, pesante = minima).", cat, "una chiave di m_armatura",
+                  "scelta", scelte=_SCELTE_ARMATURA),
+            Param(f"ARCH.{nome}.taglia", d["taglia"],
+                  f"Taglia di {disp}: più piccola = schiva di più (fattore m_taglia).",
+                  cat, "una chiave di m_taglia", "scelta", scelte=_SCELTE_TAGLIA),
+            Param(f"ARCH.{nome}.arma", d["arma"],
+                  f"Arma di {disp}: coeff. di accuratezza (arma vs portatore). Precisa ≠ forte: "
+                  "muove il colpire, non il danno.", cat, "una chiave di coeff_acc",
+                  "scelta", scelte=_SCELTE_ARMA),
+            Param(f"ARCH.{nome}.res.mischia", d["res_mischia"],
+                  f"Resistenza/vulnerabilità di {disp} al danno da MISCHIA, in punti % "
+                  "(valore <0 resiste, >0 vulnerabile, 0 neutro).", cat,
+                  "punti %; <0 resiste, >0 vulnerabile"),
+            Param(f"ARCH.{nome}.res.fuoco", d["res_fuoco"],
+                  f"Resistenza/vulnerabilità di {disp} al danno da FUOCO, in punti % "
+                  "(valore <0 resiste, >0 vulnerabile, 0 neutro).", cat,
+                  "punti %; <0 resiste, >0 vulnerabile"),
+            Param(f"ARCH.{nome}.res.veleno", d["res_veleno"],
+                  f"Resistenza/vulnerabilità di {disp} al danno da VELENO, in punti % "
+                  "(valore <0 resiste, >0 vulnerabile, 0 neutro).", cat,
+                  "punti %; <0 resiste, >0 vulnerabile"),
+        ]
+    return tuple(out)
 
 
 _DEFS: tuple[Param, ...] = (
@@ -143,15 +220,13 @@ _DEFS: tuple[Param, ...] = (
     Param("COEFF_ACC.naturale", 1.3, "Armi naturali (pugni/calci/artigli): 'roba loro', istinto.",
           CAT_ARMA, ">1"),
     # --- Geometria default (scelte) ---
-    Param("ARMATURA_DEFAULT", "veste", "Categoria d'armatura di default dell'MVP (entità nude). "
-          "Seam gear: diventerà dato per-entità.", CAT_GEOM, "una chiave di m_armatura", "scelta",
-          scelte=("veste", "leggera", "media", "pesante")),
-    Param("TAGLIA_DEFAULT", "media", "Taglia di default dell'MVP.", CAT_GEOM,
-          "una chiave di m_taglia", "scelta",
-          scelte=("colossale", "enorme", "grossa", "media", "piccola", "infima")),
-    Param("ARMA_DEFAULT", "naturale", "Arma di default dell'MVP (armi naturali).", CAT_GEOM,
-          "una chiave di coeff_acc", "scelta",
-          scelte=("pari", "piu_piccola", "mismatch", "naturale")),
+    Param("ARMATURA_DEFAULT", "veste", "Categoria d'armatura di default (entità senza slot gear: "
+          "protagonista, nemici-da-scalari). Le entità generate portano il proprio `Corredo`.",
+          CAT_GEOM, "una chiave di m_armatura", "scelta", scelte=_SCELTE_ARMATURA),
+    Param("TAGLIA_DEFAULT", "media", "Taglia di default (entità senza slot gear).", CAT_GEOM,
+          "una chiave di m_taglia", "scelta", scelte=_SCELTE_TAGLIA),
+    Param("ARMA_DEFAULT", "naturale", "Arma di default (entità senza slot gear).", CAT_GEOM,
+          "una chiave di coeff_acc", "scelta", scelte=_SCELTE_ARMA),
     # --- Probabilità ---
     Param("PROB_ANOMALIA", 0.05, "Probabilità che il dungeon 'tiri fuori scala' (budget gonfiato "
           "dal motore, seeded). Bassa: 'l'ingiustizia assurda' è rara.", CAT_PROB, "0 – 1"),
@@ -190,23 +265,15 @@ _DEFS: tuple[Param, ...] = (
           "intero ≥1", "int"),
     Param("HP_DEFAULT", 30, "HP iniziale del protagonista (= Costituzione iniziale → nasce "
           "'integro').", CAT_CARL, "intero ≥1", "int", "HP"),
-    # --- Archetipi nemici ---
-    Param("ARCH.slime.destrezza_base", 3, "Destrezza base dello Slime.", CAT_ARCH, "intero ≥1",
-          "int"),
-    Param("ARCH.slime.pv_base", 6, "PV base dello Slime (→ Costituzione).", CAT_ARCH, "intero ≥1",
-          "int"),
-    Param("ARCH.slime.danno_base", 1, "Danno base dello Slime (→ Forza).", CAT_ARCH, "intero ≥1",
-          "int"),
-    Param("ARCH.scheletro.destrezza_base", 5, "Destrezza base dello Scheletro.", CAT_ARCH,
-          "intero ≥1", "int"),
-    Param("ARCH.scheletro.pv_base", 8, "PV base dello Scheletro.", CAT_ARCH, "intero ≥1", "int"),
-    Param("ARCH.scheletro.danno_base", 2, "Danno base dello Scheletro.", CAT_ARCH, "intero ≥1",
-          "int"),
-    Param("ARCH.goblin.destrezza_base", 7, "Destrezza base del Goblin (agile).", CAT_ARCH,
-          "intero ≥1", "int"),
-    Param("ARCH.goblin.pv_base", 5, "PV base del Goblin (fragile).", CAT_ARCH, "intero ≥1", "int"),
-    Param("ARCH.goblin.danno_base", 2, "Danno base del Goblin.", CAT_ARCH, "intero ≥1", "int"),
+    # --- Mappa / esplorazione ---
+    Param("MAPPA_STANZE", 6, "Numero di stanze del piano generato dalla mappa (catena + un "
+          "ramo trasversale seeded; la scala di discesa è garantita raggiungibile, G-18).",
+          CAT_MAPPA, "intero ≥2", "int", "stanze"),
 )
+
+# Le foglie per-archetipo (stat base + geometria + resistenze) sono generate: le tre leve
+# storiche (destrezza/pv/danno) migrano qui, sotto la categoria del loro archetipo.
+_DEFS = _DEFS + _archetipi_defs()
 
 CATALOGO: dict[str, Param] = {p.chiave: p for p in _DEFS}
 
@@ -321,6 +388,7 @@ PROB_ANOMALIA = valore("PROB_ANOMALIA")
 PROB_IMBOSCATA = valore("PROB_IMBOSCATA")
 DURATA_BLOCCO_DEFAULT = valore("DURATA_BLOCCO_DEFAULT")
 HP_DEFAULT = valore("HP_DEFAULT")
+MAPPA_STANZE = valore("MAPPA_STANZE")
 
 M_ARMATURA: dict[str, float] = {
     "veste": valore("M_ARMATURA.veste"), "leggera": valore("M_ARMATURA.leggera"),
@@ -364,11 +432,38 @@ PRIMARIE_BASE_CARL: dict[StatId, int] = {
 
 @dataclass(frozen=True)
 class ProfiloArchetipo:
-    """Profilo-base di un archetipo (valori §11 dal catalogo). La formula-madre lo scala."""
+    """Profilo-base di un archetipo (valori §11 dal catalogo). La formula-madre lo scala.
+
+    Oltre alle tre leve storiche (destrezza/pv/danno) porta le stat base mancanti, la
+    geometria di combattimento (slot gear per-entità) e le resistenze tipate: tutto DATO
+    editabile da catalogo/override (console/UI), mai cablato nel motore."""
 
     destrezza_base: int
     pv_base: int
     danno_base: int
+    intelligenza_base: int
+    difesa_base: int
+    saggezza_base: int
+    fortuna_base: int
+    armatura: str
+    taglia: str
+    arma: str
+    resistenze: dict[TipoDanno, float]
+
+
+# Vocabolario chiuso → nome-chiave del catalogo (i soli archetipi esistenti, F-6).
+_NOME_ARCHETIPO: dict[Archetipo, str] = {
+    Archetipo.SLIME: "slime",
+    Archetipo.SCHELETRO: "scheletro",
+    Archetipo.GOBLIN: "goblin",
+}
+
+# Tipi di danno tipati (escluso GENERICO, identità DT-6): le foglie `res.<tipo>`.
+_TIPI_RESISTIBILI: tuple[TipoDanno, ...] = (TipoDanno.MISCHIA, TipoDanno.FUOCO, TipoDanno.VELENO)
+
+
+def _resistenze_profilo(nome: str) -> dict[TipoDanno, float]:
+    return {t: valore(f"ARCH.{nome}.res.{t.value}") for t in _TIPI_RESISTIBILI}
 
 
 def _profilo(nome: str) -> ProfiloArchetipo:
@@ -376,35 +471,64 @@ def _profilo(nome: str) -> ProfiloArchetipo:
         destrezza_base=valore(f"ARCH.{nome}.destrezza_base"),
         pv_base=valore(f"ARCH.{nome}.pv_base"),
         danno_base=valore(f"ARCH.{nome}.danno_base"),
+        intelligenza_base=valore(f"ARCH.{nome}.intelligenza_base"),
+        difesa_base=valore(f"ARCH.{nome}.difesa_base"),
+        saggezza_base=valore(f"ARCH.{nome}.saggezza_base"),
+        fortuna_base=valore(f"ARCH.{nome}.fortuna_base"),
+        armatura=valore(f"ARCH.{nome}.armatura"),
+        taglia=valore(f"ARCH.{nome}.taglia"),
+        arma=valore(f"ARCH.{nome}.arma"),
+        resistenze=_resistenze_profilo(nome),
     )
 
 
-# `Archetipo → profilo`. Binding F-6 (ogni archetipo ha una voce) + base della formula-madre.
+# `Archetipo → profilo` (import-time; gli override valgono dal prossimo avvio, come le costanti).
 REGISTRY_ARCHETIPI: dict[Archetipo, ProfiloArchetipo] = {
-    Archetipo.SLIME: _profilo("slime"),
-    Archetipo.SCHELETRO: _profilo("scheletro"),
-    Archetipo.GOBLIN: _profilo("goblin"),
+    a: _profilo(n) for a, n in _NOME_ARCHETIPO.items()
 }
+
+
+def profilo_corrente(archetipo: Archetipo) -> ProfiloArchetipo:
+    """Profilo **fresco** dagli override in memoria (per le anteprime della UI): a differenza
+    di `REGISTRY_ARCHETIPI` (cache-ato all'import) rilegge catalogo+override adesso."""
+    return _profilo(_NOME_ARCHETIPO[archetipo])
+
+
+def geometria_da_archetipo(archetipo: Archetipo) -> tuple[str, str, str]:
+    """Slot gear (armatura, taglia, arma) dell'archetipo — dato primitivo per il motore."""
+    p = REGISTRY_ARCHETIPI[archetipo]
+    return p.armatura, p.taglia, p.arma
+
+
+def resistenze_da_archetipo(archetipo: Archetipo) -> dict[TipoDanno, float]:
+    """Resistenze tipate **non nulle** dell'archetipo (assenza = identità DT-6)."""
+    return {t: v for t, v in REGISTRY_ARCHETIPI[archetipo].resistenze.items() if v != 0}
 
 
 # --- Formula-madre: (archetipo, grado, livello) → primarie ---------------------
 
-def primarie_da_archetipo(archetipo: Archetipo, grado, livello: int) -> dict[StatId, int]:
+def primarie_da_archetipo(
+    archetipo: Archetipo, grado, livello: int, *, profilo: ProfiloArchetipo | None = None
+) -> dict[StatId, int]:
     """Formula-madre delle `Primarie` di un'entità generata (SEGNAPOSTO §11).
 
-    Profilo-base (da `REGISTRY_ARCHETIPI`) → vettore `Primarie`, scalato da grado e profondità.
-    Mappa: `FORZA←danno_base`, `DESTREZZA←destrezza_base`, `COSTITUZIONE←pv_base`,
-    `INTELLIGENZA←proxy`. Deriva, non legge dall'AI."""
+    Profilo-base → vettore delle 7 `Primarie`, scalato da grado e profondità. Moltiplicative
+    col fattore (`FORZA←danno_base`, `COSTITUZIONE←pv_base`); additive `+rango`
+    (`DESTREZZA/INTELLIGENZA/SAGGEZZA/FORTUNA`); `DIFESA` flat in centesimi. Deriva, non legge
+    dall'AI. `profilo` esplicito = anteprima fresca (UI); assente = `REGISTRY_ARCHETIPI`."""
     from .catalogo import rango_grado  # import locale: evita il ciclo calibrazione↔catalogo
 
-    profilo = REGISTRY_ARCHETIPI[archetipo]
+    profilo = profilo if profilo is not None else REGISTRY_ARCHETIPI[archetipo]
     rango = rango_grado(grado)
     fattore = rango * max(1, livello)
     return {
         StatId.FORZA: profilo.danno_base * fattore,
         StatId.DESTREZZA: profilo.destrezza_base + rango,
         StatId.COSTITUZIONE: profilo.pv_base * fattore,
-        StatId.INTELLIGENZA: max(1, profilo.destrezza_base // 2),  # [§11] proxy
+        StatId.INTELLIGENZA: profilo.intelligenza_base + rango,
+        StatId.DIFESA: profilo.difesa_base,
+        StatId.SAGGEZZA: profilo.saggezza_base + rango,
+        StatId.FORTUNA: profilo.fortuna_base + rango,
     }
 
 

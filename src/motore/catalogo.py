@@ -72,7 +72,7 @@ def rango_grado(grado: Grado) -> int:
 # la **base** che quella formula consuma.
 
 
-# `DURATA_BLOCCO_DEFAULT` vive in `calibrazione.py` (rieasposto sopra).
+# `DURATA_BLOCCO_DEFAULT` vive in `calibrazione.py` (riesposto sopra).
 
 
 # --- Budget: set ammissibile per contesto, + anomalia seeded (FNC §5.5) --------
@@ -95,7 +95,7 @@ class Budget:
     anomala: bool = False
 
 
-# `PROB_ANOMALIA` vive in `calibrazione.py` (rieasposto sopra).
+# `PROB_ANOMALIA` vive in `calibrazione.py` (riesposto sopra).
 
 # Archetipo di default designato per il fallback (F §6.3): DETERMINISTICO, non pescato.
 # (Scelta categoriale, non un numero §11 → resta qui.)
@@ -243,5 +243,5 @@ def e_dannoso(tipo_status: type[Status]) -> bool:
 
 
 # --- Dado-evento: probabilità d'imboscata per tick di scorrimento (J §8) -------
-# `PROB_IMBOSCATA` vive in `calibrazione.py` (rieasposto sopra): la *forma* (un tiro seeded
+# `PROB_IMBOSCATA` vive in `calibrazione.py` (riesposto sopra): la *forma* (un tiro seeded
 # a ogni tick) è del motore; il *valore* è §11.

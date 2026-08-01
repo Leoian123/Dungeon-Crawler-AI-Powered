@@ -1,6 +1,7 @@
 @echo off
 REM ============================================================================
-REM  start.bat - avvio a un click del gioco (Dungeon Crawler, fetta verticale).
+REM  start.bat - setup venv + demo headless a un click (driver di riferimento).
+REM  Per GIOCARE con l'interfaccia usa gioca.bat; per calibrare, calibra.bat.
 REM
 REM  Al PRIMO avvio crea un virtualenv (.venv) e installa le dipendenze; dal
 REM  secondo avvio in poi il venv c'e' gia' e parte subito.

@@ -23,7 +23,7 @@ from contracts import (
     StatId,
 )
 from guscio import NOME_DEFAULT, NOME_RUN, Guscio, StatoGuscio, Terminale
-from motore import MessaggioIntento, leggi_fase, Fase, protagonista, stat_eff
+from motore import MessaggioIntento, leggi_fase, Fase, mappa_corrente, protagonista, stat_eff
 from motore.persistenza.disco import path_stato
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
@@ -51,6 +51,12 @@ def _uccidi(g: Guscio) -> None:
 
 
 def _scendi(g: Guscio) -> None:
+    # Il gate di discesa richiede la SCALA nella stanza corrente (mappa): il conducente
+    # di prova si porta sulla scala, poi emette l'intento.
+    trovata = mappa_corrente()
+    if trovata is not None:
+        _ent, mappa = trovata
+        mappa.stanza_corrente = next(iter(mappa.piano.discese))
     esper.create_entity(MessaggioIntento(PlayerDiscende()))  # SistemaDiscesa → DiscesaPiano
 
 

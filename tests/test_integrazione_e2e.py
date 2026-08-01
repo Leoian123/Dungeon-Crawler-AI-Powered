@@ -90,7 +90,12 @@ def test_e2e_piano_intero_capo_a_fine(guscio_pulito, tmp_path) -> None:
     assert g._terminale is None  # …e NON è un terminale di run (E-8)
     assert protagonista()[2].vivo is True  # Carl è sopravvissuto
 
-    # --- discesa: nell'MVP DiscesaPiano = piano-completato = terminale (G §6.7) -
+    # --- discesa: serve la SCALA (mappa) — ci si porta sulla stanza-scala, poi
+    # l'intento; nell'MVP DiscesaPiano = piano-completato = terminale (G §6.7) -
+    from motore import mappa_corrente
+
+    _ment, mappa = mappa_corrente()  # type: ignore[misc]
+    mappa.stanza_corrente = next(iter(mappa.piano.discese))
     g.coda.accoda(PlayerDiscende())  # intento del giocatore → coda (C-8)
     tick()  # DrenaggioIntenti → SistemaDiscesa → attiva_discesa → DiscesaPiano
     assert livello_corrente() == 2

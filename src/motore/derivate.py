@@ -23,8 +23,19 @@ import esper
 from contracts import StatId
 
 from . import calibrazione as cal
+from .corredo import Corredo
 from .scheda import Scheda
 from .statistiche import stat_eff
+
+
+def _geometria(entita: int) -> tuple[str, str, str]:
+    """Slot gear (armatura, taglia, arma) dell'entità: il suo `Corredo` se presente,
+    altrimenti i **default globali** (`*_DEFAULT`). È l'apertura del seam gear: entità senza
+    `Corredo` (protagonista, nemici-da-scalari) restano ai valori odierni, bit-per-bit."""
+    c = esper.try_component(entita, Corredo)
+    if c is None:
+        return cal.ARMATURA_DEFAULT, cal.TAGLIA_DEFAULT, cal.ARMA_DEFAULT
+    return c.armatura, c.taglia, c.arma
 
 
 def max_hp(entita: int) -> int:
@@ -75,10 +86,11 @@ def _coeff_eva(ber: int, *, pct_evasione: float = 0.0) -> float:
 
     `m_armatura`/`m_taglia` sono **selettori di categoria** (un valore ciascuno → prodotto
     *bounded*, non stacking moltiplicativo); le `%` di skill/enchant restano additive dentro
-    `(1+Σ)`. SEAM gear: oggi le categorie sono i default MVP (nudo/taglia media); diventeranno
-    dato per-entità (slot armatura/taglia)."""
-    m_armatura = cal.M_ARMATURA[cal.ARMATURA_DEFAULT]
-    m_taglia = cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
+    `(1+Σ)`. SEAM gear (aperto): armatura/taglia vengono dal `Corredo` del bersaglio
+    (`_geometria`), con fallback ai default globali per chi non lo porta."""
+    armatura, taglia, _arma = _geometria(ber)
+    m_armatura = cal.M_ARMATURA[armatura]
+    m_taglia = cal.M_TAGLIA[taglia]
     return m_armatura * m_taglia * (1 + pct_evasione)
 
 
@@ -95,10 +107,11 @@ def acc_eff(att: int, *, w: float = cal.W_FISICO, pct_precisione: float = 0.0) -
     """Accuratezza del check 1 (§5.4), gemello offensivo dell'evasione: `stat_base_acc ×
     coeff_acc × (1 + Σ pct_precisione)`, con `stat_base_acc = w·Des_eff + (1−w)·Int_eff` — UNA
     formula per fisico e magia (Des e Int competono per il peso `w`, dato dell'attacco; mai
-    0/1). `coeff_acc` = arma rispetto alla taglia del portatore (default `naturale`). Precisa
-    ≠ forte: `coeff_acc` muove il colpire, non il danno."""
+    0/1). `coeff_acc` = arma rispetto alla taglia del portatore (dal `Corredo`, fallback
+    `ARMA_DEFAULT`). Precisa ≠ forte: `coeff_acc` muove il colpire, non il danno."""
     stat_base_acc = w * stat_eff(att, StatId.DESTREZZA) + (1 - w) * stat_eff(att, StatId.INTELLIGENZA)
-    coeff_acc = cal.COEFF_ACC[cal.ARMA_DEFAULT]
+    _armatura, _taglia, arma = _geometria(att)
+    coeff_acc = cal.COEFF_ACC[arma]
     return stat_base_acc * coeff_acc * (1 + pct_precisione)
 
 

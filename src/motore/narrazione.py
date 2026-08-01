@@ -32,7 +32,6 @@ from pydantic import ValidationError
 from contracts import (
     AnomalyTriggered,
     Archetipo,
-    Blocco,
     Durata,
     EncounterStarted,
     EntitaGenerata,
@@ -44,7 +43,13 @@ from contracts import (
     TurnoNarrazione,
 )
 
-from .calibrazione import primarie_da_archetipo
+from .calibrazione import (
+    geometria_da_archetipo,
+    primarie_da_archetipo,
+    resistenze_da_archetipo,
+)
+from .corredo import Corredo
+from .modificatori import ResistenzaMod, Resistenze
 from .catalogo import (
     DURATA_BLOCCO_DEFAULT,
     REGISTRY_ARCHETIPI,
@@ -367,6 +372,7 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
     primarie = Primarie(valori=primarie_da_archetipo(entita.archetipo, entita.grado, livello))
     rango = rango_grado(entita.grado)
 
+    armatura, taglia, arma = geometria_da_archetipo(entita.archetipo)
     componenti: list[object] = [
         EntitaMob(
             archetipo=entita.archetipo,
@@ -376,7 +382,15 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
             livello=livello,
         ),
         primarie,
+        Corredo(armatura=armatura, taglia=taglia, arma=arma),  # seam gear per-entità
     ]
+    resistenze = resistenze_da_archetipo(entita.archetipo)
+    if resistenze:  # assenza = identità DT-6: nessun Resistenze se il profilo è neutro
+        fonte = f"archetipo:{entita.archetipo.value}"  # tag di dominio stabile (mai id esper)
+        componenti.append(Resistenze(voci=[
+            ResistenzaMod(contro=tipo, valore=valore, fonte=fonte)
+            for tipo, valore in resistenze.items()
+        ]))
     for blocco in entita.blocchi:
         cls = REGISTRY_BLOCCHI[blocco]
         componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT))
@@ -411,7 +425,13 @@ def tenta_disimpegno(destrezza: int, classe, rng: random.Random) -> bool:
 
 # --- Confine narrazione→combattimento: EncounterStarted al tick (G-25) ---------
 
-def ingaggia_combattimento(bus, *, nemici: list[SpecNemico], seed: int) -> int:
+def ingaggia_combattimento(
+    bus,
+    *,
+    nemici: list[SpecNemico] | None = None,
+    seed: int,
+    arruolate: list[int] | None = None,
+) -> int:
     """Emette `EncounterStarted` al **confine di tick**, dopo che l'incontro è stato
     composto in NARRAZIONE (G §5.1, G-25).
 
@@ -419,8 +439,11 @@ def ingaggia_combattimento(bus, *, nemici: list[SpecNemico], seed: int) -> int:
     combattimento è materializzata qui** — lo spawn avviene nell'handler di
     `EncounterStarted` (combattimento.py), *dopo* il flip a COMBATTIMENTO. Ordine
     fissato: composizione in narrazione → gate (clamp `durata=TURNO`) →
-    `EncounterStarted` → flip. Ritorna l'entità-incontro.
+    `EncounterStarted` → flip. `arruolate` = entità già vive (il reveal della scena)
+    da arruolare col loro profilo calibrato. Ritorna l'entità-incontro.
     """
-    enc = esper.create_entity(PianoIncontro(nemici=list(nemici), seed=seed))
+    enc = esper.create_entity(
+        PianoIncontro(nemici=list(nemici or []), seed=seed, arruolate=list(arruolate or []))
+    )
     bus.pubblica(EncounterStarted(entita=enc))
     return enc

@@ -35,7 +35,7 @@ from .calibrazione import (
     S_CONTEST,
     primarie_da_scalari,
 )
-from .derivate import acc_eff, atk_eff, def_eff, eva_eff
+from .derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
 from .modificatori import Resistenze
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
 from .scheda import ActionPoint, Protagonista, Scheda, protagonista
@@ -43,7 +43,7 @@ from .statistiche import Primarie, stat_eff
 from .turno import azzera_turno_attivo, segna_turno_attivo
 
 # `DANNO_BASE` (witness storico del floor positivo del danno, G-L1) vive in `calibrazione.py`
-# (rieasposto via l'import sopra): oggi il floor reale è nel check 2, ma il contratto
+# (riesposto via l'import sopra): oggi il floor reale è nel check 2, ma il contratto
 # "ogni colpo che connette fa progredire lo stato" resta vero.
 
 
@@ -88,11 +88,17 @@ class PianoIncontro:
     """Composizione dell'incontro, preparata in narrazione (AI a monte, §5.1).
 
     Il motore la materializza su `EncounterStarted`. `seed` borda il nondeterminismo
-    della risoluzione (FNC §9).
+    della risoluzione (FNC §9). Due sorgenti di nemici, componibili:
+      - `nemici`: spec per scalari (percorso storico, primarie da proxy);
+      - `arruolate`: **entità già vive nel World** (il reveal della stanza, col
+        profilo calibrato completo: Primarie/Corredo/Resistenze) — l'arruolamento
+        aggiunge SOLO i componenti effimeri di combattimento, il nemico combattuto
+        È quello rivelato.
     """
 
     nemici: list[SpecNemico]
     seed: int
+    arruolate: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -195,6 +201,30 @@ def spawn_nemico(*, destrezza: int, punti_vita: int) -> int:
         Primarie(valori=primarie_da_scalari(destrezza=destrezza, punti_vita=punti_vita)),
         PuntiVita(attuali=punti_vita, massimi=punti_vita),
     )
+
+
+def arruola_entita(entita: int) -> int:
+    """Arruola un'entità GIÀ viva del World (il mob rivelato nella stanza) come nemico.
+
+    Aggiunge SOLO i componenti effimeri di combattimento: `Nemico`, `Combattente`
+    (destrezza dal fold — GR2-3), `ActionPoint`, `PuntiVita` (pool = `max_hp` derivato
+    dalla SUA Costituzione). Le sue `Primarie`/`Corredo`/`Resistenze` restano: le
+    derivate del risolutore leggono il profilo calibrato vero. Su `CombatResolved`
+    l'entità segue il ciclo di vita effimero (eliminata come ogni `Nemico`)."""
+    st = stato_combattimento()
+    if st is None:
+        raise RuntimeError("arruola_entita richiede uno StatoCombattimento attivo")
+    _ent_stato, stato = st
+    chiave = stato.prossima_chiave
+    stato.prossima_chiave += 1
+    hp = max_hp(entita)
+    esper.add_component(entita, Nemico())
+    esper.add_component(
+        entita, Combattente(destrezza=stat_eff(entita, StatId.DESTREZZA), chiave_ordine=chiave)
+    )
+    esper.add_component(entita, ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP))
+    esper.add_component(entita, PuntiVita(attuali=hp, massimi=hp))
+    return entita
 
 
 def _nemici_vivi() -> list[int]:
@@ -456,6 +486,9 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
 
         for spec in piano.nemici:
             spawn_nemico(destrezza=spec.destrezza, punti_vita=spec.punti_vita)
+        for ent in piano.arruolate:
+            if esper.entity_exists(ent):
+                arruola_entita(ent)
 
         combattenti = [
             (ent, comb.destrezza, comb.chiave_ordine)

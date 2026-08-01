@@ -23,7 +23,7 @@ import esper
 
 from contracts import DiscesaPiano, PlayerDiscende
 
-from .intenti_coda import MessaggioIntento
+from .intenti_coda import consuma_messaggi
 from .phased import SistemaSoloNarrazione
 
 # Il livello parte da 1 (il primo piano).
@@ -101,17 +101,23 @@ class SistemaDiscesa(SistemaSoloNarrazione):
     """Consuma `PlayerDiscende` (solo in NARRAZIONE) e attiva la discesa (G §8.1).
 
     L'incremento del livello è una **conseguenza posseduta dal motore**, scatenata
-    dall'intento del giocatore — non da un altro evento (G-16). Il sistema rimuove il
-    `MessaggioIntento` consumato (Canale A: il consumatore toglie il tag).
+    dall'intento del giocatore — non da un altro evento (G-16). Consuma via
+    `consuma_messaggi` (Canale A): SOLO il proprio tipo, gli altri intenti restano.
+
+    **Gate spaziale (G §8.1/§8.3):** con una `Mappa` attiva si scende SOLO se la
+    stanza corrente contiene una scala (il primitivo strutturale) — la parola "scala"
+    nella prosa non concede nulla. Un intento senza scala è consumato senza effetto.
+    Senza mappa (harness legacy) la discesa resta libera.
     """
 
     def __init__(self, bus) -> None:
         self.bus = bus
 
     def run(self, dt: int) -> None:
-        for ent, msg in list(esper.get_component(MessaggioIntento)):
-            if isinstance(msg.intento, PlayerDiscende):
-                esper.remove_component(ent, MessaggioIntento)
+        from .mappa import discesa_consentita  # import locale: evita il ciclo piano↔mappa
+
+        for _intento in consuma_messaggi(PlayerDiscende):
+            if discesa_consentita():
                 attiva_discesa(self.bus)
 
 
@@ -132,7 +138,7 @@ class Piano:
 
 
 def raggiungibili(piano: Piano) -> set[int]:
-    """BFS dalle stanza di partenza: le stanze raggiungibili dallo stato iniziale."""
+    """BFS dalla stanza di partenza: le stanze raggiungibili dallo stato iniziale."""
     visti: set[int] = {piano.partenza}
     coda: deque[int] = deque([piano.partenza])
     while coda:

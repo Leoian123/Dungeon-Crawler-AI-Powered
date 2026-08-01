@@ -13,17 +13,6 @@ from contracts import Archetipo, ClasseProva, Durata, StatId
 from motore import calibrazione as cal
 
 
-@pytest.fixture
-def cal_pulita():
-    """Snapshot/restore degli override in memoria: i test non si sporcano a vicenda."""
-    prima = dict(cal._OVERRIDE)
-    try:
-        yield
-    finally:
-        cal._OVERRIDE.clear()
-        cal._OVERRIDE.update(prima)
-
-
 # --- Il catalogo è completo e auto-descrittivo --------------------------------
 
 def test_ogni_param_ha_spiegazione_e_metadati() -> None:

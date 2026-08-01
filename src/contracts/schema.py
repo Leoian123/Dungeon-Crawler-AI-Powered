@@ -107,10 +107,18 @@ class TipoDanno(str, Enum):
 
 
 class TipoAzione(str, Enum):
-    """Spazio d'azione chiuso → mappa su un'azione nota del motore (IC §2.3)."""
+    """Spazio d'azione chiuso → mappa su un'azione nota del motore (IC §2.3).
+
+    `SCENDI` e `MUOVI` sono azioni **di scena**: compaiono nel menu SOLO quando la
+    mappa (autorità spaziale del motore) le rende vere — una scala nella stanza,
+    un'uscita adiacente. L'AI può nominarle nella prosa ma non può concederle (G §8.3):
+    le compone il motore dalla scena, mai dal testo.
+    """
 
     COMBATTI = "combatti"
     SCAPPA = "scappa"
+    SCENDI = "scendi"
+    MUOVI = "muovi"
     ALTRO = "altro"
 
 

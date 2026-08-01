@@ -12,16 +12,6 @@ import calibratore
 from motore import calibrazione as cal
 
 
-@pytest.fixture
-def cal_pulita():
-    prima = dict(cal._OVERRIDE)
-    try:
-        yield
-    finally:
-        cal._OVERRIDE.clear()
-        cal._OVERRIDE.update(prima)
-
-
 # --- CLI headless -------------------------------------------------------------
 
 def test_cli_get(capsys) -> None:

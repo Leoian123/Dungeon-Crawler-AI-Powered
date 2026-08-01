@@ -62,7 +62,7 @@ class Corpo(BaseModel):
     model_config = _CHIUSO
     entita: list[EntitaSerializzata]
     archivio_ref: str
-    esplorazione: dict | None = None     # slot opaco (sistema d'esplorazione futuro)
+    esplorazione: dict | None = None     # slot della Mappa (topologia+posizione+visitate)
     rng_state: list | None = None        # posizione-RNG: solo qui, mai nell'Archivio (§4.1)
 
 
