@@ -1,0 +1,192 @@
+"""Host web (FastAPI) — l'API di gioco sopra le porte di `SessioneGioco`.
+
+Tutto offline: `provider=None` ⇒ FakeProvider (mai una chiamata di rete, mai la
+chiave). Disciplina esper: fixture `run_pulita` (ESP §0.1) — la sessione switcha
+al run-World, il teardown lo elimina. Il bus è process-global: ogni test chiude
+lo `StatoHost` (deregistrazione handler) nel teardown della fixture.
+"""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from host_web import StatoHost, crea_app
+
+
+@pytest.fixture
+def host(run_pulita):
+    stato = StatoHost()
+    with TestClient(crea_app(stato)) as client:
+        yield client, stato
+    stato.chiudi()
+
+
+def _crea(client: TestClient, seed: int = 1) -> dict:
+    risposta = client.post("/api/partita", json={"seed": seed})
+    assert risposta.status_code == 201
+    return risposta.json()
+
+
+def _narra(client: TestClient, versione: int) -> dict:
+    risposta = client.post("/api/partita/narrazione", json={"versione": versione})
+    assert risposta.status_code == 200
+    return risposta.json()
+
+
+def _indice_opzione(snapshot: dict, etichetta: str) -> int:
+    for opzione in snapshot["opzioni"]:
+        if opzione["etichetta"] == etichetta:
+            return opzione["indice"]
+    raise AssertionError(f"opzione {etichetta!r} assente: {snapshot['opzioni']}")
+
+
+# --- Ciclo di vita -----------------------------------------------------------
+
+def test_senza_partita_404(host) -> None:
+    client, _stato = host
+    assert client.get("/api/partita").status_code == 404
+    assert client.get("/api/partita/thread").status_code == 404
+    r = client.post("/api/partita/narrazione", json={"versione": 0})
+    assert r.status_code == 404
+    assert r.json()["codice"] == "partita_assente"
+
+
+def test_creazione_e_partita_unica(host) -> None:
+    client, _stato = host
+    corpo = _crea(client)
+    assert corpo["versione"] == 0
+    assert corpo["morto"] is False
+    assert corpo["snapshot"] is None  # il primo post arriva con la prima narrazione
+    doppia = client.post("/api/partita", json={"seed": 2})
+    assert doppia.status_code == 409
+    assert doppia.json()["codice"] == "partita_esistente"
+
+
+def test_live_negato_senza_chiave_o_con_fake_forzato(host, monkeypatch) -> None:
+    client, stato = host
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    r = client.post("/api/partita", json={"gm": "live"})
+    assert r.status_code == 503
+    assert r.json()["codice"] == "live_non_disponibile"
+    stato.live_vietato = True  # come il lancio con --fake
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "presente-ma-vietata")
+    r = client.post("/api/partita", json={"gm": "live"})
+    assert r.status_code == 503  # nessun degrado muto: il rifiuto è esplicito
+
+
+# --- Il turno ----------------------------------------------------------------
+
+def test_prima_narrazione_produce_il_post_del_forum(host) -> None:
+    client, _stato = host
+    _crea(client)
+    corpo = _narra(client, 0)
+    assert corpo["versione"] == 1
+    [post] = corpo["post"]
+    assert post["genere"] == "gm"
+    messaggio = post["messaggio"]
+    assert "Slime" in messaggio["prosa"]  # il copione del FakeProvider
+    assert messaggio["dove"] and messaggio["come"]  # contestualizzazione obbligata
+    assert isinstance(messaggio["tempo"]["tick_correnti"], int)
+    etichette = [o["etichetta"] for o in corpo["snapshot"]["opzioni"]]
+    assert "Combatti" in etichette
+    # Il thread ricostruisce il forum al reload pagina.
+    thread = client.get("/api/partita/thread").json()
+    assert [p["genere"] for p in thread["post"]] == ["gm"]
+
+
+def test_versione_stantia_409(host) -> None:
+    client, _stato = host
+    _crea(client)
+    _narra(client, 0)
+    stantia = client.post("/api/partita/narrazione", json={"versione": 0})
+    assert stantia.status_code == 409
+    corpo = stantia.json()
+    assert corpo["codice"] == "turno_stantio"
+    assert corpo["versione_corrente"] == 1
+
+
+def test_opzione_fuori_menu_422(host) -> None:
+    client, _stato = host
+    _crea(client)
+    _narra(client, 0)
+    r = client.post("/api/partita/opzioni", json={"indice": 99, "versione": 1})
+    assert r.status_code == 422
+    assert r.json()["codice"] == "opzione_invalida"
+
+
+def test_azione_libera_doppio_giro(host) -> None:
+    client, _stato = host
+    _crea(client)
+    corpo = _narra(client, 0)
+    # 1) anteprima: deterministica, zero LLM, la versione NON cambia.
+    anteprima = client.post(
+        "/api/partita/azione/anteprima", json={"testo": "frugo tra i rifiuti"}
+    )
+    assert anteprima.status_code == 200
+    riepilogo = anteprima.json()["riepilogo"]
+    assert riepilogo["testo_proposto"] == "frugo tra i rifiuti"
+    assert isinstance(riepilogo["stima"]["tick"], int)
+    assert riepilogo["stima"]["forbice"]
+    assert anteprima.json()["versione"] == corpo["versione"]
+    # 2) immissione (testo eventualmente editato): un nuovo post GM.
+    azione = client.post(
+        "/api/partita/azione",
+        json={"testo": "frugo tra i rifiuti con cautela", "versione": corpo["versione"]},
+    )
+    assert azione.status_code == 200
+    assert azione.json()["versione"] == corpo["versione"] + 1
+    assert any(p["genere"] == "gm" for p in azione.json()["post"])
+
+
+def test_combattimento_end_to_end(host) -> None:
+    client, _stato = host
+    _crea(client)
+    corpo = _narra(client, 0)
+    indice = _indice_opzione(corpo["snapshot"], "Combatti")
+    corpo = client.post(
+        "/api/partita/opzioni", json={"indice": indice, "versione": corpo["versione"]}
+    ).json()
+    assert corpo["fase"] == "combattimento"
+    assert [o["etichetta"] for o in corpo["snapshot"]["opzioni"]] == ["Attacca"]
+    guardia = 0
+    while corpo["fase"] == "combattimento" and not corpo["morto"] and guardia < 100:
+        indice = _indice_opzione(corpo["snapshot"], "Attacca")
+        risposta = client.post(
+            "/api/partita/opzioni", json={"indice": indice, "versione": corpo["versione"]}
+        )
+        assert risposta.status_code == 200
+        corpo = risposta.json()
+        guardia += 1
+    assert corpo["fase"] == "narrazione" or corpo["morto"]
+    # La chiusura dello scontro è passata dal bus alla cronaca → post "evento".
+    thread = client.get("/api/partita/thread").json()
+    assert any(p["genere"] == "evento" for p in thread["post"])
+
+
+def test_permadeath_chiude_le_post_410(host) -> None:
+    client, stato = host
+    _crea(client)
+    _narra(client, 0)
+    stato.morto = True  # il flag che l'handler di MortePersonaggio imposta
+    for percorso, corpo in (
+        ("/api/partita/narrazione", {"versione": 1}),
+        ("/api/partita/opzioni", {"indice": 0, "versione": 1}),
+        ("/api/partita/azione/anteprima", {"testo": "mi rialzo"}),
+        ("/api/partita/azione", {"testo": "mi rialzo", "versione": 1}),
+        ("/api/partita/salva", {"versione": 1}),
+    ):
+        r = client.post(percorso, json=corpo)
+        assert r.status_code == 410, percorso
+        assert r.json()["codice"] == "run_terminata"
+    # In sola lettura il thread resta consultabile.
+    assert client.get("/api/partita/thread").status_code == 200
+
+
+def test_salva(host) -> None:
+    client, _stato = host
+    _crea(client)
+    corpo = _narra(client, 0)
+    r = client.post("/api/partita/salva", json={"versione": corpo["versione"]})
+    assert r.status_code == 200
+    assert "salvata" in r.json()["messaggio"].lower()

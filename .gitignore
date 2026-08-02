@@ -46,6 +46,11 @@ calibrazione.overrides.json
 .env.*
 !.env.example
 
+# Frontend (web/): dipendenze e build della SPA. Il lockfile npm VA versionato.
+web/node_modules/
+web/dist/
+web/.vite/
+
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/
 docs/

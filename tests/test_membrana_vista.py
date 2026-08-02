@@ -63,6 +63,45 @@ def test_C2a_layer_headless_non_importano_ui() -> None:
 _HOST_OPZIONALI = {"calibratore.py", "gioco_textual.py"}
 
 
+# --- Host web (src/host_web): parla al motore SOLO via le porte -------------------
+#
+# Il layer HTTP è un host opt-in come la TUI: importa `main` (composition root),
+# `contracts` e — lazy, come `gioco_textual` — `provider`. MAI `motore`, MAI esper,
+# MAI `guscio`: la membrana resta a tenuta anche sul lato web (C-2a/C-2b).
+# NB: `_radici_import` cammina l'intero AST, quindi vede anche gli import lazy —
+# il divieto qui sotto copre ogni livello, non solo il module-level.
+
+_VIETATE_ALL_HOST_WEB = {"motore", "esper", "guscio"} | _UI_BANDITE
+
+
+def test_host_web_importa_solo_porte() -> None:
+    offese: list[str] = []
+    for py in sorted((_SRC / "host_web").rglob("*.py")):
+        colpite = _radici_import(py) & _VIETATE_ALL_HOST_WEB
+        if colpite:
+            offese.append(f"{py.relative_to(_SRC)}: {sorted(colpite)}")
+    assert not offese, "host_web scavalca la membrana (C-2a):\n" + "\n".join(offese)
+
+
+# Speculare a C-2a: il framework web non trapela nel game engine (né in `main`,
+# che è colla headless — il server appartiene SOLO allo strato host).
+_WEB_BANDITE = {"fastapi", "starlette", "uvicorn"}
+
+
+def test_web_framework_non_trapela_nel_motore() -> None:
+    offese: list[str] = []
+    bersagli = [
+        py
+        for layer in ("motore", "contracts", "guscio", "provider")
+        for py in sorted((_SRC / layer).rglob("*.py"))
+    ] + [_SRC / "main.py", _SRC / "gioco_textual.py"]
+    for py in bersagli:
+        colpite = _radici_import(py) & _WEB_BANDITE
+        if colpite:
+            offese.append(f"{py.relative_to(_SRC)}: {sorted(colpite)}")
+    assert not offese, "framework web fuori dallo strato host:\n" + "\n".join(offese)
+
+
 # --- C-5: l'INTERO game engine regge senza alcuna libreria di UI -----------------
 
 def test_C5_intero_src_indipendente_da_ui() -> None:
