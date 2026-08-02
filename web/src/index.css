@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/* Tema del forum: dungeon scuro, prosa leggibile, accenti ambra da torcia. */
+@theme {
+  --color-pergamena: #e8e0cf;
+  --color-torcia: #f59e0b;
+  --color-abisso: #0c0a09;
+  --color-pietra: #1c1917;
+  --color-muschio: #4ade80;
+  --color-sangue: #f87171;
+}
+
+body {
+  @apply bg-abisso text-pergamena antialiased;
+  font-family: Georgia, "Times New Roman", serif;
+}

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "host-web-fake",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "C:\\Project\\DCC\\gioca_web.bat", "--fake"],
+      "port": 8017
+    },
+    {
+      "name": "web-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "web", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}
