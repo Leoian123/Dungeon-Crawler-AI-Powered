@@ -45,7 +45,13 @@ class Provider(Protocol):
     """
 
     async def genera(
-        self, prompt: str, schema: type[TCandidato]
+        self, prompt: str, schema: type[TCandidato], *, sistema: str = ""
     ) -> TCandidato | None:
-        """Genera un candidato conforme a `schema`, oppure `None` se fallisce."""
+        """Genera un candidato conforme a `schema`, oppure `None` se fallisce.
+
+        `sistema` è il **prefisso statico** del prompt (identità/regole, byte-identico
+        fra chiamate — F §7/H §13): separarlo dal `prompt` dinamico permette al
+        trasporto di marcarlo per il prompt caching (system cache, che con l'output
+        strutturato resta valida). Resta UN solo verbo: `sistema` è struttura
+        dell'input, non un secondo metodo (G-19)."""
         ...

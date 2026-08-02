@@ -148,6 +148,18 @@ ritoccata per rispecchiare la realtà del branch headless:
 - [x] **`CLAUDE.md`** — *(2026-06-04)*: tolta "Textual pinnato (unica dipendenza viva)";
       architettura a tre strati aggiornata (l'`adattatore/` non esiste più su questo branch);
       tolto il punto "Worker API di Textual" da "verifica, non ricordare".
+- [x] **Pipeline GM (2026-07-31)** — estensione di spec, conforme a G §9.2–9.3: il turno di
+      narrazione passa da una **coroutine di orchestrazione a stadi** (`motore/gm.py`,
+      `esegui_turno_gm`): ideazione (nuova chiamata strutturata **non-gating** per turno,
+      schema `Ideazione`, consultiva, 0 retry, degrado silenzioso — G-22 resta rispettato:
+      **una sola chiamata gating**, `procura_turno` invariata) + inquadramento-prova ≤1 +
+      limatura ≤1 + distillazione-memoria ≤1 (tutte `Flavor`/non-gating). La **firma di
+      turno** (`firma_turno`) è il generatore della chiave d'Archivio H §8 finora mancante
+      (congela-una-volta-rileggi-sempre); la memoria di run è **derivata** (H §11), mai
+      persistita come chat. Il combattimento resta **istanza separata** deterministica
+      (`IstanzaCombattimento` nel composition root); i suoi FATTI rientrano nel fascicolo
+      (risolvi prima, narra dopo). FNC §11 "mai spezzare il turno" resta vero: l'output di
+      stato è UNA `TurnoNarrazione` da UNA `genera`.
 - [ ] **Branch** — decidere il destino di `v1-textual-implementation` (tenere come archivio
       o cancellare) e **portare avanti `main`**: quando il branch headless è accettato,
       fonderlo in `main` (fast-forward possibile: `main` è 0 commit avanti). *(Lasciato all'utente:

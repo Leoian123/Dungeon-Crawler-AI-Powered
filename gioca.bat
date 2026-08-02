@@ -8,8 +8,15 @@ REM    narrazione della stanza -> Combatti/Scappi (se c'e' un nemico)
 REM    -> combattimento a turni (Attacca) -> Vai: stanza N / Scendi la scala
 REM    -> discesa = vittoria del piano (MVP). Comandi: click; 's' salva; 'q' esce.
 REM
-REM  Provider OFFLINE (FakeProvider): nessuna chiave LLM, nessuna rete.
+REM  GM: LIVE (Anthropic) se ANTHROPIC_API_KEY e' presente, altrimenti OFFLINE
+REM  (FakeProvider scriptato). Flag: --live (esige il live), --fake (forza offline).
 REM  esper e' VENDORIZZATO (vendor/esper): PYTHONPATH include src e vendor.
+REM
+REM  CHIAVE API (PLK par.4 + best practice): la chiave vive SOLO nell'ambiente o in
+REM  un file .env LOCALE (gitignored; template: .env.example). Questo launcher carica
+REM  .env nell'ambiente del processo SENZA stamparla; la chiave non passa MAI per
+REM  argomenti, URL, log o repo. Usa una chiave dedicata al progetto, con limite di
+REM  spesa; revocala dalla Console se sospetti un leak.
 REM
 REM  ATTENZIONE: Textual NON e' una dipendenza del progetto (il motore e' headless)
 REM  e NON viene installato da start.bat. Questo launcher lo verifica e, se manca,
@@ -20,6 +27,13 @@ chcp 65001 >nul
 
 cd /d "%~dp0"
 set "PYTHONPATH=%~dp0src;%~dp0vendor"
+
+REM --- Segreti locali: carica .env (se esiste) nell'ambiente, senza echo ------
+if exist ".env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%a in (".env") do (
+        if not "%%b"=="" set "%%a=%%b"
+    )
+)
 
 REM Python del venv se presente (creato da start.bat), altrimenti quello di sistema.
 set "PY=%~dp0.venv\Scripts\python.exe"

@@ -52,10 +52,18 @@ def _radici_importate(albero: ast.AST) -> set[str]:
 
 def test_motore_non_importa_textual_ne_thread_ne_timer() -> None:
     vietati = {"textual", "threading", "asyncio"}
+    # ECCEZIONE DOCUMENTATA: `gm.py` è la coroutine di ORCHESTRAZIONE del fan-out
+    # (G §9.2-9.3: "una sola unità async cancellabile", le N chiamate dentro un solo
+    # await) — `asyncio.gather` è composizione di chiamate, non un orologio. Il
+    # divieto vero (niente avanzamento a tempo di parete) resta coperto per TUTTI i
+    # moduli, gm.py incluso, da `test_nessun_timer_a_tempo_di_parete`.
+    esenzioni_asyncio = {"gm.py"}
     offese: list[str] = []
     for py in _moduli():
         radici = _radici_importate(ast.parse(py.read_text(encoding="utf-8")))
         for v in vietati & radici:
+            if v == "asyncio" and py.name in esenzioni_asyncio:
+                continue
             offese.append(f"{py.relative_to(_REPO)}: import vietato '{v}'")
     assert not offese, (
         "il motore non usa Textual/thread/async-clock (C-2a, C-8, FNC §6.4/§7):\n"

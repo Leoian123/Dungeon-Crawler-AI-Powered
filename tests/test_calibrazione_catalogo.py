@@ -21,7 +21,7 @@ def test_ogni_param_ha_spiegazione_e_metadati() -> None:
         assert p.spiegazione.strip(), p.chiave        # «cosa dovrebbe essere» — obbligatoria
         assert p.categoria.strip(), p.chiave
         assert p.dominio.strip(), p.chiave
-        assert p.tipo in {"int", "float", "scelta"}, (p.chiave, p.tipo)
+        assert p.tipo in {"int", "float", "scelta", "testo"}, (p.chiave, p.tipo)
         if p.tipo == "scelta":
             assert p.scelte and p.default in p.scelte, p.chiave
 

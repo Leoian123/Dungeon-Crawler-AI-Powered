@@ -36,7 +36,9 @@ from contracts import (
     Durata,
     EncounterStarted,
     EntitaGenerata,
+    FattiScontro,
     IntentoEsplorazione,
+    MessaggioGM,
     MortePersonaggio,
     PlayerDiscende,
     PlayerSiMuove,
@@ -44,6 +46,7 @@ from contracts import (
     OpzioneVista,
     PlayerChoseOption,
     Grado,
+    RiepilogoAzione,
     SnapshotVista,
     StatId,
     TipoAzione,
@@ -52,26 +55,26 @@ from contracts import (
 from guscio import Guscio
 from motore import (
     MODEL_ID_DEFAULT,
+    Archivio,
+    MemoriaTurni,
     OpzioneScena,
     SpecNemico,
     componi_opzioni_scena,
     consuma_messaggi,
     dissolvi_mob,
-    esegui_turno_narrazione,
+    esegui_turno_gm,
     in_combattimento,
     ingaggia_combattimento,
-    livello_corrente,
+    mappa_corrente,
     mappa_to_dict,
-    materializza_turno,
+    master_seed,
     max_hp,
     messaggi_pendenti,
     mob_corrente,
+    prepara_riepilogo,
     proietta_scheda,
     protagonista,
-    registra_mob,
     salva_run,
-    segna_visitata,
-    stanza_visitata,
     stat_eff,
     tenta_disimpegno,
     tick,
@@ -82,6 +85,67 @@ from provider import FakeProvider
 # Menu di combattimento (MVP). Il menu di NARRAZIONE non è più cablato qui: lo compone
 # il MOTORE dalla scena (`componi_opzioni_scena` sulla mappa) — la mappa dispone.
 _MENU_COMBATTIMENTO = (OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzione.COMBATTI),)
+
+
+class IstanzaCombattimento:
+    """L'istanza SEPARATA del combattimento: il modello deterministico con le SUE
+    interazioni (FNC §5.2 — la pipeline GM qui non gira mai, G-4).
+
+    Nasce all'ingaggio, pilota il loop deterministico (un `tick` per azione), ascolta
+    il bus e **raccoglie i fatti** dello scontro; alla chiusura i `FattiScontro`
+    rientrano nel fascicolo del primo turno GM successivo (risolvi prima, narra dopo).
+    Le interazioni sono un seam: oggi "Attacca", domani mosse/fuga.
+    """
+
+    def __init__(self, bus, *, nemico: str = "") -> None:
+        self.bus = bus
+        self.nemico = nemico
+        self._turni = 0
+        self._hp_iniziali = protagonista()[2].punti_vita
+        self._conclusa = False
+        self._vittoria = False
+        self._coppie = [(CombatResolved, self._su_resolved), (MortePersonaggio, self._su_morte)]
+        for tipo, handler in self._coppie:
+            bus.registra(tipo, handler)
+
+    def _su_resolved(self, evento: CombatResolved) -> None:
+        self._conclusa = True
+        self._vittoria = bool(getattr(evento, "vittoria", False))
+
+    def _su_morte(self, _evento: MortePersonaggio) -> None:
+        self._conclusa = True  # permadeath: lo scontro non si chiude, la run sì
+
+    @property
+    def opzioni(self) -> tuple[OpzioneVista, ...]:
+        return _MENU_COMBATTIMENTO
+
+    def agisci(self, indice: int) -> None:
+        """Un'azione di combattimento = un turno del motore, deterministico e seeded."""
+        if not self._conclusa and 0 <= indice < len(self.opzioni):
+            tick()
+            self._turni += 1
+
+    @property
+    def conclusa(self) -> bool:
+        return self._conclusa
+
+    def fatti(self) -> FattiScontro:
+        """I FATTI dello scontro per il GM (selezione, mai stat vive)."""
+        hp_ora = protagonista()[2].punti_vita
+        return FattiScontro(
+            vittoria=self._vittoria,
+            turni=self._turni,
+            hp_persi=max(0, self._hp_iniziali - hp_ora),
+            nemico=self.nemico,
+        )
+
+    def chiudi(self) -> None:
+        for tipo, handler in self._coppie:
+            try:
+                self.bus.deregistra(tipo, handler)
+            except ValueError:
+                pass
+        self._coppie = []
 
 
 class SessioneGioco:
@@ -100,32 +164,81 @@ class SessioneGioco:
         self.guscio.nuova_partita(uuid="carl", destrezza=10, hp=30, seed=seed)
         self.bus = self.guscio.bus
         self.coda = self.guscio.coda  # CodaIntenti: l'host vi accoda gli intenti
+        # La pipeline GM: l'Archivio (firma→record, e il sidecar NON si azzera più al
+        # save) e la memoria di run (derivata, mai persistita come chat — H §11).
+        self.archivio = Archivio(master_seed=master_seed(), model_id=MODEL_ID_DEFAULT)
+        self.memoria = MemoriaTurni()
+        self.ultimo_messaggio: MessaggioGM | None = None
+        # Callback (etichetta, frazione 0..1) per la barra di attesa dell'host: la
+        # pipeline la chiama a ogni stadio; l'host la imposta, il motore non sa di UI.
+        self.on_avanzamento = None
         self._opzioni: tuple[OpzioneVista, ...] = ()
         self._scena: tuple[OpzioneScena, ...] = ()  # binding indice→azione di scena
+        self._istanza: IstanzaCombattimento | None = None
+        self._fatti_scontro: FattiScontro | None = None  # handoff scontro→GM
+        self._nome_mob = ""
 
     # --- Porte verso l'host ---------------------------------------------------
 
     async def prossima_narrazione(self) -> SnapshotVista:
         """Coroutine host-agnostica (un worker UI o `asyncio.run` la `await`-a, C-6).
 
-        Il turno di narrazione è legato alla MAPPA: se la stanza corrente non è mai
-        stata visitata, prepara il contesto, chiama l'AI (1 `genera`, gate, fallback),
-        materializza l'entità e la **registra nella stanza** (il reveal è un contenuto
-        della mappa). Una stanza già visitata non richiama l'AI. Il menu è la scena."""
-        prosa = ""
-        if not stanza_visitata():
-            pent, _marker, _scheda = protagonista()
-            proiezione = proietta_scheda(pent)
-            risultato = await esegui_turno_narrazione(
-                self.provider, livello=livello_corrente(), proiezione=proiezione, rng=self.rng
-            )
-            ent = materializza_turno(risultato, self.bus)  # può pubblicare AnomalyTriggered
-            registra_mob(ent)  # il nemico rivelato appartiene alla stanza (la mappa dispone)
-            segna_visitata()
-            prosa = risultato.turno.prosa
+        Il turno passa dalla PIPELINE GM (`esegui_turno_gm`): fascicolo → ideazione →
+        composizione (gating+gate) → limatura → scrittura (materializza al reveal,
+        spesa tempo, memoria, Archivio). La stanza già visitata RILEGGE il suo turno
+        congelato (firma, zero chiamate). I fatti di uno scontro appena chiuso entrano
+        nel fascicolo (risolvi prima, narra dopo)."""
+        if in_combattimento():  # la pipeline GM non gira nello scontro (istanza a parte)
+            return self._snapshot_corrente()
+        esito = await esegui_turno_gm(
+            self.provider,
+            archivio=self.archivio,
+            memoria=self.memoria,
+            rng=self.rng,
+            bus=self.bus,
+            esito_scontro=self._fatti_scontro,
+            avanzamento=self.on_avanzamento,
+        )
+        if not esito.da_cache:  # un turno riletto non consuma i fatti: li narrerà il prossimo
+            self._fatti_scontro = None
+        self.ultimo_messaggio = esito.messaggio
+        if esito.risultato is not None:
+            self._nome_mob = esito.risultato.turno.entita.nome
         self._sincronizza_scena()
         return SnapshotVista(
-            prosa=prosa,
+            prosa=esito.messaggio.prosa,
+            opzioni=self._opzioni,
+            stato=self._descrittori(),
+            fase="narrazione",
+        )
+
+    def riepiloga_azione(self, testo: str, tipo: TipoAzione = TipoAzione.ALTRO) -> RiepilogoAzione:
+        """La finestra di conferma EDITABILE: 'Stai per…, corretto? Ti prenderà …'.
+        Deterministica (calcolatore del tempo + seam skill), zero LLM."""
+        return prepara_riepilogo(testo, tipo, self.memoria)
+
+    async def esegui_azione(self, riepilogo: RiepilogoAzione) -> SnapshotVista:
+        """Immissione: il testo (eventualmente editato) diventa l'azione del fascicolo
+        e il turno GM risponde. Il testo libero NON tocca mai lo stato: viaggia solo
+        nel prompt; l'unico ritorno meccanico è il turno gated (enum+budget)."""
+        if in_combattimento():
+            return self._snapshot_corrente()
+        esito = await esegui_turno_gm(
+            self.provider,
+            archivio=self.archivio,
+            memoria=self.memoria,
+            rng=self.rng,
+            bus=self.bus,
+            azione=riepilogo.testo_proposto,
+            esito_scontro=self._fatti_scontro,
+            avanzamento=self.on_avanzamento,
+        )
+        if not esito.da_cache:
+            self._fatti_scontro = None
+        self.ultimo_messaggio = esito.messaggio
+        self._sincronizza_scena()
+        return SnapshotVista(
+            prosa=esito.messaggio.prosa,
             opzioni=self._opzioni,
             stato=self._descrittori(),
             fase="narrazione",
@@ -148,21 +261,32 @@ class SessioneGioco:
         travasa(self.coda)  # le scelte di scena possono aver accodato intenti di dominio
         if not in_combattimento() and messaggi_pendenti(IntentoEsplorazione):
             tick()  # un atto di esplorazione = un turno del motore (movimento, discesa)
+        if self._istanza is not None and self._istanza.conclusa:
+            # Chiusura dell'istanza di combattimento: i FATTI passano al prossimo
+            # turno GM (risolvi prima, narra dopo — FNC §5.2).
+            self._fatti_scontro = self._istanza.fatti()
+            self._istanza.chiudi()
+            self._istanza = None
         self._sincronizza_scena()
         return self._snapshot_corrente()
 
     def salva(self) -> str:
         """Salvataggio a mano, in-run (H-6): il World sopravvive, scrittura prima di
-        ogni teardown. La mappa viaggia nello slot `esplorazione`."""
-        salva_run(self.guscio.directory, model_id=MODEL_ID_DEFAULT, esplorazione=mappa_to_dict())
+        ogni teardown. La mappa viaggia nello slot `esplorazione`; l'Archivio (i turni
+        GM congelati) viaggia nel sidecar — non viene più azzerato."""
+        salva_run(
+            self.guscio.directory,
+            archivio=self.archivio,
+            model_id=MODEL_ID_DEFAULT,
+            esplorazione=mappa_to_dict(),
+        )
         return "Partita salvata."
 
     # --- Interpretazione delle scelte (sulla verità del motore, non su un modo) -
 
     def _agisci(self, indice: int) -> None:
         if in_combattimento():
-            if 0 <= indice < len(_MENU_COMBATTIMENTO):
-                self._agisci_combattimento()
+            self._agisci_combattimento(indice)
         elif 0 <= indice < len(self._scena):
             self._agisci_narrazione(self._scena[indice])
 
@@ -182,8 +306,10 @@ class SessioneGioco:
                 return
         # Combatti (o disimpegno fallito): l'incontro è il nemico DELLA STANZA, arruolato
         # col suo profilo calibrato (Primarie/Corredo/Resistenze). Il fallback per scalari
-        # resta solo per robustezza (scena senza mob registrato).
+        # resta solo per robustezza (scena senza mob registrato). Lo scontro è pilotato
+        # da un'ISTANZA a parte, creata PRIMA dell'ingaggio (snapshot HP pre-scontro).
         mob = mob_corrente()
+        self._istanza = IstanzaCombattimento(self.bus, nemico=self._nome_mob)
         ingaggia_combattimento(
             self.bus,
             nemici=None if mob is not None else [SpecNemico(destrezza=5, punti_vita=3)],
@@ -191,8 +317,11 @@ class SessioneGioco:
             seed=self.rng.randint(0, 10**9),
         )
 
-    def _agisci_combattimento(self) -> None:
-        tick()  # un turno di combattimento risolto (deterministico, seeded)
+    def _agisci_combattimento(self, indice: int) -> None:
+        if self._istanza is not None:
+            self._istanza.agisci(indice)  # l'istanza deterministica possiede lo scontro
+        elif 0 <= indice < len(_MENU_COMBATTIMENTO):
+            tick()  # difesa: scontro aperto fuori dal port (test/harness)
 
     def _sincronizza_scena(self) -> None:
         """Riallinea il menu alla verità del motore: in combattimento il menu di
@@ -221,7 +350,14 @@ class SessioneGioco:
     def _descrittori(self) -> tuple[str, ...]:
         pent, _marker, scheda = protagonista()
         hp = f"HP {scheda.punti_vita}/{max_hp(pent)}"  # massimo DERIVATO (§5)
-        return (hp, *proietta_scheda(pent).descrittori)
+        extra: list[str] = []
+        trovata = mappa_corrente()
+        if trovata is not None:
+            extra.append(f"stanza {trovata[1].stanza_corrente}")
+        if self.ultimo_messaggio is not None:
+            extra.append(f"tempo: {self.ultimo_messaggio.tempo.etichetta} "
+                         f"(t{self.ultimo_messaggio.tempo.tick_correnti})")
+        return (hp, *proietta_scheda(pent).descrittori, *extra)
 
 
 # --- Cronaca del bus: eventi di dominio → righe di testo (headless, read-only) ----
@@ -292,10 +428,25 @@ def _turni_scriptati() -> list[TurnoNarrazione]:
     ]
 
 
-def costruisci_sessione(*, seed: int = 0, directory: Path | None = None) -> SessioneGioco:
-    """Cabla provider fake → `SessioneGioco` (la porta del motore vista dall'host)."""
+def costruisci_sessione(
+    *, seed: int = 0, directory: Path | None = None, provider=None
+) -> SessioneGioco:
+    """Cabla il provider → `SessioneGioco` (la porta del motore vista dall'host).
+
+    `provider=None` ⇒ **FakeProvider scriptato** (offline): il default è SICURO — mai
+    una chiamata di rete implicita (test inclusi). Il backend live si INIETTA
+    esplicitamente (è l'host, es. `gioco_textual`, a sceglierlo dall'ambiente).
+
+    Il FakeProvider è FIFO **per chiamata**: la pipeline GM fa (fino a) 4 chiamate per
+    turno, quindi il copione scripta gli stadi in ordine — ideazione degradata (`None`),
+    IL turno gating, limatura e distillazione degradate. Esaurita la coda, ogni stadio
+    riceve `None`: gli ancillari degradano, la gating cade sul fallback atomico."""
     directory = directory or Path(tempfile.mkdtemp(prefix="dcc-"))
-    provider = FakeProvider([t.model_dump() for t in _turni_scriptati()])
+    if provider is None:
+        risposte: list[object] = []
+        for turno in _turni_scriptati():
+            risposte += [None, turno.model_dump(), None, None]
+        provider = FakeProvider(risposte)
     return SessioneGioco(provider, directory=directory, seed=seed)
 
 

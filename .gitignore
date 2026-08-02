@@ -40,6 +40,12 @@ Thumbs.db
 # in fase di taratura, MAI da versionare. I default vivono in `motore/calibrazione.py`.
 calibrazione.overrides.json
 
+# Segreti locali (PLK §4): la chiave API vive SOLO nell'ambiente o in un .env locale,
+# MAI nel repo. Committare solo .env.example (template senza valori).
+.env
+.env.*
+!.env.example
+
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/
 docs/

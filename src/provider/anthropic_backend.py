@@ -23,10 +23,32 @@ from __future__ import annotations
 
 from contracts import TCandidato
 
-# Pin del modello (PLK: il provider possiede il pin). Aggiornarlo è deliberato.
+# Pin dei modelli (PLK: il provider possiede il pin). Aggiornarli è deliberato.
+# Il FORTE serve la chiamata gating (il turno); il VELOCE gli stadi ancillari
+# non-gating (ideazione/limatura/distillazione): la latenza si taglia dove
+# l'output non decide stato.
 MODELLO_DEFAULT = "claude-opus-4-8"
+MODELLO_VELOCE = "claude-haiku-4-5-20251001"
 # Nome della variabile d'ambiente che l'SDK legge da solo. La key NON passa di qui.
 NOME_VAR_CHIAVE = "ANTHROPIC_API_KEY"
+
+
+def chiave_presente() -> bool:
+    """Vero se la chiave è impostata nell'ambiente. Controlla SOLO la presenza: il
+    valore non viene mai letto in una variabile, mai loggato, mai passato altrove —
+    lo consuma esclusivamente l'SDK (PLK §4)."""
+    import os
+
+    return bool(os.environ.get(NOME_VAR_CHIAVE))
+
+
+def sdk_disponibile() -> bool:
+    """Vero se l'SDK `anthropic` è importabile (dipendenza opzionale, C-5)."""
+    try:
+        import anthropic  # noqa: F401  (solo sonda di presenza)
+    except ImportError:
+        return False
+    return True
 
 # Cause di fallimento di generazione (PLK §6): trattate come "candidato assente" → None.
 _STOP_FALLITI = frozenset({"refusal", "max_tokens"})
@@ -48,21 +70,37 @@ class AnthropicBackend:
             import anthropic  # lazy: l'arnia headless non richiede l'SDK installato
 
             # La key la legge l'SDK da ANTHROPIC_API_KEY: mai cablata, mai loggata (PLK §4).
-            self._client = anthropic.AsyncAnthropic(timeout=self.timeout)
+            # max_retries=1: il retry "vero" lo decide il motore per schema (F §5.1);
+            # il trasporto ritenta poco per non gonfiare la latenza percepita.
+            self._client = anthropic.AsyncAnthropic(timeout=self.timeout, max_retries=1)
         return self._client
 
     async def genera(
-        self, prompt: str, schema: type[TCandidato]
+        self, prompt: str, schema: type[TCandidato], *, sistema: str = ""
     ) -> TCandidato | None:
         """Chiama l'API con output strutturato nativo; ritorna un candidato conforme a
-        `schema` oppure `None`. Il `prompt` è **opaco** (lo assembla il motore, PLK §2)."""
+        `schema` oppure `None`. Il `prompt` è **opaco** (lo assembla il motore, PLK §2).
+
+        `sistema` (il prefisso statico, F §7/H §13) viaggia come blocco `system`
+        marcato `cache_control: ephemeral`: con l'output strutturato la cache di
+        system resta valida (doc prompt-caching). NOTA i minimi cacheabili per
+        modello (Haiku 4.5: 4096 token; Opus 4.8: 1024): sotto soglia il marker è
+        un no-op innocuo — diventa attivo quando il prefisso crescerà."""
         client = self._client_async()
+        extra: dict = {}
+        if sistema:
+            extra["system"] = [{
+                "type": "text",
+                "text": sistema,
+                "cache_control": {"type": "ephemeral"},
+            }]
         try:
             risposta = await client.messages.parse(
                 model=self.modello,
                 max_tokens=self.max_tokens,
                 messages=[{"role": "user", "content": prompt}],
                 output_format=schema,
+                **extra,
             )
         except Exception:
             # Trasporto: rete / timeout / rate-limit / 5xx → None. Il motore ripiega

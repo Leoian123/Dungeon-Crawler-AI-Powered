@@ -1,0 +1,561 @@
+"""Pipeline GM — orchestrazione a stadi del turno di narrazione (G §9.2, F §7).
+
+Il ritmo del gioco: *descrizione (LLM)* → *azione del giocatore* → *risposta (LLM)*.
+Questa è la **coroutine di orchestrazione host-agnostica** che G §9.2 autorizza: il
+fan-out (1..N chiamate) vive QUI, sotto il socket, guidato dal motore — il provider
+resta sottile (una chiamata strutturata per invocazione), prompt e gate restano dominio.
+
+Tre stadi, budget di chiamate garantito **per costruzione**:
+
+  1. IDEAZIONE (≤1, non-gating, 0 retry) — legge (MAI scrive) i componenti informativi:
+     calcolatore del tempo, mappa, scheda proiettata, memoria, budget/db nemici. Il suo
+     output (`Ideazione`) è CONSULTIVO (F-9): alimenta il prompt della gating, mai
+     decide stato. Se degrada, si compone comunque.
+  2. COMPOSIZIONE (1–4) — LA chiamata gating via `procura_turno` **inalterata**
+     (1 + 1 retry; gate a 3 strati; fallback atomico) + inquadramento-prova ≤1 (solo se
+     la prova esiste; l'AI seleziona classe/stat, il MOTORE tira seeded) + limatura ≤1
+     (`Flavor`: i dati sfoltiti in prosa gradevole; se manca, resta la bozza gated).
+  3. SCRITTURA (≤1) — deterministica: materializza (solo al reveal), spende il tempo
+     (`Durata` proposta dall'AI → tick DISPOSTI dal motore, J §13), congela il turno
+     nell'Archivio sotto la FIRMA e registra la memoria (distillazione LLM ≤1 con
+     degrado al riassunto deterministico). Al ritorno lo stato è irreversibile
+     (safe point); il disco resta a cadenza dell'host (`salva_run`).
+
+Il messaggio (`MessaggioGM`) porta SEMPRE: dove+come (contestualizzazione), l'idea
+temporale (tick dal calcolatore, mai dall'AI), uno snapshot; la prova SOLO se esiste.
+
+Confine col combattimento: la pipeline vive SOLO in NARRAZIONE (guardia strutturale);
+lo scontro è un'istanza a parte del modello deterministico, e i suoi FATTI rientrano
+nel fascicolo del turno successivo (risolvi prima, narra dopo — FNC §5.2).
+
+La FIRMA del turno è il generatore della chiave d'Archivio (H §8, "prompt seeded"):
+congela-una-volta-rileggi-sempre — la stanza rivisitata ri-emette la sua prosa senza
+chiamate. La memoria di run NON si persiste come chat (H §11): è derivata (ricostruita
+dall'Archivio al load).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import random
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Callable
+
+from contracts import (
+    ClasseProva,
+    Durata,
+    FattiScontro,
+    Ideazione,
+    InquadramentoProva,
+    IntenzioneScena,
+    MessaggioGM,
+    ProvaVista,
+    RiepilogoAzione,
+    SchedaProiezione,
+    StatId,
+    StimaAzione,
+    TempoVista,
+    TipoAzione,
+)
+
+from .calibrazione import DURATA_AZIONE, ETICHETTA_TEMPO, FORBICE_DURATA
+from .catalogo import ANCORE_CLASSE, Budget, carico_tick, prepara_contesto
+from .fase import in_combattimento
+from .mappa import (
+    mappa_corrente,
+    registra_mob,
+    scala_presente,
+    segna_visitata,
+    stanza_visitata,
+    uscite,
+)
+from .narrazione import (
+    RisultatoTurno,
+    _chiama_con_policy,
+    costruisci_prompt,
+    genera_prosa,
+    materializza_turno,
+    procura_turno,
+    proietta_scheda,
+)
+from .persistenza.archivio import Archivio
+from .piano import livello_corrente, tempo_piano_corrente
+from .prove import risolvi_prova
+from .scheda import protagonista
+from .seme import master_seed
+from .statistiche import stat_eff
+from .tempo import fast_forward, passa_turno, puo_downtime, puo_passare_turno
+
+# --- Prefisso statico del GM (byte-identico a ogni turno: prompt caching, H §13) --
+
+PREFISSO_GM = "\n".join([
+    "[gm] Sei il Game Master del dungeon: voce ironica, dark-comica (stile Dungeon Crawler Carl).",
+    "[contratto] Non emettere MAI numeri di gioco: niente HP, danni, soglie, minuti, percentuali.",
+    "[contratto] Non decidere MAI esiti: non uccidi, non risolvi prove, non concedi oggetti o passaggi.",
+    "[contratto] Il tempo si esprime SOLO col vocabolario chiuso: turno, un_attimo, un_pochino, un_bel_po.",
+    "[contratto] Le azioni possibili le dispone la mappa: puoi nominarle nella prosa, non concederle.",
+    "[contratto] Rispondi SOLO nella forma strutturata richiesta in coda.",
+])
+
+_ISTRUZIONE_IDEAZIONE = (
+    "[istruzione] Proponi l'IDEA della scena, consultiva: intenzione "
+    "(scontro|prova|quiete|transizione), tono, focus (una frase), fino a 3 ganci "
+    "narrativi, durata_proposta (vocabolario chiuso). Nessun esito, nessun numero: "
+    "l'idea orienta la narrazione, non la decide."
+)
+
+_ISTRUZIONE_COMPOSIZIONE = (
+    "[istruzione] Narra il turno: la prosa DEVE contestualizzare l'azione del giocatore "
+    "in un dove e un come; scegli archetipo/grado/blocchi DENTRO il budget; proponi le "
+    "opzioni; dichiara la durata (vocabolario chiuso). Coerente con l'idea sopra, se "
+    "presente. Prosa ASCIUTTA: 3-5 frasi, niente preamboli."
+)
+
+
+# --- Il fascicolo di turno: sola LETTURA dei componenti informativi -------------
+
+@dataclass(frozen=True)
+class Fascicolo:
+    """Ciò che il GM sa all'inizio del turno. Costruito dal motore leggendo (mai
+    scrivendo) tempo, mappa, scheda, memoria — l'analogo delle project knowledge."""
+
+    tick: int
+    livello: int
+    stanza: int
+    uscite: tuple[int, ...]
+    scala: bool
+    visitate: int
+    totale: int
+    proiezione: SchedaProiezione
+    memoria: tuple[str, ...]
+    azione: str = ""                        # "" = turno di reveal (nessuna azione)
+    esito_scontro: FattiScontro | None = None  # handoff dall'istanza di combattimento
+
+
+def componi_fascicolo(
+    memoria: "MemoriaTurni",
+    *,
+    azione: str = "",
+    esito_scontro: FattiScontro | None = None,
+) -> Fascicolo:
+    """Raccoglie il fascicolo dal World corrente. Sola lettura, zero chiamate."""
+    pent, _marker, _scheda = protagonista()
+    trovata = mappa_corrente()
+    if trovata is not None:
+        mappa = trovata[1]
+        stanza, visitate = mappa.stanza_corrente, len(mappa.visitate)
+        totale = len(mappa.piano.adiacenze)
+    else:  # harness senza mappa: fascicolo minimo
+        stanza, visitate, totale = 0, 0, 0
+    return Fascicolo(
+        tick=tempo_piano_corrente(),
+        livello=livello_corrente(),
+        stanza=stanza,
+        uscite=uscite(),
+        scala=scala_presente(),
+        visitate=visitate,
+        totale=totale,
+        proiezione=proietta_scheda(pent),
+        memoria=memoria.finestra(),
+        azione=azione,
+        esito_scontro=esito_scontro,
+    )
+
+
+def _dove(f: Fascicolo) -> str:
+    scala = ", con una scala che scende" if f.scala else ""
+    return f"stanza {f.stanza} del piano {f.livello}{scala}"
+
+
+def _come(f: Fascicolo) -> str:
+    return f.azione if f.azione else "esplorando la stanza appena varcata"
+
+
+def sezione_fascicolo(f: Fascicolo) -> str:
+    """Il fascicolo come sezione di prompt (formato stabile, dati proiettati)."""
+    palesi = ", ".join(f"{k}={v}" for k, v in f.proiezione.primarie.items()) or "ignote"
+    occulte = ", ".join(f.proiezione.primarie_occulte) or "nessuna"
+    stato = ", ".join(f.proiezione.descrittori) or "ignoto"
+    righe = [
+        f"[fascicolo/tempo] tick di piano: {f.tick}",
+        f"[fascicolo/mappa] stanza {f.stanza}; visitate {f.visitate}/{f.totale}; "
+        f"uscite: {', '.join(map(str, f.uscite)) or 'nessuna'}; scala: {'sì' if f.scala else 'no'}",
+        f"[fascicolo/scheda] stato: {stato}; stat palesi: {palesi}; percepite ma ignote: {occulte}",
+    ]
+    if f.memoria:
+        righe.append("[fascicolo/memoria] finora: " + " | ".join(f.memoria))
+    if f.esito_scontro is not None:
+        e = f.esito_scontro
+        esito = "vinto" if e.vittoria else "chiuso"
+        righe.append(
+            f"[fascicolo/esito-scontro] lo scontro con {e.nemico or 'il nemico'} si è {esito} "
+            f"in {e.turni} turni; ferite subite: {'sì' if e.hp_persi > 0 else 'no'}"
+        )
+    righe.append(f'[fascicolo/azione] il giocatore, {_dove(f)}, {_come(f)}: "{f.azione}"'
+                 if f.azione else f"[fascicolo/azione] il giocatore, {_dove(f)}, {_come(f)}.")
+    return "\n".join(righe)
+
+
+def _sezione_ideazione(idea: Ideazione | None) -> str:
+    if idea is None:
+        return ""
+    ganci = "; ".join(idea.ganci) or "nessuno"
+    return (
+        f"[ideazione] intenzione: {idea.intenzione.value}; tono: {idea.tono.value}; "
+        f"focus: {idea.focus}; ganci: {ganci}; durata proposta: {idea.durata_proposta.value}"
+    )
+
+
+# --- La firma del turno: il generatore della chiave d'Archivio (H §8) -----------
+
+def firma_turno(seed: int, livello: int, stanza: int, fase: str, n: int | None = None) -> str:
+    """Chiave deterministica del "prompt seeded" (H §8). Zero RNG.
+
+    `fase="reveal"` SENZA `n`: la stanza rivisitata rilegge lo stesso record
+    (congela-una-volta-rileggi-sempre). `fase="azione"` con `n` = tick al momento
+    dell'azione: idempotenza della singola unità di turno."""
+    base = f"gm:v1:{seed}:p{livello}:s{stanza}:{fase}"
+    return base if n is None else f"{base}:t{n}"
+
+
+# --- Memoria di run (context window): derivata, MAI persistita come chat (H §11) -
+
+@dataclass
+class MemoriaTurni:
+    """Gli ultimi riassunti-turno per il fascicolo. Vive sull'orchestratore; al load
+    si RICOSTRUISCE dall'Archivio (la chat non si salva: è derivata)."""
+
+    righe: deque = field(default_factory=lambda: deque(maxlen=8))
+
+    def registra(self, riga: str) -> None:
+        if riga:
+            self.righe.append(riga)
+
+    def finestra(self, n: int = 3) -> tuple[str, ...]:
+        return tuple(list(self.righe)[-n:])
+
+    @classmethod
+    def ricostruisci(cls, archivio: Archivio) -> "MemoriaTurni":
+        memoria = cls()
+        record = sorted(
+            archivio.record_di_tipo(TIPO_RECORD_GM),
+            key=lambda r: r.contenuto.get("seq", 0),
+        )
+        for r in record:
+            memoria.registra(r.contenuto.get("memoria", ""))
+        return memoria
+
+
+TIPO_RECORD_GM = "turno_gm"
+
+
+def riassunto_turno(
+    risultato: RisultatoTurno, fascicolo: Fascicolo, prova: ProvaVista | None = None
+) -> str:
+    """Riassunto DETERMINISTICO del turno (degrado della distillazione): un template
+    dai fatti — selezione + narrazione, mai statistiche (H-11)."""
+    pezzi = [f"Stanza {fascicolo.stanza}: {risultato.turno.entita.nome}"]
+    if fascicolo.azione:
+        pezzi.append(f'azione: "{fascicolo.azione}"')
+    if prova is not None:
+        esito = "riuscita" if prova.esito else "fallita"
+        pezzi.append(f"prova di {prova.stat} {esito}")
+    pezzi.append(f"durata {risultato.turno.durata.value}")
+    return " — ".join(pezzi)
+
+
+# --- Stima dell'azione (finestra di conferma): DETERMINISTICA, zero LLM ---------
+
+def stima_azione(durata: Durata) -> StimaAzione:
+    """La stima del costo di un'azione: tick dal CALCOLATORE del tempo
+    (`carico_tick`), forbice dalla tabella di calibrazione. L'LLM non stima MAI
+    la spesa di tempo (J §13)."""
+    return StimaAzione(
+        durata=durata,
+        tick=carico_tick(durata),
+        forbice=FORBICE_DURATA[durata],
+        skill_riferimento=None,
+    )
+
+
+def modula_stima_per_skill(stima: StimaAzione, proiezione: SchedaProiezione) -> StimaAzione:
+    """SEAM del modulatore per-skill ("facendo fede alla tua abilità in…"): la strada
+    è disposta, non ancora lastricata — identità nell'MVP. Quando le skill esisteranno,
+    qui la forbice si stringerà/allargherà in base alla proiezione (mai un numero
+    dall'AI: sarà una tabella del catalogo)."""
+    return stima
+
+
+def prepara_riepilogo(testo: str, tipo: TipoAzione, memoria: "MemoriaTurni") -> RiepilogoAzione:
+    """La finestra di conferma dell'azione: 'Stai per…, corretto?' + stima precisa.
+
+    Interamente DETERMINISTICA (zero LLM): contesto dalla mappa, durata dalla tabella
+    `DURATA_AZIONE`, tick dal calcolatore, forbice dal catalogo, seam skill applicato.
+    Il testo resta editabile dall'host prima dell'immissione."""
+    fascicolo = componi_fascicolo(memoria)
+    stima = modula_stima_per_skill(
+        stima_azione(DURATA_AZIONE[tipo]), fascicolo.proiezione
+    )
+    return RiepilogoAzione(testo_proposto=testo, contesto=_dove(fascicolo), stima=stima)
+
+
+# --- Spesa del tempo: l'AI ha PROPOSTO la Durata, il motore DISPONE i tick (J) --
+
+def spendi_tempo(bus, durata: Durata, *, ingresso_combattimento: bool = False) -> int:
+    """Spende la durata del turno in tick reali via le API di J. Ritorna i tick spesi.
+
+    `TURNO` → `passa_turno` (1 tick); durate maggiori → `fast_forward` se il downtime
+    è lecito, altrimenti degrada a un singolo `passa_turno`; su ingresso in
+    combattimento non spende nulla (il tempo lo brucia il loop di combattimento,
+    cadenza per-turno-dell'entità). Imboscata: seam non collegato (componi=None)."""
+    if ingresso_combattimento or in_combattimento():
+        return 0
+    if durata is not Durata.TURNO and puo_downtime():
+        return fast_forward(bus, durata).tick_eseguiti
+    if puo_passare_turno():
+        passa_turno(bus)
+        return 1
+    return 0
+
+
+# --- Stadio 1: ideazione (consultiva, ≤1 chiamata, 0 retry) ---------------------
+
+async def ideazione(
+    provider, fascicolo: Fascicolo, budget: Budget
+) -> Ideazione | None:
+    """La chiamata di brainstorming: legge il fascicolo, propone l'IDEA. `None` =
+    degrado silenzioso (si compone senza)."""
+    prompt = "\n".join([
+        sezione_fascicolo(fascicolo),
+        costruisci_prompt(budget, fascicolo.proiezione, voce="").strip(),
+        _ISTRUZIONE_IDEAZIONE,
+    ])
+    return await _chiama_con_policy(provider, prompt, Ideazione, PREFISSO_GM)
+
+
+# --- Prompt degli stadi ancillari ----------------------------------------------
+
+def _prompt_prova(fascicolo: Fascicolo) -> str:
+    ancore = "; ".join(
+        f"{c.value} ({', '.join(ANCORE_CLASSE.get(c, ()))})" for c in ClasseProva
+    )
+    return "\n".join([
+        sezione_fascicolo(fascicolo),
+        f'[istruzione] Il giocatore tenta: "{fascicolo.azione}". Inquadra la prova: '
+        f"scegli la classe di difficoltà ({ancore}) e la stat impegnata. "
+        "Non risolvere: il tiro spetta al motore.",
+    ])
+
+
+def _prompt_limatura(
+    bozza: str, f: Fascicolo, etichetta: str, prova: ProvaVista | None
+) -> str:
+    stato = ", ".join(f.proiezione.descrittori) or "ignoto"
+    if prova is None:
+        riga_prova = "assente"
+    else:
+        riga_prova = f"{prova.classe}→{'riuscita' if prova.esito else 'fallita'}"
+    return "\n".join([
+        f"[bozza] {bozza}",
+        f"[dati] dove: {_dove(f)}; come: {_come(f)}; tempo: {etichetta}; "
+        f"stato: {stato}; prova: {riga_prova}",
+        "[istruzione] Rifondi bozza e dati in UN testo gradevole e compatto (max ~80 "
+        "parole): i dati vanno sfoltiti e integrati nella prosa, non elencati. Non "
+        "aggiungere fatti nuovi, nessun numero.",
+    ])
+
+
+def _prompt_distilla(prosa: str, f: Fascicolo) -> str:
+    return "\n".join([
+        f"[turno] {prosa}",
+        f"[dati] {_dove(f)}; azione: {f.azione or 'esplorazione'}",
+        "[istruzione] Distilla in 1-2 frasi cosa è successo, per la memoria del GM. "
+        "Solo fatti narrativi, nessun numero.",
+    ])
+
+
+def _rng_prova(tick: int) -> random.Random:
+    """RNG della prova seeded per-tick (come il dado-evento, J-10): l'esistenza della
+    prova dipende dall'ideazione (LLM), quindi NON si pesca dallo stream condiviso —
+    niente desincronizzazione del replay."""
+    return random.Random(f"{master_seed()}:prova:{tick}")
+
+
+# --- Avanzamento: la pipeline RACCONTA a che punto è (per la barra dell'host) ---
+
+# Callback host-agnostica: (etichetta, frazione 0..1). L'host la usa per una barra
+# di attesa graduale; la pipeline non sa NULLA della UI (C-2a) e un callback rotto
+# non deve mai rompere il turno.
+Avanzamento = Callable[[str, float], None]
+
+
+def _nota(avanzamento: Avanzamento | None, etichetta: str, frazione: float) -> None:
+    if avanzamento is None:
+        return
+    try:
+        avanzamento(etichetta, frazione)
+    except Exception:
+        pass  # il racconto dell'attesa è cosmetico: mai gating
+
+
+# --- L'esito e LA coroutine unica (una unità async cancellabile, G §9.3) --------
+
+@dataclass(frozen=True)
+class EsitoTurnoGM:
+    """L'esito della pipeline: il messaggio per l'host + il risultato gated (None se
+    riletto dalla cache) + il flag di rilettura."""
+
+    messaggio: MessaggioGM
+    risultato: RisultatoTurno | None
+    da_cache: bool
+
+
+def _messaggio_da_record(record: dict) -> MessaggioGM:
+    """Ricostruisce il messaggio da un record congelato (rilettura: zero chiamate)."""
+    prova = record.get("prova")
+    return MessaggioGM(
+        prosa=record.get("prosa", ""),
+        dove=record.get("dove", ""),
+        come=record.get("come", ""),
+        tempo=TempoVista(
+            tick_correnti=tempo_piano_corrente(),
+            tick_spesi=0,  # la rilettura non spende tempo: il turno era già speso
+            etichetta=record.get("etichetta", ""),
+        ),
+        snapshot=tuple(record.get("snapshot", ())),
+        prova=ProvaVista(**prova) if prova else None,
+        fallback=bool(record.get("fallback", False)),
+    )
+
+
+async def esegui_turno_gm(
+    provider,
+    *,
+    archivio: Archivio,
+    memoria: MemoriaTurni,
+    rng: random.Random,
+    bus=None,
+    azione: str = "",
+    esito_scontro: FattiScontro | None = None,
+    ingresso_combattimento: bool = False,
+    avanzamento: Avanzamento | None = None,
+) -> EsitoTurnoGM:
+    """UN turno GM completo: ideazione → composizione (gating+prova+limatura) →
+    scrittura. Una sola unità `await` cancellabile: se cade prima della scrittura,
+    nessuno stato è mutato (F-11/G-20).
+
+    Budget per costruzione: ideazione ≤1; composizione ≤4 (1 gating + 1 retry +
+    prova ≤1 + limatura ≤1); scrittura ≤1 (distillazione memoria). Cache-hit: zero.
+    Latenza: limatura e distillazione partono IN PARALLELO (un solo round-trip);
+    `avanzamento(etichetta, frazione)` racconta all'host a che punto siamo.
+    """
+    if in_combattimento():
+        raise RuntimeError("la pipeline GM vive solo in NARRAZIONE: lo scontro è "
+                           "un'istanza a parte (deterministica)")
+
+    fascicolo = componi_fascicolo(memoria, azione=azione, esito_scontro=esito_scontro)
+    reveal = not azione and not stanza_visitata()
+    fase = "reveal" if not azione else "azione"
+    chiave = firma_turno(
+        master_seed(), fascicolo.livello, fascicolo.stanza, fase,
+        None if fase == "reveal" else fascicolo.tick,
+    )
+
+    # Rilettura (congela-una-volta-rileggi-sempre, H §8.2): zero chiamate.
+    record = archivio.cerca(chiave)
+    if record is not None:
+        _nota(avanzamento, "Il GM rilegge i suoi appunti…", 1.0)
+        return EsitoTurnoGM(messaggio=_messaggio_da_record(record), risultato=None, da_cache=True)
+
+    # --- Stadio 1: ideazione (consultiva; None ⇒ si compone senza) -------------
+    _nota(avanzamento, "Il GM riflette sulla scena…", 0.1)
+    budget = prepara_contesto(fascicolo.livello, rng)
+    idea = await ideazione(provider, fascicolo, budget)
+
+    # --- Stadio 2: composizione — LA chiamata gating (gate+fallback invariati) --
+    _nota(avanzamento, "Il GM scrive il turno…", 0.35)
+    voce = "\n".join(x for x in [
+        sezione_fascicolo(fascicolo),
+        _sezione_ideazione(idea),
+        _ISTRUZIONE_COMPOSIZIONE,
+    ] if x)
+    risultato = await procura_turno(
+        provider, budget, fascicolo.proiezione, voce=voce,
+        ingresso_combattimento=ingresso_combattimento, sistema=PREFISSO_GM,
+    )
+    durata = risultato.turno.durata
+
+    # --- Stadio 2-prova: SOLO se esiste (azione + ideazione la inquadra) --------
+    prova_vista: ProvaVista | None = None
+    if azione and idea is not None and idea.intenzione is IntenzioneScena.PROVA:
+        _nota(avanzamento, "Il GM inquadra la prova…", 0.7)
+        inq = await _chiama_con_policy(
+            provider, _prompt_prova(fascicolo), InquadramentoProva, PREFISSO_GM
+        )
+        if inq is None:  # degrado deterministico: la prova resta, l'inquadramento no
+            inq = InquadramentoProva(classe=ClasseProva.BRONZO, stat=StatId.DESTREZZA)
+        pent, _m, _s = protagonista()
+        esito = risolvi_prova(
+            stat_eff(pent, inq.stat), inq.classe, _rng_prova(fascicolo.tick)
+        )  # il MOTORE tira, seeded per-tick
+        prova_vista = ProvaVista(classe=inq.classe.value, stat=inq.stat.value, esito=esito)
+
+    # --- Stadio 2-limatura + distillazione: IN PARALLELO (un round-trip in meno).
+    # Entrambe lavorano sulla bozza uscita dal gate (fatti identici): la limatura
+    # produce la prosa per il giocatore, la distillazione la riga di memoria.
+    _nota(avanzamento, "Rifinitura e memoria…", 0.8)
+    etichetta = ETICHETTA_TEMPO[durata]
+    prosa = risultato.turno.prosa
+    limata, riga_memoria = await asyncio.gather(
+        genera_prosa(provider, _prompt_limatura(prosa, fascicolo, etichetta, prova_vista),
+                     sistema=PREFISSO_GM),
+        genera_prosa(provider, _prompt_distilla(prosa, fascicolo), sistema=PREFISSO_GM),
+    )
+    if limata:
+        prosa = limata
+
+    # --- Stadio 3: SCRITTURA (deterministica; la distillazione è già arrivata) --
+    _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
+    if reveal:  # materializza SOLO al reveal: il mob appartiene alla stanza
+        ent = materializza_turno(risultato, bus)
+        registra_mob(ent)
+        segna_visitata()
+    tick_spesi = spendi_tempo(bus, durata, ingresso_combattimento=ingresso_combattimento)
+
+    if not riga_memoria:
+        riga_memoria = riassunto_turno(risultato, fascicolo, prova_vista)
+    memoria.registra(riga_memoria)
+
+    snapshot = (
+        ", ".join(fascicolo.proiezione.descrittori) or "ignoto",
+        f"stanza {fascicolo.stanza} — uscite: {', '.join(map(str, fascicolo.uscite)) or 'nessuna'}",
+        f"tempo: {etichetta} (+{tick_spesi} tick)",
+    )
+    messaggio = MessaggioGM(
+        prosa=prosa,
+        dove=_dove(fascicolo),
+        come=_come(fascicolo),
+        tempo=TempoVista(
+            tick_correnti=tempo_piano_corrente(), tick_spesi=tick_spesi, etichetta=etichetta,
+        ),
+        snapshot=snapshot,
+        prova=prova_vista,
+        fallback=risultato.fallback,
+    )
+    # Il punto cacheable è l'USCITA DEL GATE (G §9.3): selezione + narrazione, mai
+    # statistiche (H-11); `seq` è solo l'ordinamento della memoria.
+    archivio.congela(chiave, {
+        "seq": fascicolo.tick,
+        "turno": risultato.turno.model_dump(),
+        "prosa": prosa,
+        "dove": messaggio.dove,
+        "come": messaggio.come,
+        "etichetta": etichetta,
+        "snapshot": list(snapshot),
+        "prova": prova_vista.model_dump() if prova_vista else None,
+        "memoria": riga_memoria,
+        "fallback": risultato.fallback,
+    }, tipo=TIPO_RECORD_GM)
+    _nota(avanzamento, "Fatto.", 1.0)
+    return EsitoTurnoGM(messaggio=messaggio, risultato=risultato, da_cache=False)

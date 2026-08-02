@@ -15,7 +15,7 @@ motore, che vi parlano solo via `contracts`/porte.
 | Comando | Cosa fa |
 |---|---|
 | `start.bat` | Primo setup (venv + dipendenze) e demo headless (driver di riferimento). |
-| `gioca.bat` | **Gioca** con la UI Textual (host opt-in; richiede `pip install textual` nel venv). |
+| `gioca.bat` | **Gioca** con la UI Textual (host opt-in; richiede `pip install textual` nel venv). GM **live** (Anthropic) se `ANTHROPIC_API_KEY` è presente (ambiente o `.env` locale), altrimenti offline; `--live` lo esige, `--fake` forza l'offline. Richiede `pip install anthropic` per il live. |
 | `calibra.bat` | **Console di calibrazione web** nel browser (stdlib, nessuna dipendenza). |
 | `banco_nemici.bat` | Banco di prova generazione nemici (confronto fra modelli LLM). |
 | `python -m pytest` | Suite completa: **401 verdi + 2 skip** (skip = integrazione live Anthropic senza chiave). |
@@ -117,8 +117,40 @@ attacchi sempre `TipoDanno.GENERICO` (le resistenze calibrate non vengono ancora
 attivate dagli attacchi); mossa `attacco_pesante` scelta ma scartata; prosa vuota alla
 rivisita di una stanza; nessun indicatore di posizione nella UI.
 
-## Prossimo passo dichiarato
+## Sicurezza della chiave API (PLK §4 + best practice Anthropic/OWASP)
 
-Collegare **`AnthropicBackend` al gioco** (provider selezionabile in
-`costruisci_sessione`: live con `ANTHROPIC_API_KEY`, fake offline altrimenti), così le
-stanze oltre la prima smettono di degradare al fallback neutro.
+La chiave vive **solo nell'ambiente** (`ANTHROPIC_API_KEY`) o in un **`.env` locale
+gitignored** (template committato: `.env.example`; `gioca.bat` lo carica nel processo
+senza stamparla). Il codice controlla solo la **presenza** della chiave, mai il valore
+(lo consuma esclusivamente l'SDK); mai in argv/URL/log/prompt/repo. Il default di
+`costruisci_sessione` è **offline anche con la chiave impostata**: il live è
+un'iniezione esplicita dell'host, mai una chiamata di rete implicita (test inclusi).
+Guardrail verificati da `tests/test_sicurezza_chiave.py` (secret-scan del repo,
+template vuoto, chiave mai nei prompt). Buone pratiche lato account: chiave dedicata
+al progetto con limite di spesa, rotazione periodica, revoca immediata dalla Console
+in caso di sospetto leak, monitoraggio dell'uso.
+
+## Collegamento live (fatto) e prossimi passi
+
+`AnthropicBackend` è collegato alla pipeline GM via `gioco_textual` (selezione
+esplicita del provider, etichetta visibile nella UI). Con la chiave, ogni stanza è
+narrata dall'AI vera (ideazione→composizione→limatura→memoria) e il contenuto non si
+esaurisce più.
+
+**Latenza e attesa**: la chiamata gating (il turno) va al modello forte; gli stadi
+ancillari non-gating al modello **veloce** (router per-schema `ProviderPerSchema`,
+pin in `provider/anthropic_backend.py`); limatura e distillazione partono **in
+parallelo** (un round-trip in meno); la rilettura dalla cache è a zero chiamate.
+**Struttura I/O**: il prefisso statico del GM viaggia nel canale `sistema` di
+`genera` (blocco `system` marcato `cache_control: ephemeral` — attivo quando il
+prefisso supererà i minimi cacheabili: 1024 tok su Opus 4.8, 4096 su Haiku 4.5);
+il corpo dinamico (fascicolo/istruzioni) sta nei `messages`. Gli output sono
+**brevi per contratto** (prosa 3-5 frasi, limatura ≤80 parole, memoria 1-2 frasi):
+i token di output dominano la latenza. Corsia veloce: `max_tokens=512`, timeout 15s.
+Durante l'attesa la pipeline racconta i suoi stadi (`avanzamento(etichetta,
+frazione)`) e la TUI mostra una **barra graduale** ("Il GM riflette…/scrive…/
+rifinisce…") con l'input sospeso finché il GM lavora.
+
+Prossimi passi naturali: tipo di danno negli attacchi (attivare le resistenze
+calibrate), effetti degli status, imboscate collegate al dado-evento, prompt caching
+esplicito lato trasporto (il prefisso statico è già in testa).

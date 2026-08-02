@@ -238,6 +238,22 @@ from .narrazione import (
     tenta_disimpegno,
     ingaggia_combattimento,
 )
+from .gm import (
+    PREFISSO_GM,
+    TIPO_RECORD_GM,
+    EsitoTurnoGM,
+    Fascicolo,
+    MemoriaTurni,
+    componi_fascicolo,
+    esegui_turno_gm,
+    firma_turno,
+    modula_stima_per_skill,
+    prepara_riepilogo,
+    riassunto_turno,
+    sezione_fascicolo,
+    spendi_tempo,
+    stima_azione,
+)
 from . import persistenza
 from .persistenza import (
     SCHEMA_VERSION,
@@ -494,6 +510,21 @@ __all__ = [
     "materializza_turno",
     "tenta_disimpegno",
     "ingaggia_combattimento",
+    # pipeline GM (G §9.2: fan-out sotto il socket, una sola gating per turno)
+    "PREFISSO_GM",
+    "TIPO_RECORD_GM",
+    "EsitoTurnoGM",
+    "Fascicolo",
+    "MemoriaTurni",
+    "componi_fascicolo",
+    "esegui_turno_gm",
+    "firma_turno",
+    "modula_stima_per_skill",
+    "prepara_riepilogo",
+    "riassunto_turno",
+    "sezione_fascicolo",
+    "spendi_tempo",
+    "stima_azione",
     # persistenza (nodo H): UNICA autorità su current_world (ESP §0.1)
     "persistenza",
     "SCHEMA_VERSION",

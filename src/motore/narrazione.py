@@ -276,21 +276,28 @@ def fallback_turno(budget: Budget, *, ingresso_combattimento: bool = False) -> R
 
 # --- Socket: un verbo, politica selezionata dallo schema (G-19, F §5.1) -------
 
-async def _chiama_con_policy(provider, prompt: str, schema):
+# Politica di retry PER SCHEMA (F §5.1): la narrazione (gating, atomica) ritenta;
+# tutto il resto — prosa, ideazione, inquadramenti: non-gating — fallisce in fretta.
+# Default sicuro: uno schema non registrato prende 0 retry.
+POLICY_RETRY: dict[type, int] = {TurnoNarrazione: RETRY_NARRAZIONE}
+
+
+async def _chiama_con_policy(provider, prompt: str, schema, sistema: str = ""):
     """Chiama `genera` col numero di tentativi selezionato dallo SCHEMA (F §5.1).
 
-    Narrazione → ritenta; modalità-prosa → fallisce in fretta. È **il motore** a
-    decidere, perché è lui che sa *che tipo* di chiamata è (ha scelto prompt e schema).
-    """
-    tentativi = RETRY_NARRAZIONE if schema is TurnoNarrazione else RETRY_PROSA
+    Narrazione → ritenta; modalità-prosa/stadi non-gating → falliscono in fretta. È
+    **il motore** a decidere, perché è lui che sa *che tipo* di chiamata è (ha scelto
+    prompt e schema). `sistema` = prefisso statico separato (F §7: il trasporto può
+    marcarlo per il prompt caching)."""
+    tentativi = POLICY_RETRY.get(schema, RETRY_PROSA)
     for _ in range(tentativi + 1):
-        candidato = await provider.genera(prompt, schema)
+        candidato = await provider.genera(prompt, schema, sistema=sistema)
         if candidato is not None:
             return candidato
     return None
 
 
-async def genera_prosa(provider, prompt: str) -> str | None:
+async def genera_prosa(provider, prompt: str, *, sistema: str = "") -> str | None:
     """Chiamata di sola prosa (flavor, showrunner, `Altro`-MVP): STESSO verbo `genera`
     con schema banale `Flavor` (F §5, G-19). Cosmetica: **può mancare** (F §5.1).
 
@@ -299,7 +306,7 @@ async def genera_prosa(provider, prompt: str) -> str | None:
     degrada a una continuazione neutra — senza bloccare la risoluzione (non-gating,
     G-22).
     """
-    candidato = await _chiama_con_policy(provider, prompt, Flavor)
+    candidato = await _chiama_con_policy(provider, prompt, Flavor, sistema)
     return candidato.testo if candidato is not None else None
 
 
@@ -310,6 +317,7 @@ async def procura_turno(
     *,
     voce: str = "Il dungeon osserva.",
     ingresso_combattimento: bool = False,
+    sistema: str = "",
 ) -> RisultatoTurno:
     """Coroutine host-agnostica: prompt → `genera` (con policy) → gate → esito.
 
@@ -322,7 +330,7 @@ async def procura_turno(
     modello-giudice reinterpreta un fuori-budget (F-9): il fallback è il terminale.
     """
     prompt = costruisci_prompt(budget, proiezione, voce)
-    candidato = await _chiama_con_policy(provider, prompt, TurnoNarrazione)
+    candidato = await _chiama_con_policy(provider, prompt, TurnoNarrazione, sistema)
 
     validato = None
     if candidato is not None:

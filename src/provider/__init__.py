@@ -12,7 +12,25 @@ stessa interfaccia. Il meccanismo nativo di output strutturato vive qui, MAI in
 `contracts` (PLK §5, F-12).
 """
 
-from .anthropic_backend import MODELLO_DEFAULT, NOME_VAR_CHIAVE, AnthropicBackend
+from .composito import ProviderPerSchema
+from .anthropic_backend import (
+    MODELLO_DEFAULT,
+    MODELLO_VELOCE,
+    NOME_VAR_CHIAVE,
+    AnthropicBackend,
+    chiave_presente,
+    sdk_disponibile,
+)
 from .fake import FALLISCI, FakeProvider
 
-__all__ = ["FakeProvider", "FALLISCI", "AnthropicBackend", "MODELLO_DEFAULT", "NOME_VAR_CHIAVE"]
+__all__ = [
+    "FakeProvider",
+    "FALLISCI",
+    "AnthropicBackend",
+    "MODELLO_DEFAULT",
+    "MODELLO_VELOCE",
+    "NOME_VAR_CHIAVE",
+    "ProviderPerSchema",
+    "chiave_presente",
+    "sdk_disponibile",
+]

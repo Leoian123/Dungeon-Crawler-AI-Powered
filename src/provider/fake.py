@@ -48,6 +48,8 @@ class FakeProvider:
         self._coda: deque[object] = deque(candidati)
         # Tracciamento per gli assert dei test (il prompt è opaco ma osservabile).
         self.chiamate: list[tuple[str, type[BaseModel]]] = []
+        # I prefissi statici (`sistema`) visti, uno per chiamata (in fase col resto).
+        self.sistemi: list[str] = []
 
     @property
     def prompt_ricevuti(self) -> list[str]:
@@ -65,7 +67,7 @@ class FakeProvider:
         self._coda.append(candidato)
 
     async def genera(
-        self, prompt: str, schema: type[TCandidato]
+        self, prompt: str, schema: type[TCandidato], *, sistema: str = ""
     ) -> TCandidato | None:
         """Ritorna il prossimo candidato scriptato conforme a `schema`, oppure `None`.
 
@@ -79,6 +81,7 @@ class FakeProvider:
                 "(nessun componente ECS vivo attraversa il socket — G-13)"
             )
         self.chiamate.append((prompt, schema))
+        self.sistemi.append(sistema)
 
         if not self._coda:
             return None

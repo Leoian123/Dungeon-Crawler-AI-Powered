@@ -27,7 +27,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import Archetipo, ClasseProva, Durata, StatId, TipoDanno
+from contracts import Archetipo, ClasseProva, Durata, StatId, TipoAzione, TipoDanno
 
 
 # --- Il catalogo: ogni placeholder con la sua spiegazione (cosa dovrebbe essere) -
@@ -243,6 +243,36 @@ _DEFS: tuple[Param, ...] = (
           "int", "tick"),
     Param("CARICO_TICK.un_bel_po", 8, "Tick per Durata=UN_BEL_PO.", CAT_TEMPO, "intero, monotòno",
           "int", "tick"),
+    # --- Tempo diegetico (pipeline GM): forbici ed etichette per Durata ---
+    Param("FORBICE.turno", "pochi istanti", "Forbice testuale mostrata al giocatore per "
+          "Durata=TURNO (finestra di conferma: 'ti prenderà…').", CAT_TEMPO, "testo breve", "testo"),
+    Param("FORBICE.un_attimo", "qualche minuto", "Forbice testuale per UN_ATTIMO.", CAT_TEMPO,
+          "testo breve", "testo"),
+    Param("FORBICE.un_pochino", "20–30 minuti", "Forbice testuale per UN_POCHINO.", CAT_TEMPO,
+          "testo breve", "testo"),
+    Param("FORBICE.un_bel_po", "circa un'ora", "Forbice testuale per UN_BEL_PO.", CAT_TEMPO,
+          "testo breve", "testo"),
+    Param("ETICHETTA_TEMPO.turno", "un turno", "Etichetta diegetica di TURNO (prompt/messaggio "
+          "GM: i secondi sono finzione, i tick sono gioco — J §3).", CAT_TEMPO, "testo breve", "testo"),
+    Param("ETICHETTA_TEMPO.un_attimo", "un attimo", "Etichetta diegetica di UN_ATTIMO.", CAT_TEMPO,
+          "testo breve", "testo"),
+    Param("ETICHETTA_TEMPO.un_pochino", "un pochino", "Etichetta diegetica di UN_POCHINO.", CAT_TEMPO,
+          "testo breve", "testo"),
+    Param("ETICHETTA_TEMPO.un_bel_po", "un bel po'", "Etichetta diegetica di UN_BEL_PO.", CAT_TEMPO,
+          "testo breve", "testo"),
+    Param("DURATA_AZIONE.combatti", "turno", "Durata di default dell'azione COMBATTI (stima "
+          "nella finestra di conferma).", CAT_TEMPO, "una Durata", "scelta",
+          scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.scappa", "turno", "Durata di default di SCAPPA.", CAT_TEMPO,
+          "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.muovi", "turno", "Durata di default di MUOVI (una stanza = cadenza "
+          "base, J §4).", CAT_TEMPO, "una Durata", "scelta",
+          scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.scendi", "un_attimo", "Durata di default di SCENDI.", CAT_TEMPO,
+          "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.altro", "un_pochino", "Durata di default dell'azione libera (ALTRO): "
+          "la stima che il giocatore vede prima di confermare.", CAT_TEMPO, "una Durata",
+          "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     # --- Prove ---
     Param("SOGLIA_PROVA.bronzo", 8, "Soglia (margine deterministico) della classe BRONZO: più "
           "alta = più difficile.", CAT_PROVE, "interi crescenti", "int"),
@@ -299,7 +329,7 @@ _OVERRIDE: dict[str, object] = _carica_override()
 
 def _coerce(param: Param, valore: object) -> object:
     """Riporta `valore` al tipo del param e lo **valida**: int→int, scelta→una delle
-    `scelte` ammesse, altrimenti float. Solleva `ValueError` su input non valido."""
+    `scelte` ammesse, testo→str libera, altrimenti float. `ValueError` su input non valido."""
     if param.tipo == "int":
         return int(valore)
     if param.tipo == "scelta":
@@ -307,6 +337,8 @@ def _coerce(param: Param, valore: object) -> object:
         if param.scelte and s not in param.scelte:
             raise ValueError(f"'{s}' non in {param.scelte}")
         return s
+    if param.tipo == "testo":
+        return str(valore)
     return float(valore)
 
 
@@ -420,6 +452,13 @@ CARICO_TICK: dict[Durata, int] = {
     Durata.UN_ATTIMO: valore("CARICO_TICK.un_attimo"),
     Durata.UN_POCHINO: valore("CARICO_TICK.un_pochino"),
     Durata.UN_BEL_PO: valore("CARICO_TICK.un_bel_po"),
+}
+# Tempo diegetico per la pipeline GM: forbici (finestra di conferma) ed etichette
+# (prompt/messaggio). I secondi sono finzione; i tick sono gioco (J §3).
+FORBICE_DURATA: dict[Durata, str] = {d: valore(f"FORBICE.{d.value}") for d in Durata}
+ETICHETTA_TEMPO: dict[Durata, str] = {d: valore(f"ETICHETTA_TEMPO.{d.value}") for d in Durata}
+DURATA_AZIONE: dict[TipoAzione, Durata] = {
+    t: Durata(valore(f"DURATA_AZIONE.{t.value}")) for t in TipoAzione
 }
 PRIMARIE_BASE_CARL: dict[StatId, int] = {
     StatId.FORZA: valore("CARL.forza"), StatId.DESTREZZA: valore("CARL.destrezza"),

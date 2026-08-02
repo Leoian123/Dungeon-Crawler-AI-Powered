@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 # Config condivisa: vietare campi extra chiude la porta a un campo con cui l'AI
 # proverebbe a invocare l'anomalia o ad alzarsi il budget (F-4, §4.3).
@@ -232,3 +232,51 @@ class Flavor(BaseModel):
     model_config = _CHIUSO
 
     testo: str
+
+
+# --- Pipeline GM: schemi degli stadi NON-GATING (G §9.2: fan-out sotto il socket) --
+
+class IntenzioneScena(str, Enum):
+    """Che tipo di scena l'ideazione propone. Enum chiuso, valori SEGNAPOSTO."""
+
+    SCONTRO = "scontro"
+    PROVA = "prova"
+    QUIETE = "quiete"
+    TRANSIZIONE = "transizione"
+
+
+class TonoScena(str, Enum):
+    """Tono narrativo proposto dall'ideazione. Enum chiuso, valori SEGNAPOSTO."""
+
+    IRONICO = "ironico"
+    CUPO = "cupo"
+    FRENETICO = "frenetico"
+    SOSPESO = "sospeso"
+
+
+class Ideazione(BaseModel):
+    """Output dello stadio di IDEAZIONE della pipeline GM — **consultivo** (F-9).
+
+    Alimenta il prompt della chiamata gating, MAI decide stato: nessun campo può
+    toccare il World, nessun numero. `durata_proposta` è vocabolario chiuso (J):
+    l'AI propone la categoria, il motore dispone i tick. Analogo strutturale di
+    `Flavor`: non passa da nessun gate di stato perché non ne ha bisogno.
+    """
+
+    model_config = _CHIUSO
+
+    intenzione: IntenzioneScena
+    tono: TonoScena
+    focus: str                          # una frase consultiva: il cuore della scena
+    ganci: list[str] = Field(default_factory=list, max_length=3)
+    durata_proposta: Durata
+
+
+class InquadramentoProva(BaseModel):
+    """Inquadramento non-gating di una prova (G §7.1): l'AI SELEZIONA classe e stat
+    (enum chiusi), il motore TIRA seeded. Mai un esito, mai una soglia."""
+
+    model_config = _CHIUSO
+
+    classe: ClasseProva
+    stat: StatId

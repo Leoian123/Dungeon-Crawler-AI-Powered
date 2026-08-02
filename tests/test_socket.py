@@ -90,7 +90,7 @@ def test_G20_chiamata_in_retry_non_scrive(mondo_isolato: str) -> None:
 
 def test_G20_chiamata_cancellata_non_scrive(mondo_isolato: str) -> None:
     class ProviderAppeso:
-        async def genera(self, prompt, schema):
+        async def genera(self, prompt, schema, *, sistema=""):
             await asyncio.Event().wait()  # non si risolve mai
 
     async def scenario() -> None:

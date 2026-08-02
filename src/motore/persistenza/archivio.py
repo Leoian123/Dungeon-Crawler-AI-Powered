@@ -48,6 +48,13 @@ class Archivio:
         record = self._record.get(chiave)
         return record.contenuto if record is not None else None
 
+    def record_di_tipo(self, tipo: str) -> list[RecordArchivio]:
+        """I record congelati con quel `tipo` (lettura pura, ordine d'inserimento).
+
+        Serve alla ricostruzione della memoria GM al load (i record `turno_gm`
+        portano un `seq` nel contenuto per l'ordinamento temporale)."""
+        return [r for r in self._record.values() if r.tipo == tipo]
+
     def __len__(self) -> int:
         return len(self._record)
 

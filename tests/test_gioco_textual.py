@@ -43,6 +43,30 @@ def test_gioca_un_incontro_dalla_ui() -> None:
     asyncio.run(run())
 
 
+def test_finestra_di_conferma_azione_libera() -> None:
+    pytest.importorskip("textual")
+    from textual.widgets import Input
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("a")  # apre l'input dell'azione libera
+            campo = app.query_one("#azione", Input)
+            assert campo.has_class("attiva")
+            await pilot.press(*"ispeziono lo slime")
+            await pilot.press("enter")   # → finestra di conferma (riepilogo + stima)
+            await pilot.pause()
+            assert app._in_conferma and campo.value == "ispeziono lo slime"
+            await pilot.press("enter")   # immissione: il turno GM risponde
+            await pilot.pause()
+            assert not campo.has_class("attiva")
+            assert app.sessione.ultimo_messaggio is not None
+            assert app.sessione.ultimo_messaggio.come == "ispeziono lo slime"
+
+    asyncio.run(run())
+
+
 def test_permadeath_chiude_il_menu() -> None:
     pytest.importorskip("textual")
     from textual.widgets import Button

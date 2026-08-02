@@ -44,9 +44,22 @@ from .schema import (
     Opzione,
     TurnoNarrazione,
     Flavor,
+    IntenzioneScena,
+    TonoScena,
+    Ideazione,
+    InquadramentoProva,
 )
 from .proiezione import SchedaProiezione
-from .vista import OpzioneVista, SnapshotVista
+from .vista import (
+    FattiScontro,
+    MessaggioGM,
+    OpzioneVista,
+    ProvaVista,
+    RiepilogoAzione,
+    SnapshotVista,
+    StimaAzione,
+    TempoVista,
+)
 from .provider import Provider, TCandidato
 
 __all__ = [
@@ -83,11 +96,21 @@ __all__ = [
     "Opzione",
     "TurnoNarrazione",
     "Flavor",
+    "IntenzioneScena",
+    "TonoScena",
+    "Ideazione",
+    "InquadramentoProva",
     # proiezione scheda (sola lettura)
     "SchedaProiezione",
     # snapshot di rendering per la vista
     "OpzioneVista",
     "SnapshotVista",
+    "MessaggioGM",
+    "TempoVista",
+    "ProvaVista",
+    "StimaAzione",
+    "RiepilogoAzione",
+    "FattiScontro",
     # provider
     "Provider",
     "TCandidato",
