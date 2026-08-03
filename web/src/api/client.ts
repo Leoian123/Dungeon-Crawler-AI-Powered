@@ -3,10 +3,13 @@
 // codice (turno_stantio → risincronizza; motore_occupato → avviso), mai sul testo.
 
 import type {
+  ApriPartita,
   CorpoErrore,
   RiepilogoAzione,
+  RispostaCrawlers,
   RispostaThread,
   RispostaTurno,
+  SchedaVista,
   StatoPartita,
 } from "./tipi";
 
@@ -44,8 +47,13 @@ const post = (corpo: object): RequestInit => ({
 export const api = {
   statoPartita: () => richiesta<StatoPartita>("/api/partita"),
   thread: () => richiesta<RispostaThread>("/api/partita/thread"),
-  creaPartita: (seed: number, gm: "fake" | "live") =>
-    richiesta<StatoPartita>("/api/partita", post({ seed, gm })),
+  crawlers: () => richiesta<RispostaCrawlers>("/api/crawlers"),
+  apriPartita: (corpo: ApriPartita) =>
+    richiesta<StatoPartita>("/api/partita", post(corpo)),
+  esci: (versione: number) =>
+    richiesta<{ messaggio: string }>("/api/partita/esci", post({ versione })),
+  chiudi: () => richiesta<{ messaggio: string }>("/api/partita/chiudi", post({})),
+  scheda: () => richiesta<{ party: SchedaVista[] }>("/api/partita/scheda"),
   narrazione: (versione: number) =>
     richiesta<RispostaTurno>("/api/partita/narrazione", post({ versione })),
   scegliOpzione: (indice: number, versione: number) =>

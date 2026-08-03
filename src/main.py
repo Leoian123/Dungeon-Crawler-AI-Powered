@@ -391,8 +391,10 @@ class SessioneGioco:
                 "iniziativa": iniziativa(pent),
                 "colpo": atk_eff(pent),
                 "difesa": def_eff(pent),
-                "evasione %": int(round(eva_eff(pent) * 100)),
-                "precisione %": int(round(acc_eff(pent) * 100)),
+                # Evasione/accuratezza sono GRANDEZZE (stat × coefficiente di
+                # geometria, §5.3-§5.4), non probabilità: si mostrano arrotondate.
+                "evasione": int(round(eva_eff(pent))),
+                "accuratezza": int(round(acc_eff(pent))),
             },
             livello=livello_corrente(),
             tick_piano=tempo_piano_corrente(),

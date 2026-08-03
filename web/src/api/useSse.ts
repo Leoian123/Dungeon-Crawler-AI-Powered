@@ -25,6 +25,17 @@ export function useSse(attivo: boolean) {
     sorgente.addEventListener("morte", () => {
       void qc.invalidateQueries({ queryKey: ["partita"] });
     });
+    sorgente.addEventListener("vittoria", () => {
+      void qc.invalidateQueries({ queryKey: ["partita"] });
+    });
+    sorgente.addEventListener("run_chiusa", () => {
+      // La run si è chiusa (esci/chiudi, anche da un'altra scheda): stop allo
+      // stream — riaprirà con la prossima run — e risincronizzazione.
+      sorgente.close();
+      setProgresso(null);
+      void qc.invalidateQueries({ queryKey: ["partita"] });
+      void qc.invalidateQueries({ queryKey: ["crawlers"] });
+    });
     return () => sorgente.close();
   }, [attivo, qc, setProgresso]);
 }

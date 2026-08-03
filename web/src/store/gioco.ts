@@ -11,19 +11,25 @@ export type StatoComposer =
   | { modo: "scrittura" }
   | { modo: "conferma"; riepilogo: RiepilogoAzione };
 
+export type Sezione = "hub" | "gioco" | "forum";
+
 interface StatoGioco {
+  sezione: Sezione;
   progresso: Progresso | null;
   avviso: string | null;
   composer: StatoComposer;
+  setSezione: (s: Sezione) => void;
   setProgresso: (p: Progresso | null) => void;
   setAvviso: (a: string | null) => void;
   setComposer: (c: StatoComposer) => void;
 }
 
 export const useGioco = create<StatoGioco>((set) => ({
+  sezione: "hub",
   progresso: null,
   avviso: null,
   composer: { modo: "chiuso" },
+  setSezione: (sezione) => set({ sezione }),
   setProgresso: (progresso) => set({ progresso }),
   setAvviso: (avviso) => set({ avviso }),
   setComposer: (composer) => set({ composer }),

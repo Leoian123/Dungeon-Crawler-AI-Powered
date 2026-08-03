@@ -1,26 +1,31 @@
-// La SPA del forum play-by-post. Verità remota in TanStack Query (snapshot
-// sostituito in blocco, C-4), segnali live via SSE, stato effimero in Zustand.
+// La SPA a tre sezioni: HUB (gestione crawler, sovra-run) / GIOCO (la run,
+// forum play-by-post) / FORUM (community diegetica, shell). Navigazione a
+// stato (Zustand), niente router. Verità remota in TanStack Query (snapshot
+// sostituito in blocco, C-4), segnali live via SSE.
 
 import { useSse } from "./api/useSse";
 import {
   partitaAssente,
   usePartita,
   useProssimaNarrazione,
+  useEsci,
   useSalva,
   useThread,
 } from "./api/query";
 import type { StatoPartita } from "./api/tipi";
-import { useGioco } from "./store/gioco";
+import { useGioco, type Sezione } from "./store/gioco";
 import { BarraOpzioni } from "./components/BarraOpzioni";
 import { ComposerAzione } from "./components/ComposerAzione";
-import { NuovaPartita } from "./components/NuovaPartita";
+import { ForumShell } from "./components/ForumShell";
+import { HubCrawler } from "./components/HubCrawler";
 import {
   Avviso,
   BannerFase,
   BannerMorte,
-  PannelloStato,
+  BannerVittoria,
   ProgressoGM,
 } from "./components/Pannelli";
+import { PannelloParty } from "./components/SchedaPG";
 import { ThreadForum } from "./components/ThreadForum";
 
 function Partita({ stato }: { stato: StatoPartita }) {
@@ -28,18 +33,17 @@ function Partita({ stato }: { stato: StatoPartita }) {
   const thread = useThread(true);
   const narrazione = useProssimaNarrazione();
   const salva = useSalva();
+  const esci = useEsci();
   const progresso = useGioco((s) => s.progresso);
+  const terminata = stato.morto || stato.vittoria;
   const bloccata =
-    stato.morto || stato.occupato || progresso !== null || narrazione.isPending;
+    terminata || stato.occupato || progresso !== null || narrazione.isPending;
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-6">
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-pergamena/15 pb-3">
-        <h1 className="text-xl font-bold text-torcia">
-          Dungeon Crawler — forum di gioco
-        </h1>
-        <div className="flex items-center gap-3">
-          <span className="text-xs italic text-pergamena/60">{stato.gm}</span>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm italic text-pergamena/60">{stato.gm}</span>
+        <div className="flex gap-2">
           <button
             disabled={bloccata}
             onClick={() => salva.mutate({ versione: stato.versione })}
@@ -47,10 +51,17 @@ function Partita({ stato }: { stato: StatoPartita }) {
           >
             Salva
           </button>
+          <button
+            disabled={bloccata || esci.isPending}
+            onClick={() => esci.mutate({ versione: stato.versione })}
+            className="rounded border border-torcia/50 px-3 py-1 text-sm text-torcia transition hover:bg-torcia/10 disabled:opacity-40"
+          >
+            Salva ed esci
+          </button>
         </div>
-      </header>
+      </div>
 
-      <PannelloStato stato={stato.snapshot?.stato ?? []} />
+      <PannelloParty />
       <BannerFase fase={stato.fase} />
 
       <main className="flex-1">
@@ -61,6 +72,8 @@ function Partita({ stato }: { stato: StatoPartita }) {
         <ProgressoGM progresso={progresso} />
         {stato.morto ? (
           <BannerMorte />
+        ) : stato.vittoria ? (
+          <BannerVittoria />
         ) : stato.snapshot && stato.snapshot.opzioni.length > 0 ? (
           <>
             <BarraOpzioni
@@ -86,39 +99,72 @@ function Partita({ stato }: { stato: StatoPartita }) {
   );
 }
 
-export default function App() {
+function SezioneGioco() {
   const partita = usePartita();
+  const setSezione = useGioco((s) => s.setSezione);
 
   if (partita.isPending) {
     return (
-      <main className="flex min-h-screen items-center justify-center italic text-pergamena/60">
+      <p className="py-16 text-center italic text-pergamena/60">
         Bussando alla porta del dungeon…
-      </main>
-    );
-  }
-  if (partita.isError && partitaAssente(partita.error)) {
-    return (
-      <>
-        <NuovaPartita />
-        <Avviso />
-      </>
+      </p>
     );
   }
   if (partita.isError) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-2 px-4 text-center">
-        <p className="text-sangue">L'host web non risponde.</p>
-        <p className="text-sm text-pergamena/60">
-          Avvia <code className="text-torcia">gioca_web.bat</code> e ricarica la
-          pagina. ({String(partita.error)})
+      <div className="flex flex-col items-center gap-3 py-16 text-center">
+        <p className="text-pergamena/70">
+          {partitaAssente(partita.error)
+            ? "Nessuna run in corso."
+            : "L'host web non risponde."}
         </p>
-      </main>
+        <button
+          onClick={() => setSezione("hub")}
+          className="rounded bg-torcia px-4 py-1.5 font-bold text-abisso transition hover:bg-torcia/90"
+        >
+          Vai all'hub
+        </button>
+      </div>
     );
   }
+  return <Partita stato={partita.data} />;
+}
+
+const TAB: { id: Sezione; etichetta: string }[] = [
+  { id: "hub", etichetta: "Hub" },
+  { id: "gioco", etichetta: "Partita" },
+  { id: "forum", etichetta: "Forum" },
+];
+
+export default function App() {
+  const sezione = useGioco((s) => s.sezione);
+  const setSezione = useGioco((s) => s.setSezione);
+
   return (
-    <>
-      <Partita stato={partita.data} />
+    <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-5">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-pergamena/15 pb-3">
+        <h1 className="text-xl font-bold text-torcia">Dungeon Crawler</h1>
+        <nav className="flex gap-1">
+          {TAB.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setSezione(tab.id)}
+              className={`rounded px-3 py-1.5 text-sm transition ${
+                sezione === tab.id
+                  ? "bg-torcia/15 font-bold text-torcia"
+                  : "text-pergamena/70 hover:bg-pergamena/10"
+              }`}
+            >
+              {tab.etichetta}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      {sezione === "hub" && <HubCrawler />}
+      {sezione === "gioco" && <SezioneGioco />}
+      {sezione === "forum" && <ForumShell />}
       <Avviso />
-    </>
+    </div>
   );
 }

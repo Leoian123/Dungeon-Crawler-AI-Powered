@@ -3,6 +3,7 @@
 
 import { useEffect } from "react";
 import type { Fase, Progresso } from "../api/tipi";
+import { useChiudi } from "../api/query";
 import { useGioco } from "../store/gioco";
 
 export function ProgressoGM({ progresso }: { progresso: Progresso | null }) {
@@ -29,14 +30,41 @@ export function BannerFase({ fase }: { fase: Fase }) {
   );
 }
 
+function BottoneTornaAllHub({ etichetta }: { etichetta: string }) {
+  const chiudi = useChiudi();
+  return (
+    <button
+      disabled={chiudi.isPending}
+      onClick={() => chiudi.mutate({})}
+      className="mt-2 rounded bg-torcia px-4 py-1.5 font-bold text-abisso transition hover:bg-torcia/90 disabled:opacity-40"
+    >
+      {etichetta}
+    </button>
+  );
+}
+
 export function BannerMorte() {
   return (
     <div className="rounded-lg border border-sangue bg-sangue/15 px-4 py-3 text-center">
       <p className="text-lg font-bold text-sangue">💀 Sei morto.</p>
       <p className="text-sm text-pergamena/70">
-        Permadeath: la run è terminata; il thread resta in sola lettura. Riavvia
-        l'host per una nuova discesa.
+        Permadeath: la run è terminata e lo slot verrà ritirato; il thread resta
+        in sola lettura finché non torni all'hub.
       </p>
+      <BottoneTornaAllHub etichetta="Torna all'hub" />
+    </div>
+  );
+}
+
+export function BannerVittoria() {
+  return (
+    <div className="rounded-lg border border-muschio bg-muschio/10 px-4 py-3 text-center">
+      <p className="text-lg font-bold text-muschio">🏆 Piano completato!</p>
+      <p className="text-sm text-pergamena/70">
+        La discesa è la vittoria della run (MVP a un piano). Il crawler si ritira
+        vittorioso: lo slot viene archiviato.
+      </p>
+      <BottoneTornaAllHub etichetta="Concludi e torna all'hub" />
     </div>
   );
 }

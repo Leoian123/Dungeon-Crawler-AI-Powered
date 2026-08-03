@@ -66,9 +66,44 @@ export interface StatoPartita {
   fase: Fase;
   occupato: boolean;
   morto: boolean;
+  vittoria: boolean;
+  crawler: { uuid: string; nome: string } | null;
   snapshot: SnapshotVista | null;
   gm: string;
 }
+
+export interface CrawlerVista {
+  uuid: string;
+  etichetta: string;
+  profondita: number;
+  timestamp: number; // epoch secondi; 0 = save legacy senza data
+  corrotta: boolean;
+}
+
+export interface RispostaCrawlers {
+  crawlers: CrawlerVista[];
+  attiva: { uuid: string; nome: string } | null;
+}
+
+export interface SchedaVista {
+  uuid: string;
+  nome: string;
+  vivo: boolean;
+  hp: number;
+  hp_max: number;
+  descrittori: string[];
+  primarie: Record<string, number>;
+  primarie_occulte: string[];
+  derivate: Record<string, number>;
+  livello: number;
+  tick_piano: number;
+}
+
+export type GmScelta = "fake" | "live";
+
+export type ApriPartita =
+  | { gm: GmScelta; nuovo: { nome: string; seed: number } }
+  | { gm: GmScelta; carica: { uuid: string } };
 
 export interface RispostaTurno extends StatoPartita {
   post: PostThread[];

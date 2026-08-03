@@ -10,7 +10,12 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type { RispostaThread, RispostaTurno, StatoPartita } from "./tipi";
+import type {
+  ApriPartita,
+  RispostaThread,
+  RispostaTurno,
+  StatoPartita,
+} from "./tipi";
 import { useGioco } from "../store/gioco";
 
 export function usePartita() {
@@ -31,6 +36,18 @@ export function useThread(abilitata: boolean) {
   });
 }
 
+export function useCrawlers() {
+  return useQuery({ queryKey: ["crawlers"], queryFn: api.crawlers });
+}
+
+export function useScheda(abilitata: boolean) {
+  return useQuery({
+    queryKey: ["scheda"],
+    queryFn: api.scheda,
+    enabled: abilitata,
+  });
+}
+
 export function partitaAssente(errore: unknown): boolean {
   return errore instanceof ApiError && errore.status === 404;
 }
@@ -42,6 +59,7 @@ function applicaTurno(qc: QueryClient, risposta: RispostaTurno) {
     versione: risposta.versione,
     post: [...(vecchio?.post ?? []), ...post],
   }));
+  void qc.invalidateQueries({ queryKey: ["scheda"] }); // HP/status possono cambiare
 }
 
 function risincronizza(qc: QueryClient) {
@@ -71,21 +89,53 @@ function useMutazioneTurno<V>(mutationFn: (variabili: V) => Promise<RispostaTurn
   });
 }
 
-export function useCreaPartita() {
+export function useApriPartita() {
   const qc = useQueryClient();
   const setAvviso = useGioco((s) => s.setAvviso);
+  const setSezione = useGioco((s) => s.setSezione);
   return useMutation({
-    mutationFn: ({ seed, gm }: { seed: number; gm: "fake" | "live" }) =>
-      api.creaPartita(seed, gm),
+    mutationFn: (corpo: ApriPartita) => api.apriPartita(corpo),
     onSuccess: (stato) => {
       qc.setQueryData(["partita"], stato);
       // La query era in errore (404 = partita assente): il refetch la riporta
-      // in stato di successo con la partita appena creata.
+      // in stato di successo; il thread arriva dal server (pieno se caricata).
       void qc.invalidateQueries({ queryKey: ["partita"] });
+      void qc.invalidateQueries({ queryKey: ["thread"] });
+      void qc.invalidateQueries({ queryKey: ["crawlers"] });
+      setSezione("gioco");
     },
     onError: (errore) =>
       setAvviso(errore instanceof Error ? errore.message : String(errore)),
   });
+}
+
+/** Ritorno all'hub (salva-ed-esci o chiusura del terminale): cache della run
+ * rimossa, elenco crawler aggiornato. */
+function useTornaAllHub<V>(mutationFn: (variabili: V) => Promise<{ messaggio: string }>) {
+  const qc = useQueryClient();
+  const setAvviso = useGioco((s) => s.setAvviso);
+  const setSezione = useGioco((s) => s.setSezione);
+  return useMutation({
+    mutationFn,
+    onSuccess: ({ messaggio }) => {
+      qc.removeQueries({ queryKey: ["partita"] });
+      qc.removeQueries({ queryKey: ["thread"] });
+      qc.removeQueries({ queryKey: ["scheda"] });
+      void qc.invalidateQueries({ queryKey: ["crawlers"] });
+      setSezione("hub");
+      setAvviso(messaggio);
+    },
+    onError: (errore) =>
+      setAvviso(errore instanceof Error ? errore.message : String(errore)),
+  });
+}
+
+export function useEsci() {
+  return useTornaAllHub(({ versione }: { versione: number }) => api.esci(versione));
+}
+
+export function useChiudi() {
+  return useTornaAllHub((_: Record<string, never>) => api.chiudi());
 }
 
 export function useProssimaNarrazione() {
