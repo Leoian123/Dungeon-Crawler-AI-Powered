@@ -9,12 +9,24 @@ processo e non attraversa mai la rete verso il client (PLK §4).
 from __future__ import annotations
 
 import argparse
+import socket
 import sys
 
 import uvicorn
 
 from .app import crea_app
 from .stato import StatoHost
+
+
+def _porta_libera(porta: int) -> bool:
+    """Pre-check del bind: uvicorn fallirebbe comunque, ma DOPO l'avvio dell'app
+    e con un traceback winsock poco leggibile — meglio dirlo subito e in chiaro."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sonda:
+        try:
+            sonda.bind(("127.0.0.1", porta))
+        except OSError:
+            return False
+    return True
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,6 +43,15 @@ def main(argv: list[str] | None = None) -> int:
         help="cartella dei crawler salvati (default: salvataggi/ o DCC_SAVE_DIR)",
     )
     args = parser.parse_args(argv)
+
+    if not _porta_libera(args.porta):
+        print(
+            f"[gioca_web] La porta {args.porta} è già occupata: un altro host web "
+            "è probabilmente in esecuzione (una finestra precedente, o l'anteprima "
+            "dell'editor). Chiudi l'altro processo o avvia con --porta N "
+            "(ricordando il proxy di web/vite.config.ts)."
+        )
+        return 1
 
     stato = StatoHost(directory=args.dir)
     stato.live_vietato = args.fake

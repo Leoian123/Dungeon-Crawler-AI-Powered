@@ -61,40 +61,48 @@ function Partita({ stato }: { stato: StatoPartita }) {
         </div>
       </div>
 
-      <PannelloParty />
-      <BannerFase fase={stato.fase} />
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        {/* Colonna sinistra: il party (sticky su desktop, sopra al thread su mobile). */}
+        <aside className="lg:sticky lg:top-4 lg:w-64 lg:shrink-0 xl:w-72">
+          <PannelloParty />
+        </aside>
 
-      <main className="flex-1">
-        <ThreadForum post={thread.data?.post ?? []} />
-      </main>
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <BannerFase fase={stato.fase} />
 
-      <footer className="sticky bottom-0 flex flex-col gap-3 border-t border-pergamena/15 bg-abisso/95 py-3 backdrop-blur">
-        <ProgressoGM progresso={progresso} />
-        {stato.morto ? (
-          <BannerMorte />
-        ) : stato.vittoria ? (
-          <BannerVittoria />
-        ) : stato.snapshot && stato.snapshot.opzioni.length > 0 ? (
-          <>
-            <BarraOpzioni
-              snapshot={stato.snapshot}
-              versione={stato.versione}
-              bloccata={bloccata}
-            />
-            {stato.fase === "narrazione" && (
-              <ComposerAzione versione={stato.versione} bloccato={bloccata} />
+          <main className="flex-1">
+            <ThreadForum post={thread.data?.post ?? []} />
+          </main>
+
+          <footer className="sticky bottom-0 flex flex-col gap-3 border-t border-pergamena/15 bg-abisso/95 py-3 backdrop-blur">
+            <ProgressoGM progresso={progresso} />
+            {stato.morto ? (
+              <BannerMorte />
+            ) : stato.vittoria ? (
+              <BannerVittoria />
+            ) : stato.snapshot && stato.snapshot.opzioni.length > 0 ? (
+              <>
+                <BarraOpzioni
+                  snapshot={stato.snapshot}
+                  versione={stato.versione}
+                  bloccata={bloccata}
+                />
+                {stato.fase === "narrazione" && (
+                  <ComposerAzione versione={stato.versione} bloccato={bloccata} />
+                )}
+              </>
+            ) : (
+              <button
+                disabled={bloccata}
+                onClick={() => narrazione.mutate({ versione: stato.versione })}
+                className="rounded border border-torcia/60 bg-torcia/10 px-4 py-2 font-bold text-torcia transition hover:bg-torcia/25 disabled:opacity-40"
+              >
+                Chiedi al GM il prossimo turno
+              </button>
             )}
-          </>
-        ) : (
-          <button
-            disabled={bloccata}
-            onClick={() => narrazione.mutate({ versione: stato.versione })}
-            className="rounded border border-torcia/60 bg-torcia/10 px-4 py-2 font-bold text-torcia transition hover:bg-torcia/25 disabled:opacity-40"
-          >
-            Chiedi al GM il prossimo turno
-          </button>
-        )}
-      </footer>
+          </footer>
+        </div>
+      </div>
     </div>
   );
 }
@@ -141,7 +149,7 @@ export default function App() {
   const setSezione = useGioco((s) => s.setSezione);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-4xl flex-col gap-4 px-4 py-5">
+    <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-pergamena/15 pb-3">
         <h1 className="text-xl font-bold text-torcia">Dungeon Crawler</h1>
         <nav className="flex gap-1">

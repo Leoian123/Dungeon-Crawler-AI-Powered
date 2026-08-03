@@ -69,17 +69,32 @@ export function SchedaPG({ scheda }: { scheda: SchedaVista }) {
   );
 }
 
+// Dimensione del party (gioco single player: più personaggi, un solo giocatore).
+// L'API restituisce `party` come LISTA: la UI rende tutti i membri che il motore
+// consegna — oggi il protagonista, domani i compagni — e riempie il resto di
+// slot liberi fino a questo tetto.
+const SLOT_PARTY = 4;
+
 export function PannelloParty() {
   const scheda = useScheda(true);
   const party = scheda.data?.party ?? [];
+  const liberi = Math.max(0, SLOT_PARTY - party.length);
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+    <div className="flex flex-col gap-2">
+      <h2 className="text-sm font-bold uppercase tracking-wider text-pergamena/60">
+        Party {party.length}/{SLOT_PARTY}
+      </h2>
       {party.map((pg) => (
         <SchedaPG key={pg.uuid} scheda={pg} />
       ))}
-      <div className="flex min-h-16 items-center justify-center rounded-lg border border-dashed border-pergamena/15 text-xs text-pergamena/40">
-        slot del party — in attesa di compagni
-      </div>
+      {Array.from({ length: liberi }, (_, i) => (
+        <div
+          key={i}
+          className="flex min-h-14 items-center justify-center rounded-lg border border-dashed border-pergamena/15 text-xs text-pergamena/40"
+        >
+          slot libero
+        </div>
+      ))}
     </div>
   );
 }
