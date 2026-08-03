@@ -207,14 +207,22 @@ class SessioneGioco:
 
     @classmethod
     def nuova(
-        cls, provider, *, directory: Path, nome: str = "Carl", seed: int = 0
+        cls,
+        provider,
+        *,
+        directory: Path,
+        nome: str = "Carl",
+        seed: int = 0,
+        n_stanze: int | None = None,
     ) -> "SessioneGioco":
         """Nuova run: il protagonista NASCE al confine guscio→run. L'uuid identifica
         lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta."""
         sessione = cls(provider, directory=directory, seed=seed)
         sessione.uuid = uuid4().hex[:8]
         sessione.etichetta = nome
-        sessione.guscio.nuova_partita(uuid=sessione.uuid, destrezza=10, hp=30, seed=seed)
+        sessione.guscio.nuova_partita(
+            uuid=sessione.uuid, destrezza=10, hp=30, seed=seed, n_stanze=n_stanze
+        )
         sessione.coda = sessione.guscio.coda
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
         sessione.archivio = Archivio(master_seed=master_seed(), model_id=MODEL_ID_DEFAULT)
@@ -545,25 +553,104 @@ class CronacaBus:
 
 
 def _turni_scriptati() -> list[TurnoNarrazione]:
-    """Contenuto scriptato per il provider fake (offline). Esauriti, l'orchestrazione
-    degrada al fallback deterministico (turno neutro): il gioco non si blocca mai."""
+    """Contenuto scriptato per il provider fake (offline) — SOLO offline: il GM live
+    genera il suo. Esauriti i turni, l'orchestrazione degrada al fallback
+    deterministico (turno neutro): il gioco non si blocca mai.
+
+    IL GIRO DELLA FALSA IDRA (piano 1, otto stanze, un turno per stanza in ordine
+    di visita): i manifesti promettono "L'IDRA DEL PRIMO PIANO — TERRORE A NOVE
+    TESTE", ma ogni stanza rivela un'altra testa FINTA della truffa. Ogni turno
+    arruola un mob DIVERSO (archetipo × grado × blocchi → profilo calibrato dal
+    motore): è anche il banco di prova del reclutamento per-stanza."""
+    combatti_o_scappa = [
+        Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
+        Opzione(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
+    ]
+    voci: list[tuple[str, Archetipo, Grado, list[Blocco], str, str, Durata]] = [
+        (
+            "Un corridoio umido gocciola luce verde su un manifesto: «L'IDRA DEL "
+            "PRIMO PIANO — TERRORE A NOVE TESTE». Sotto il manifesto, uno Slime "
+            "Mangiascarti ribolle tra rifiuti e un Rolex digerito.",
+            Archetipo.SLIME, Grado.BRONZO, [Blocco.VELENO],
+            "Slime Mangiascarti",
+            "Verde, acido, vagamente offeso dalla tua presenza.",
+            Durata.TURNO,
+        ),
+        (
+            "Un bancone di ossa e nastro adesivo: «BIGLIETTI PER L'IDRA — PAURA "
+            "GARANTITA O NIENTE RIMBORSO». Il goblin dietro il bancone ti squadra "
+            "e raddoppia il prezzo.",
+            Archetipo.GOBLIN, Grado.BRONZO, [],
+            "Goblin Bigliettaio",
+            "Cappellino da giostraio, sorriso a ventiquattro denti, tutti in affitto.",
+            Durata.UN_ATTIMO,
+        ),
+        (
+            "Fili, aghi, cartapesta. Uno scheletro cuce la QUARTA testa dell'idra "
+            "canticchiando: le altre tre pendono dal soffitto, ancora senza occhi.",
+            Archetipo.SCHELETRO, Grado.BRONZO, [Blocco.RIGENERAZIONE],
+            "Scheletro Sarto",
+            "Ditale d'ottone sul metacarpo, pessimo gusto in fatto di bottoni.",
+            Durata.TURNO,
+        ),
+        (
+            "Due slime impilati in un impermeabile fingono di essere un'idra a due "
+            "teste. Il travestimento regge finché quello sopra non sbadiglia.",
+            Archetipo.SLIME, Grado.ARGENTO, [Blocco.VELENO, Blocco.RIGENERAZIONE],
+            "Gemelli nel Trench",
+            "Uno fa la voce grossa, l'altro fa la voce piccola. Nessuno fa l'idra.",
+            Durata.UN_POCHINO,
+        ),
+        (
+            "Un teatrino di bastoni e carrucole: teste d'idra di pezza ruggiscono "
+            "in playback mentre un goblin suda dietro le quinte, sei corde in mano.",
+            Archetipo.GOBLIN, Grado.ARGENTO, [Blocco.RIGENERAZIONE],
+            "Goblin Burattinaio",
+            "Artista incompreso: lo spettacolo continua, si rialza sempre.",
+            Durata.TURNO,
+        ),
+        (
+            "Tre scheletri su una pedana provano IL RUGGITO in canone a tre voci, "
+            "sollevando nuvole di polvere d'osso che pizzica in gola. Il basso è "
+            "stonato e gli altri due fingono di non conoscerlo.",
+            Archetipo.SCHELETRO, Grado.ARGENTO, [Blocco.VELENO],
+            "Coro delle Ossa",
+            "Fanno anche matrimoni e funerali. Soprattutto funerali.",
+            Durata.UN_ATTIMO,
+        ),
+        (
+            "Una vasca gorgogliante dove le «teste di ricambio» crescono come "
+            "lievito madre. Lo slime enorme sul fondo ti guarda con orgoglio "
+            "materno e zero rimorsi.",
+            Archetipo.SLIME, Grado.ARGENTO, [Blocco.VELENO],
+            "Slime Madre",
+            "Ogni testa finta del piano è farina del suo sacco. Letteralmente.",
+            Durata.TURNO,
+        ),
+        (
+            "Il gran finale: un costume da idra a nove teste, corna dipinte d'oro, "
+            "e dentro un goblin col megafono. «Lo spettacolo DEVE continuare», "
+            "ringhia. Il mito del piano era tutto qui.",
+            Archetipo.GOBLIN, Grado.ARGENTO, [Blocco.VELENO, Blocco.RIGENERAZIONE],
+            "Il Regista",
+            "Ha truffato interi piani. L'oro sulle corna è vernice da cantiere.",
+            Durata.UN_POCHINO,
+        ),
+    ]
     return [
         TurnoNarrazione(
-            prosa="Un corridoio umido gocciola luce verde. Uno Slime Mangiascarti ribolle "
-            "tra rifiuti e un Rolex digerito.",
+            prosa=prosa,
             entita=EntitaGenerata(
-                archetipo=Archetipo.SLIME,
-                grado=Grado.BRONZO,
-                blocchi=[Blocco.VELENO],
-                nome="Slime Mangiascarti",
-                descrizione="Verde, acido, vagamente offeso dalla tua presenza.",
+                archetipo=archetipo,
+                grado=grado,
+                blocchi=blocchi,
+                nome=nome,
+                descrizione=descrizione,
             ),
-            opzioni=[
-                Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
-                Opzione(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
-            ],
-            durata=Durata.TURNO,
-        ),
+            opzioni=combatti_o_scappa,
+            durata=durata,
+        )
+        for prosa, archetipo, grado, blocchi, nome, descrizione, durata in voci
     ]
 
 
@@ -588,10 +675,19 @@ def costruisci_sessione(
     *, nome: str = "Carl", seed: int = 0, directory: Path | None = None, provider=None
 ) -> SessioneGioco:
     """Cabla il provider → `SessioneGioco.nuova` (la porta del motore vista dall'host).
-    Senza `directory` la run vive in una tempdir usa-e-getta (demo/test)."""
+    Senza `directory` la run vive in una tempdir usa-e-getta (demo/test).
+
+    SOLO offline (provider=None → FakeProvider): il piano ha tante stanze quanti
+    sono i turni del copione — il giro della Falsa Idra copre tutte le stanze.
+    Col GM live la topologia resta quella di calibrazione (`MAPPA_STANZE`)."""
     directory = directory or Path(tempfile.mkdtemp(prefix="dcc-"))
+    n_stanze = len(_turni_scriptati()) if provider is None else None
     return SessioneGioco.nuova(
-        _provider_o_fake(provider), directory=directory, nome=nome, seed=seed
+        _provider_o_fake(provider),
+        directory=directory,
+        nome=nome,
+        seed=seed,
+        n_stanze=n_stanze,
     )
 
 

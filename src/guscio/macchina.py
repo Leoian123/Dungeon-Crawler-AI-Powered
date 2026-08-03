@@ -164,17 +164,27 @@ class Guscio:
     # --- Ingresso run: protagonista NASCE o si DESERIALIZZA, solo qui (E-5) ----
 
     def nuova_partita(
-        self, uuid: str = "carl", *, destrezza: int = 10, hp: int = 30, seed: int = 0
+        self,
+        uuid: str = "carl",
+        *,
+        destrezza: int = 10,
+        hp: int = 30,
+        seed: int = 0,
+        n_stanze: int | None = None,
     ) -> None:
         """Confine guscio→run, nuova partita (3a): `"run"` fresco e il protagonista
-        **nasce** qui (Carl predefinito, G §6.5). Mai a una transizione di fase (E-5)."""
+        **nasce** qui (Carl predefinito, G §6.5). Mai a una transizione di fase (E-5).
+
+        `n_stanze` sovrascrive il default di calibrazione (`MAPPA_STANZE`) per la
+        topologia del piano: lo usa l'host quando il contenuto è un copione a
+        lunghezza nota (es. il giro scriptato del GM offline)."""
         assert self.stato == StatoGuscio.MENU, self.stato
         entra_run_nuova()  # H esegue lo switch al `"run"` fresco; il guscio lo orchestra
         # I singleton di stato nascono qui; `FaseCorrente` la crea `avvia_run`.
         crea_profondita()
         crea_seme(seed)
         crea_tempo_piano()
-        crea_mappa(random.Random(seed))  # topologia seeded dal seme di run (G-18 garantito)
+        crea_mappa(random.Random(seed), n_stanze)  # topologia seeded (G-18 garantito)
         crea_protagonista(destrezza=destrezza, punti_vita=hp, id_dominio=uuid)
         self.coda = avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE, **self._sistemi_run())
         self._registra_handler_run()
