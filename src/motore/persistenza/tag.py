@@ -27,7 +27,7 @@ import typing
 from ..fase import FaseCorrente
 from ..modificatori import Modificatori
 from ..piano import ProfonditaPiano, TempoPiano
-from ..scheda import Protagonista, Scheda
+from ..scheda import ActionPoint, Protagonista, Scheda
 from ..seme import SemeRun
 from ..statistiche import Primarie
 from ..status import Brucia, Rigenerazione, Stordito, Veleno
@@ -39,6 +39,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     Scheda: "scheda",
     Primarie: "primarie",
     Modificatori: "modificatori",
+    # AP: risorsa POSSEDUTA del protagonista (G §2.1, guida §6.1) — persistente
+    # come la Scheda, non un'effimera di combattimento (quelle restano fuori).
+    ActionPoint: "action_point",
     Veleno: "veleno",
     Brucia: "brucia",
     Rigenerazione: "rigenerazione",

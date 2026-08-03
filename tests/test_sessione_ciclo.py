@@ -7,14 +7,18 @@ Tutto offline (FakeProvider). Disciplina esper: `run_pulita` (ESP §0.1).
 from __future__ import annotations
 
 import asyncio
+import json
 
+import esper
+
+from contracts import PlayerChoseOption, SnapshotVista
 from main import (
     carica_sessione,
     costruisci_sessione,
     elenca_crawler,
     gioca_un_incontro,
 )
-from motore import protagonista, tick
+from motore import ActionPoint, protagonista, tick
 
 
 def test_ciclo_completo_nuova_esci_elenca_carica(run_pulita, tmp_path) -> None:
@@ -84,6 +88,71 @@ def test_terminale_morte_invalida_lo_slot(run_pulita, tmp_path) -> None:
     tick()  # un turno del motore (harness): il death-check emette MortePersonaggio
     assert sessione.chiudi_terminale() == "Run conclusa: lo slot è stato ritirato."
     assert elenca_crawler(tmp_path) == []  # permadeath: save invalidato (H-20)
+
+
+def _fino_al_combattimento(sessione) -> SnapshotVista:
+    """Naviga via porte fino a ingaggiare uno scontro (max 5 stanze)."""
+    snap = asyncio.run(sessione.prossima_narrazione())
+    for _ in range(5):
+        etichette = {o.etichetta: o.indice for o in snap.opzioni}
+        if "Combatti" in etichette:
+            sessione.coda.accoda(PlayerChoseOption(etichette["Combatti"]))
+            return sessione.avanza()
+        vai = next(
+            (i for e, i in etichette.items() if e.startswith("Vai")), None
+        )
+        assert vai is not None, f"né Combatti né movimento: {etichette}"
+        sessione.coda.accoda(PlayerChoseOption(vai))
+        snap = sessione.avanza()
+        if not snap.opzioni:
+            snap = asyncio.run(sessione.prossima_narrazione())
+    raise AssertionError("nessuno scontro ingaggiato entro 5 stanze")
+
+
+def test_combattimento_dopo_il_caricamento(run_pulita, tmp_path) -> None:
+    """Regression: il protagonista DESERIALIZZATO deve avere gli ActionPoint —
+    senza, il primo turno di scontro post-load esplode (KeyError nel sistema
+    turno, che è AP-driven: `while ap > 0`, G §2.1)."""
+    sessione = costruisci_sessione(nome="Guerriero", seed=1, directory=tmp_path)
+    asyncio.run(sessione.prossima_narrazione())
+    sessione.salva()
+    uuid = sessione.uuid
+    sessione.esci()
+
+    ripresa = carica_sessione(uuid=uuid, directory=tmp_path)
+    assert ripresa is not None
+    snap = _fino_al_combattimento(ripresa)
+    assert snap.fase == "combattimento"
+    guardia = 0
+    while snap.fase == "combattimento" and guardia < 100:
+        ripresa.coda.accoda(PlayerChoseOption(0))  # Attacca
+        snap = ripresa.avanza()
+        guardia += 1
+    assert snap.fase == "narrazione"  # lo scontro si risolve senza crash
+
+
+def test_save_legacy_senza_ap_viene_riparato(run_pulita, tmp_path) -> None:
+    """Un save scritto PRIMA che ActionPoint entrasse nel registry va riparato
+    al load (lasco, H-12): default di calibrazione, mai un crash."""
+    sessione = costruisci_sessione(nome="Vecchio", seed=1, directory=tmp_path)
+    asyncio.run(sessione.prossima_narrazione())
+    uuid = sessione.uuid
+    sessione.esci()
+    percorso = tmp_path / f"{uuid}.stato.json"
+    intestazione, corpo_grezzo = percorso.read_text(encoding="utf-8").splitlines()
+    corpo = json.loads(corpo_grezzo)
+    for ent in corpo["entita"]:
+        ent["componenti"] = [
+            c for c in ent["componenti"] if c["tag"] != "action_point"
+        ]
+    percorso.write_text(
+        intestazione + "\n" + json.dumps(corpo), encoding="utf-8"
+    )
+
+    ripresa = carica_sessione(uuid=uuid, directory=tmp_path)
+    assert ripresa is not None
+    pent, _marker, _scheda = protagonista()
+    assert esper.has_component(pent, ActionPoint)  # riparazione lasca al load
 
 
 def test_due_run_sequenziali_nello_stesso_processo(run_pulita, tmp_path) -> None:
