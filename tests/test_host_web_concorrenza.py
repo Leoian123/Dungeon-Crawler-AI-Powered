@@ -19,23 +19,30 @@ def _client(stato: StatoHost) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=trasporto, base_url="http://test")
 
 
-def test_motore_occupato_rifiuto_immediato(run_pulita) -> None:
-    stato = StatoHost()
+_NUOVA = {"nuovo": {"nome": "Carl", "seed": 1}}
+
+
+def test_motore_occupato_rifiuto_immediato(run_pulita, tmp_path) -> None:
+    stato = StatoHost(directory=tmp_path)
 
     async def scenario() -> None:
         async with _client(stato) as client:
-            assert (await client.post("/api/partita", json={"seed": 1})).status_code == 201
+            apertura = await client.post("/api/partita", json=_NUOVA)
+            assert apertura.status_code == 201
+            versione = apertura.json()["versione"]
             # Un "turno in corso": il lock è tenuto, come durante prossima_narrazione.
             async with stato.lock:
-                r = await client.post("/api/partita/narrazione", json={"versione": 0})
+                r = await client.post(
+                    "/api/partita/narrazione", json={"versione": versione}
+                )
                 assert r.status_code == 409
                 assert r.json()["codice"] == "motore_occupato"
                 r = await client.post(
-                    "/api/partita/opzioni", json={"indice": 0, "versione": 0}
+                    "/api/partita/opzioni", json={"indice": 0, "versione": versione}
                 )
                 assert r.status_code == 409
             # A lock rilasciato il turno passa.
-            r = await client.post("/api/partita/narrazione", json={"versione": 0})
+            r = await client.post("/api/partita/narrazione", json={"versione": versione})
             assert r.status_code == 200
 
     try:
@@ -44,15 +51,17 @@ def test_motore_occupato_rifiuto_immediato(run_pulita) -> None:
         stato.chiudi()
 
 
-def test_due_richieste_concorrenti_una_sola_entra(run_pulita) -> None:
-    stato = StatoHost()
+def test_due_richieste_concorrenti_una_sola_entra(run_pulita, tmp_path) -> None:
+    stato = StatoHost(directory=tmp_path)
 
     async def scenario() -> None:
         async with _client(stato) as client:
-            assert (await client.post("/api/partita", json={"seed": 1})).status_code == 201
+            apertura = await client.post("/api/partita", json=_NUOVA)
+            assert apertura.status_code == 201
+            versione = apertura.json()["versione"]
             r1, r2 = await asyncio.gather(
-                client.post("/api/partita/narrazione", json={"versione": 0}),
-                client.post("/api/partita/narrazione", json={"versione": 0}),
+                client.post("/api/partita/narrazione", json={"versione": versione}),
+                client.post("/api/partita/narrazione", json={"versione": versione}),
             )
             # Comunque si intreccino: UNA sola entra nel motore; l'altra è respinta
             # (motore_occupato se in volo, turno_stantio se arrivata dopo).

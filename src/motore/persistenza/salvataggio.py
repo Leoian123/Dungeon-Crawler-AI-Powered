@@ -280,6 +280,8 @@ def indice_crawler(directory: Path) -> list[VoceIndice]:
     voci: list[VoceIndice] = []
     for path in sorted(directory.glob(f"*{SUFFISSO_STATO}")):
         uuid = path.name[: -len(SUFFISSO_STATO)]
+        if uuid.endswith(".bak"):
+            continue  # i backup sono SOLO recovery (H §10.3), mai slot dell'elenco
         try:
             intest = leggi_intestazione(path)
             voci.append(

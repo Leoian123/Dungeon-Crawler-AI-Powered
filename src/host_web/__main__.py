@@ -26,9 +26,13 @@ def main(argv: list[str] | None = None) -> int:
         "--fake", action="store_true",
         help="vieta il GM live anche se richiesto via API (solo contenuto offline)",
     )
+    parser.add_argument(
+        "--dir", default=None,
+        help="cartella dei crawler salvati (default: salvataggi/ o DCC_SAVE_DIR)",
+    )
     args = parser.parse_args(argv)
 
-    stato = StatoHost()
+    stato = StatoHost(directory=args.dir)
     stato.live_vietato = args.fake
     app = crea_app(stato)
     print(f"[gioca_web] API su http://127.0.0.1:{args.porta}/api — SPA: web/ (npm run dev)")

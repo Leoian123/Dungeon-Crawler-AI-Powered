@@ -49,6 +49,7 @@ from motore import (
     SistemaTurnoCombattimento,
     SistemaVeleno,
     avvia_run,
+    carica_archivio,
     carica_crawler,
     collega_combattimento,
     collega_transizioni_fase,
@@ -229,7 +230,13 @@ class Guscio:
 
     # --- La cucitura unica: hand-off del terminale (E-4, E-8) ------------------
 
-    def concludi(self) -> Terminale:
+    def concludi(
+        self,
+        *,
+        archivio=None,
+        etichetta: str | None = None,
+        timestamp: float = 0.0,
+    ) -> Terminale:
         """Esegue l'hand-off del terminale rilevato (stessa cucitura per 6a/6b/6c):
 
         1. **save-wiring PRIMA dello switch** (World ancora vivo): uscita volontaria
@@ -239,14 +246,28 @@ class Guscio:
            `delete_world("run")`, E-6) — chiamato dalla shell, fuori da ogni handler (E-4).
 
         Da chiamare **dopo** che `esegui_run` ha ceduto il controllo: mai in un handler.
+
+        `archivio`/`etichetta`/`timestamp` riguardano SOLO il ramo uscita volontaria:
+        l'Archivio della sessione va passato dal chiamante che lo possiede — senza,
+        si RILEGGE il sidecar esistente, che così non viene mai azzerato da un
+        salva-ed-esci (il sidecar è la storia congelata dei turni GM, H §11).
         """
         assert self.stato == StatoGuscio.IN_RUN and self._terminale is not None
         terminale = self._terminale
         uuid = self._uuid
 
         if terminale is Terminale.USCITA_VOLONTARIA:
+            if archivio is None and uuid is not None:
+                archivio = carica_archivio(self.directory, uuid)
             # La mappa viaggia nello slot `esplorazione` (topologia + posizione + visitate).
-            salva_run(self.directory, model_id=self.model_id, esplorazione=mappa_to_dict())
+            salva_run(
+                self.directory,
+                archivio=archivio,
+                model_id=self.model_id,
+                etichetta=etichetta,
+                timestamp=timestamp,
+                esplorazione=mappa_to_dict(),
+            )
         else:  # SCONFITTA (6a) o PIANO_COMPLETATO (6b): fine-run → invalida
             if uuid is not None:
                 invalida(self.directory, uuid)

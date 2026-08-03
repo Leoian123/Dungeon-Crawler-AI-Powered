@@ -13,7 +13,7 @@ import asyncio
 import json
 from typing import Any, AsyncIterator
 
-from .stato import StatoHost
+from .stato import SENTINELLA_CHIUSURA, StatoHost
 
 INTERVALLO_PING = 15.0  # keep-alive contro i proxy che chiudono gli stream quieti
 
@@ -33,6 +33,11 @@ async def flusso_eventi(stato: StatoHost) -> AsyncIterator[str]:
             except asyncio.TimeoutError:
                 yield ": ping\n\n"
                 continue
+            if (evento, dati) == SENTINELLA_CHIUSURA:
+                # La run si è chiusa (hub): lo stream termina, il client riapre
+                # l'EventSource alla run successiva.
+                yield formatta("run_chiusa", {})
+                return
             yield formatta(evento, dati)
     finally:
         stato.disdici(coda)

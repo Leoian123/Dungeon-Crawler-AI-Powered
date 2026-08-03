@@ -36,6 +36,9 @@ Thumbs.db
 *.bak.archivio.gz
 *.tmp
 
+# Crawler salvati dall'host web (slot = crawler, H §1): stato di gioco locale.
+salvataggi/
+
 # Override di calibrazione (§11) scritti dalla console admin (`calibratore`): numeri locali
 # in fase di taratura, MAI da versionare. I default vivono in `motore/calibrazione.py`.
 calibrazione.overrides.json

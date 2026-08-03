@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import is_dataclass
 from dataclasses import asdict as dataclass_asdict
+from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict
@@ -28,7 +29,11 @@ from contracts import (
     MortePersonaggio,
     SnapshotVista,
 )
-from main import CronacaBus, SessioneGioco
+from main import DIRECTORY_SALVATAGGI, CronacaBus, SessioneGioco
+
+# Sentinella di fine flusso: chiude i generatori SSE quando la run si chiude
+# (l'EventSource del client riapre alla run successiva).
+SENTINELLA_CHIUSURA: tuple[None, None] = (None, None)
 
 # Gli eventi di dominio inoltrati sul canale SSE (consumatore read-only, IC §2.3).
 _EVENTI_DOMINIO: tuple[type, ...] = (
@@ -63,13 +68,16 @@ class StatoHost:
     gli indici delle opzioni valgono SOLO per lo snapshot corrente.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, directory: Path | None = None) -> None:
+        self.directory = Path(directory) if directory is not None else DIRECTORY_SALVATAGGI
         self.sessione: SessioneGioco | None = None
         self.cronaca: CronacaBus | None = None
         self.lock = asyncio.Lock()  # il motore NON è rientrante: un ingresso alla volta
         self.versione = 0
         self.thread: list[PostThread] = []
         self.morto = False
+        self.vittoria = False  # DiscesaPiano: nell'MVP un piano = vittoria della run
+        self.crawler: dict[str, str] | None = None  # {"uuid", "nome"} della run attiva
         self.gm_etichetta = ""
         self.snapshot: SnapshotVista | None = None  # sostituito in blocco (C-4)
         self.live_vietato = False  # lancio con --fake: l'API non può chiedere il live
@@ -78,16 +86,44 @@ class StatoHost:
 
     # --- Ciclo di vita ------------------------------------------------------
 
-    def adotta(self, sessione: SessioneGioco, etichetta: str) -> None:
+    def adotta(
+        self, sessione: SessioneGioco, etichetta: str, *, crawler: dict[str, str]
+    ) -> None:
         """Adotta la sessione appena costruita: cronaca, handler SSE, avanzamento."""
         self.sessione = sessione
         self.gm_etichetta = etichetta
+        self.crawler = crawler
         self.cronaca = CronacaBus(sessione.bus)
         sessione.on_avanzamento = self._su_avanzamento
         for tipo in _EVENTI_DOMINIO:
             handler = self._fai_handler(tipo)
             sessione.bus.registra(tipo, handler)
             self._coppie_bus.append((tipo, handler))
+
+    def azzera_run(self) -> None:
+        """Torna all'hub: sgancia gli handler dal bus (process-global), azzera lo
+        stato della run e CHIUDE i flussi SSE con la sentinella (mai lasciare
+        stream appesi che riceverebbero gli eventi della run successiva)."""
+        self.chiudi()  # PRIMA di azzerare la sessione: deregistra dal suo bus
+        self.sessione = None
+        self.snapshot = None
+        self.thread = []
+        self.versione = 0
+        self.morto = False
+        self.vittoria = False
+        self.crawler = None
+        self.gm_etichetta = ""
+        for coda in list(self._abbonati):
+            coda.put_nowait(SENTINELLA_CHIUSURA)
+
+    def ricostruisci_thread(self, messaggi: list[MessaggioGM]) -> None:
+        """Ripopola il thread dai turni GM congelati (caricamento di una run).
+        Nessuna pubblicazione: avviene prima che un client si abboni; i post
+        "evento" (cronaca del bus) vivono solo in memoria e non tornano."""
+        self.thread = [
+            PostThread(id=i, genere="gm", messaggio=messaggio)
+            for i, messaggio in enumerate(messaggi)
+        ]
 
     def chiudi(self) -> None:
         """Deregistra tutto dal bus (process-global: gli handler non devono
@@ -162,5 +198,9 @@ class StatoHost:
             if tipo is MortePersonaggio:
                 self.morto = True  # permadeath: terminale di run
                 self.pubblica("morte", {"causa": getattr(evento, "causa", "")})
+            elif tipo is DiscesaPiano:
+                # MVP a un piano: la discesa è la vittoria della run (G §6.7).
+                self.vittoria = True
+                self.pubblica("vittoria", {"piano": getattr(evento, "piano", 0)})
 
         return handler

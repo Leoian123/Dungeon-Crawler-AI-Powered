@@ -27,17 +27,23 @@ def test_rotta_eventi_esposta() -> None:
     assert any(getattr(r, "path", "") == "/api/partita/eventi" for r in app.routes)
 
 
-def test_sse_trasporta_progresso_e_post(run_pulita) -> None:
-    stato = StatoHost()
+def test_sse_trasporta_progresso_e_post(run_pulita, tmp_path) -> None:
+    stato = StatoHost(directory=tmp_path)
 
     async def scenario() -> None:
         trasporto = httpx.ASGITransport(app=crea_app(stato))
         async with httpx.AsyncClient(transport=trasporto, base_url="http://test") as client:
-            assert (await client.post("/api/partita", json={"seed": 1})).status_code == 201
+            apertura = await client.post(
+                "/api/partita", json={"nuovo": {"nome": "Carl", "seed": 1}}
+            )
+            assert apertura.status_code == 201
             flusso = flusso_eventi(stato)  # un abbonato collegato PRIMA del turno
             assert (await anext(flusso)).startswith(": collegato")
             turno = asyncio.create_task(
-                client.post("/api/partita/narrazione", json={"versione": 0})
+                client.post(
+                    "/api/partita/narrazione",
+                    json={"versione": apertura.json()["versione"]},
+                )
             )
             visti: set[str] = set()
             try:

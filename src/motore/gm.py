@@ -429,6 +429,20 @@ def _messaggio_da_record(record: dict) -> MessaggioGM:
     )
 
 
+def messaggi_da_archivio(archivio: Archivio) -> list[MessaggioGM]:
+    """Il thread dei turni GM congelati, in ordine di `seq` (= tick del piano).
+
+    Serve all'host per ricostruire lo scroll/forum al caricamento di una run:
+    la chat non si salva mai (H §11), si RIDERIVA dall'Archivio. Da chiamare a
+    run caricata (World attivo): i messaggi ricostruiti portano il tempo di
+    piano corrente e `tick_spesi=0` — la rilettura non spende tempo."""
+    record = sorted(
+        archivio.record_di_tipo(TIPO_RECORD_GM),
+        key=lambda r: r.contenuto.get("seq", 0),
+    )
+    return [_messaggio_da_record(r.contenuto) for r in record]
+
+
 async def esegui_turno_gm(
     provider,
     *,

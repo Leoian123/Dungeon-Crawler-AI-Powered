@@ -5,13 +5,15 @@
       "name": "host-web-fake",
       "runtimeExecutable": "cmd",
       "runtimeArgs": ["/c", "C:\\Project\\DCC\\gioca_web.bat", "--fake"],
-      "port": 8017
+      "port": 8017,
+      "autoPort": false
     },
     {
       "name": "web-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "web", "run", "dev"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": false
     }
   ]
 }

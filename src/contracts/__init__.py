@@ -49,7 +49,8 @@ from .schema import (
     Ideazione,
     InquadramentoProva,
 )
-from .proiezione import SchedaProiezione
+from .hub import CrawlerVista
+from .proiezione import SchedaProiezione, SchedaVista
 from .vista import (
     FattiScontro,
     MessaggioGM,
@@ -100,8 +101,10 @@ __all__ = [
     "TonoScena",
     "Ideazione",
     "InquadramentoProva",
-    # proiezione scheda (sola lettura)
+    # proiezione scheda (sola lettura) + scheda per la UI + hub
     "SchedaProiezione",
+    "SchedaVista",
+    "CrawlerVista",
     # snapshot di rendering per la vista
     "OpzioneVista",
     "SnapshotVista",

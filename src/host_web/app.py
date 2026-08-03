@@ -21,10 +21,10 @@ from typing import Literal
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from contracts import PlayerChoseOption
-from main import costruisci_sessione
+from main import carica_sessione, costruisci_sessione, elenca_crawler
 
 from .sse import flusso_eventi
 from .stato import PostThread, StatoHost
@@ -43,10 +43,31 @@ class ErroreApi(Exception):
 
 # --- Body delle richieste (validati da FastAPI/Pydantic) -----------------------
 
-class RichiestaPartita(BaseModel):
+class NuovoCrawler(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    nome: str = Field(min_length=1, max_length=40)
     seed: int = 0
+
+
+class CaricaCrawler(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    uuid: str = Field(min_length=1)
+
+
+class RichiestaPartita(BaseModel):
+    """Apertura di una run: ESATTAMENTE una tra `nuovo` (nasce un crawler) e
+    `carica` (si riapre uno slot sospeso)."""
+
+    model_config = ConfigDict(extra="forbid")
     gm: Literal["fake", "live"] = "fake"
+    nuovo: NuovoCrawler | None = None
+    carica: CaricaCrawler | None = None
+
+    @model_validator(mode="after")
+    def _uno_solo(self) -> "RichiestaPartita":
+        if (self.nuovo is None) == (self.carica is None):
+            raise ValueError("indica esattamente uno tra 'nuovo' e 'carica'")
+        return self
 
 
 class RichiestaVersione(BaseModel):
@@ -130,10 +151,14 @@ def crea_app(stato: StatoHost) -> FastAPI:
         return stato.sessione
 
     def _guardie_di_gioco(versione: int) -> None:
-        """Ordine: morto (410) → occupato (409) → versione stantia (409). Tra il
-        check del lock e l'acquisizione non c'è alcun await: niente corse."""
-        if stato.morto:
-            raise ErroreApi(410, "run_terminata", "Permadeath: la run è terminata.")
+        """Ordine: terminata (410) → occupato (409) → versione stantia (409). Tra
+        il check del lock e l'acquisizione non c'è alcun await: niente corse."""
+        if stato.morto or stato.vittoria:
+            raise ErroreApi(
+                410, "run_terminata",
+                "La run è terminata (permadeath o discesa): chiudila con "
+                "POST /api/partita/chiudi.",
+            )
         if stato.lock.locked():
             raise ErroreApi(409, "motore_occupato", "Il GM sta lavorando: riprova.")
         if versione != stato.versione:
@@ -152,6 +177,8 @@ def crea_app(stato: StatoHost) -> FastAPI:
             "fase": snap.fase if snap is not None else "narrazione",
             "occupato": stato.lock.locked(),
             "morto": stato.morto,
+            "vittoria": stato.vittoria,
+            "crawler": stato.crawler,
             "snapshot": snap.model_dump(mode="json") if snap is not None else None,
             "gm": stato.gm_etichetta,
         }
@@ -161,22 +188,90 @@ def crea_app(stato: StatoHost) -> FastAPI:
 
     # --- Ciclo di vita della partita -----------------------------------------
 
+    @app.get("/api/crawlers")
+    async def crawlers() -> dict:
+        """L'elenco degli slot (slot = crawler, H §1): la vista dell'hub. Nessuna
+        guardia di sessione: si consulta anche a run aperta."""
+        return {
+            "crawlers": [c.model_dump(mode="json") for c in elenca_crawler(stato.directory)],
+            "attiva": stato.crawler,
+        }
+
     @app.post("/api/partita", status_code=201)
-    async def crea_partita(ric: RichiestaPartita) -> dict:
+    async def apri_partita(ric: RichiestaPartita) -> dict:
         if stato.sessione is not None:
             raise ErroreApi(
                 409, "partita_esistente",
-                "Una partita è già in corso (una per processo): riavvia l'host per "
-                "ricominciare.",
+                "Una run è già aperta (una per processo): chiudila con "
+                "POST /api/partita/esci prima di aprirne un'altra.",
             )
         if ric.gm == "live":
             provider, etichetta = _provider_live(stato)
         else:
             provider, etichetta = None, "GM offline (contenuto scriptato)"
         # provider=None ⇒ FakeProvider: il default resta SICURO, il live è esplicito.
-        sessione = costruisci_sessione(seed=ric.seed, provider=provider)
-        stato.adotta(sessione, etichetta)
+        if ric.nuovo is not None:
+            sessione = costruisci_sessione(
+                nome=ric.nuovo.nome, seed=ric.nuovo.seed,
+                directory=stato.directory, provider=provider,
+            )
+        else:
+            sessione = carica_sessione(
+                uuid=ric.carica.uuid, directory=stato.directory, provider=provider
+            )
+            if sessione is None:
+                raise ErroreApi(
+                    404, "salvataggio_illeggibile",
+                    "Il salvataggio non esiste o non è leggibile.",
+                )
+        stato.adotta(
+            sessione, etichetta,
+            crawler={"uuid": sessione.uuid, "nome": sessione.etichetta},
+        )
+        if ric.carica is not None:
+            # Il forum della run riparte dai turni GM congelati (H §11).
+            stato.ricostruisci_thread(sessione.ricostruisci_thread())
+        # Un turno del motore (sync, zero LLM) riallinea scena/menu e produce il
+        # primo snapshot; da qui in poi vale il protocollo di versione.
+        snap = sessione.avanza()
+        stato.registra_turno(
+            snap, righe=stato.cronaca.preleva() if stato.cronaca else [], messaggio=None
+        )
         return _stato_partita()
+
+    @app.post("/api/partita/esci")
+    async def esci_partita(ric: RichiestaVersione) -> dict:
+        """Salva-ed-esci (terminale 6c): la run si chiude, si torna all'hub. Da
+        run terminata (morte/vittoria) si usa POST /api/partita/chiudi."""
+        sessione = _sessione()
+        _guardie_di_gioco(ric.versione)
+        async with stato.lock:
+            messaggio = sessione.esci()
+            stato.azzera_run()
+        return {"messaggio": messaggio}
+
+    @app.post("/api/partita/chiudi")
+    async def chiudi_partita() -> dict:
+        """Chiusura della run TERMINATA: hand-off del terminale (invalida il save,
+        permadeath H-20) e ritorno all'hub."""
+        sessione = _sessione()
+        if not (stato.morto or stato.vittoria):
+            raise ErroreApi(
+                409, "run_non_terminata",
+                "La run è ancora in corso: per lasciarla usa POST /api/partita/esci.",
+            )
+        if stato.lock.locked():
+            raise ErroreApi(409, "motore_occupato", "Il GM sta lavorando: riprova.")
+        async with stato.lock:
+            messaggio = sessione.chiudi_terminale()
+            stato.azzera_run()
+        return {"messaggio": messaggio}
+
+    @app.get("/api/partita/scheda")
+    async def scheda_party() -> dict:
+        """Il party per la UI (oggi: il solo protagonista — la lista è il seam)."""
+        sessione = _sessione()
+        return {"party": [sessione.scheda().model_dump(mode="json")]}
 
     @app.get("/api/partita")
     async def leggi_partita() -> dict:

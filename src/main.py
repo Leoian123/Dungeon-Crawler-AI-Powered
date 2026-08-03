@@ -20,10 +20,13 @@ reale (fase 5) si innesta dietro la stessa interfaccia `genera`.
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable
+from uuid import uuid4
 
 from contracts import (
     AnomalyTriggered,
@@ -32,6 +35,8 @@ from contracts import (
     BusEventi,
     ClasseProva,
     CombatResolved,
+    CrawlerVista,
+    SchedaVista,
     DiscesaPiano,
     Durata,
     EncounterStarted,
@@ -59,16 +64,26 @@ from motore import (
     MemoriaTurni,
     OpzioneScena,
     SpecNemico,
+    acc_eff,
+    atk_eff,
+    attacco,
+    carica_archivio,
     componi_opzioni_scena,
     consuma_messaggi,
+    def_eff,
     dissolvi_mob,
     esegui_turno_gm,
+    eva_eff,
     in_combattimento,
+    indice_crawler,
     ingaggia_combattimento,
+    iniziativa,
+    livello_corrente,
     mappa_corrente,
     mappa_to_dict,
     master_seed,
     max_hp,
+    messaggi_da_archivio,
     messaggi_pendenti,
     mob_corrente,
     prepara_riepilogo,
@@ -76,6 +91,7 @@ from motore import (
     protagonista,
     salva_run,
     stat_eff,
+    tempo_piano_corrente,
     tenta_disimpegno,
     tick,
     travasa,
@@ -85,6 +101,14 @@ from provider import FakeProvider
 # Menu di combattimento (MVP). Il menu di NARRAZIONE non è più cablato qui: lo compone
 # il MOTORE dalla scena (`componi_opzioni_scena` sulla mappa) — la mappa dispone.
 _MENU_COMBATTIMENTO = (OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzione.COMBATTI),)
+
+# La cartella dei crawler salvati (slot = crawler, H §1). I doc non fissano il
+# percorso: default = `salvataggi/` alla radice del repo (gitignored), override
+# con la variabile d'ambiente DCC_SAVE_DIR. L'elenco è uno scan delle intestazioni
+# (H §5), mai un registro.
+DIRECTORY_SALVATAGGI = Path(
+    os.environ.get("DCC_SAVE_DIR") or Path(__file__).resolve().parent.parent / "salvataggi"
+)
 
 
 class IstanzaCombattimento:
@@ -158,25 +182,71 @@ class SessioneGioco:
     """
 
     def __init__(self, provider, *, directory: Path, seed: int = 0) -> None:
+        # Cablaggio comune: il costruttore NON entra in run — lo fanno i factory
+        # `nuova` (il protagonista nasce) e `da_salvataggio` (si deserializza),
+        # al confine guscio→run (E-5).
         self.provider = provider
         self.rng = random.Random(seed)
         self.guscio = Guscio(directory)
-        self.guscio.nuova_partita(uuid="carl", destrezza=10, hp=30, seed=seed)
         self.bus = self.guscio.bus
-        self.coda = self.guscio.coda  # CodaIntenti: l'host vi accoda gli intenti
-        # La pipeline GM: l'Archivio (firma→record, e il sidecar NON si azzera più al
-        # save) e la memoria di run (derivata, mai persistita come chat — H §11).
-        self.archivio = Archivio(master_seed=master_seed(), model_id=MODEL_ID_DEFAULT)
-        self.memoria = MemoriaTurni()
+        self.coda = None  # CodaIntenti: nasce all'ingresso in run (dai factory)
+        self.archivio: Archivio | None = None
+        self.memoria: MemoriaTurni | None = None
+        self.uuid = ""
+        self.etichetta = ""  # il nome del crawler: etichetta dello slot di save
         self.ultimo_messaggio: MessaggioGM | None = None
         # Callback (etichetta, frazione 0..1) per la barra di attesa dell'host: la
         # pipeline la chiama a ogni stadio; l'host la imposta, il motore non sa di UI.
         self.on_avanzamento = None
+        self._chiusa = False  # run conclusa (esci/terminale): le porte si spengono
         self._opzioni: tuple[OpzioneVista, ...] = ()
         self._scena: tuple[OpzioneScena, ...] = ()  # binding indice→azione di scena
         self._istanza: IstanzaCombattimento | None = None
         self._fatti_scontro: FattiScontro | None = None  # handoff scontro→GM
         self._nome_mob = ""
+
+    @classmethod
+    def nuova(
+        cls, provider, *, directory: Path, nome: str = "Carl", seed: int = 0
+    ) -> "SessioneGioco":
+        """Nuova run: il protagonista NASCE al confine guscio→run. L'uuid identifica
+        lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta."""
+        sessione = cls(provider, directory=directory, seed=seed)
+        sessione.uuid = uuid4().hex[:8]
+        sessione.etichetta = nome
+        sessione.guscio.nuova_partita(uuid=sessione.uuid, destrezza=10, hp=30, seed=seed)
+        sessione.coda = sessione.guscio.coda
+        # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
+        sessione.archivio = Archivio(master_seed=master_seed(), model_id=MODEL_ID_DEFAULT)
+        sessione.memoria = MemoriaTurni()
+        return sessione
+
+    @classmethod
+    def da_salvataggio(
+        cls, provider, *, directory: Path, uuid: str, seed: int = 0
+    ) -> "SessioneGioco | None":
+        """Riapre una run sospesa. `None` se il save è illeggibile (MENU intatto,
+        H-12). L'Archivio di sessione RIPARTE dal sidecar: la cache firma→turno
+        resta intatta (stanze già narrate RILETTE, la storia non si riscrive) e la
+        memoria GM si RIDERIVA (la chat non si salva mai — H §11)."""
+        sessione = cls(provider, directory=directory, seed=seed)
+        if not sessione.guscio.carica(uuid):
+            return None
+        sessione.uuid = uuid
+        sessione.coda = sessione.guscio.coda
+        sidecar = carica_archivio(directory, uuid)
+        sessione.archivio = sidecar or Archivio(
+            master_seed=master_seed(), model_id=MODEL_ID_DEFAULT
+        )
+        sessione.memoria = MemoriaTurni.ricostruisci(sessione.archivio)
+        sessione.etichetta = next(
+            (v.etichetta for v in indice_crawler(directory) if v.uuid == uuid), uuid
+        )
+        messaggi = sessione.ricostruisci_thread()
+        if messaggi:
+            sessione.ultimo_messaggio = messaggi[-1]
+        sessione._sincronizza_scena()
+        return sessione
 
     # --- Porte verso l'host ---------------------------------------------------
 
@@ -188,6 +258,7 @@ class SessioneGioco:
         spesa tempo, memoria, Archivio). La stanza già visitata RILEGGE il suo turno
         congelato (firma, zero chiamate). I fatti di uno scontro appena chiuso entrano
         nel fascicolo (risolvi prima, narra dopo)."""
+        self._guardia_aperta()
         if in_combattimento():  # la pipeline GM non gira nello scontro (istanza a parte)
             return self._snapshot_corrente()
         esito = await esegui_turno_gm(
@@ -221,6 +292,7 @@ class SessioneGioco:
         """Immissione: il testo (eventualmente editato) diventa l'azione del fascicolo
         e il turno GM risponde. Il testo libero NON tocca mai lo stato: viaggia solo
         nel prompt; l'unico ritorno meccanico è il turno gated (enum+budget)."""
+        self._guardia_aperta()
         if in_combattimento():
             return self._snapshot_corrente()
         esito = await esegui_turno_gm(
@@ -255,6 +327,7 @@ class SessioneGioco:
            di esplorazione si servono su un turno del motore in NARRAZIONE (qui sotto);
            in COMBATTIMENTO attendono la fine dello scontro — la separazione
            esplorazione/combattimento è il phase-gate, non un filtro del port."""
+        self._guardia_aperta()
         travasa(self.coda)
         for intento in consuma_messaggi(PlayerChoseOption):
             self._agisci(intento.opzione)
@@ -273,14 +346,78 @@ class SessioneGioco:
     def salva(self) -> str:
         """Salvataggio a mano, in-run (H-6): il World sopravvive, scrittura prima di
         ogni teardown. La mappa viaggia nello slot `esplorazione`; l'Archivio (i turni
-        GM congelati) viaggia nel sidecar — non viene più azzerato."""
+        GM congelati) viaggia nel sidecar — non viene più azzerato. Etichetta e
+        timestamp alimentano l'indice dell'hub (H §5)."""
+        self._guardia_aperta()
         salva_run(
             self.guscio.directory,
             archivio=self.archivio,
             model_id=MODEL_ID_DEFAULT,
+            etichetta=self.etichetta,
+            timestamp=time.time(),
             esplorazione=mappa_to_dict(),
         )
         return "Partita salvata."
+
+    # --- Ciclo di vita della run (hub): scheda, thread, uscita, terminale -------
+
+    def _guardia_aperta(self) -> None:
+        if self._chiusa:
+            raise RuntimeError("sessione chiusa: la run è già stata conclusa")
+
+    def ricostruisci_thread(self) -> list[MessaggioGM]:
+        """Il thread dei turni GM congelati (per l'host, al caricamento): la chat
+        non si salva, si RIDERIVA dall'Archivio (H §11)."""
+        return messaggi_da_archivio(self.archivio)
+
+    def scheda(self) -> SchedaVista:
+        """La scheda del protagonista per la UI del giocatore: numeri PALESI ammessi
+        (a differenza della proiezione per l'AI). Visibilità applicata a monte:
+        `primarie` = solo PALESI (effettive), occulte per nome, fortuna MAI."""
+        self._guardia_aperta()
+        pent, marker, scheda = protagonista()
+        proiezione = proietta_scheda(pent)
+        return SchedaVista(
+            uuid=marker.id_dominio,
+            nome=self.etichetta,
+            vivo=scheda.vivo,
+            hp=scheda.punti_vita,
+            hp_max=max_hp(pent),
+            descrittori=proiezione.descrittori,
+            primarie=dict(proiezione.primarie),
+            primarie_occulte=proiezione.primarie_occulte,
+            derivate={
+                "attacco": attacco(pent),
+                "iniziativa": iniziativa(pent),
+                "colpo": atk_eff(pent),
+                "difesa": def_eff(pent),
+                "evasione %": int(round(eva_eff(pent) * 100)),
+                "precisione %": int(round(acc_eff(pent) * 100)),
+            },
+            livello=livello_corrente(),
+            tick_piano=tempo_piano_corrente(),
+        )
+
+    def esci(self) -> str:
+        """Salva-ed-esci (terminale 6c): l'Archivio di SESSIONE va nel sidecar
+        (mai il fallback del guscio), con etichetta e timestamp per l'indice.
+        Dopo, la sessione è chiusa: run-World smontato, porte spente."""
+        self._guardia_aperta()
+        self.guscio.esci_volontariamente()
+        self.guscio.concludi(
+            archivio=self.archivio, etichetta=self.etichetta, timestamp=time.time()
+        )
+        self._chiusa = True
+        return "Partita salvata: puoi riprenderla dall'hub."
+
+    def chiudi_terminale(self) -> str:
+        """Chiusura della run TERMINATA (morte 6a / piano completato 6b): il guscio
+        ha già rilevato il terminale sul bus; qui l'hand-off — che INVALIDA il save
+        (permadeath, H-20) — e il teardown."""
+        self._guardia_aperta()
+        self.guscio.concludi()
+        self._chiusa = True
+        return "Run conclusa: lo slot è stato ritirato."
 
     # --- Interpretazione delle scelte (sulla verità del motore, non su un modo) -
 
@@ -428,26 +565,62 @@ def _turni_scriptati() -> list[TurnoNarrazione]:
     ]
 
 
-def costruisci_sessione(
-    *, seed: int = 0, directory: Path | None = None, provider=None
-) -> SessioneGioco:
-    """Cabla il provider → `SessioneGioco` (la porta del motore vista dall'host).
-
-    `provider=None` ⇒ **FakeProvider scriptato** (offline): il default è SICURO — mai
-    una chiamata di rete implicita (test inclusi). Il backend live si INIETTA
-    esplicitamente (è l'host, es. `gioco_textual`, a sceglierlo dall'ambiente).
+def _provider_o_fake(provider):
+    """`provider=None` ⇒ **FakeProvider scriptato** (offline): il default è SICURO —
+    mai una chiamata di rete implicita (test inclusi). Il backend live si INIETTA
+    esplicitamente (è l'host a sceglierlo dall'ambiente).
 
     Il FakeProvider è FIFO **per chiamata**: la pipeline GM fa (fino a) 4 chiamate per
     turno, quindi il copione scripta gli stadi in ordine — ideazione degradata (`None`),
     IL turno gating, limatura e distillazione degradate. Esaurita la coda, ogni stadio
     riceve `None`: gli ancillari degradano, la gating cade sul fallback atomico."""
+    if provider is not None:
+        return provider
+    risposte: list[object] = []
+    for turno in _turni_scriptati():
+        risposte += [None, turno.model_dump(), None, None]
+    return FakeProvider(risposte)
+
+
+def costruisci_sessione(
+    *, nome: str = "Carl", seed: int = 0, directory: Path | None = None, provider=None
+) -> SessioneGioco:
+    """Cabla il provider → `SessioneGioco.nuova` (la porta del motore vista dall'host).
+    Senza `directory` la run vive in una tempdir usa-e-getta (demo/test)."""
     directory = directory or Path(tempfile.mkdtemp(prefix="dcc-"))
-    if provider is None:
-        risposte: list[object] = []
-        for turno in _turni_scriptati():
-            risposte += [None, turno.model_dump(), None, None]
-        provider = FakeProvider(risposte)
-    return SessioneGioco(provider, directory=directory, seed=seed)
+    return SessioneGioco.nuova(
+        _provider_o_fake(provider), directory=directory, nome=nome, seed=seed
+    )
+
+
+def carica_sessione(
+    *, uuid: str, directory: Path | None = None, provider=None
+) -> SessioneGioco | None:
+    """Riapre un crawler sospeso dalla cartella dei salvataggi (`None` se
+    illeggibile). Stessa politica provider di `costruisci_sessione`."""
+    directory = directory or DIRECTORY_SALVATAGGI
+    return SessioneGioco.da_salvataggio(
+        _provider_o_fake(provider), directory=directory, uuid=uuid
+    )
+
+
+def elenca_crawler(directory: Path | None = None) -> list[CrawlerVista]:
+    """L'elenco dei crawler salvati come DTO di membrana (per l'host, che non può
+    toccare il motore). Scan delle sole intestazioni (H §5); voce corrotta =
+    mostrata ma non caricabile (H-22)."""
+    directory = directory or DIRECTORY_SALVATAGGI
+    if not directory.exists():
+        return []
+    return [
+        CrawlerVista(
+            uuid=v.uuid,
+            etichetta=v.etichetta,
+            profondita=v.profondita,
+            timestamp=v.timestamp,
+            corrotta=v.corrotta,
+        )
+        for v in indice_crawler(directory)
+    ]
 
 
 def _rendi(snapshot: SnapshotVista, stampa: Callable[[str], None]) -> None:
