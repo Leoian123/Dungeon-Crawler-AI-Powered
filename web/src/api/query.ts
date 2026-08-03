@@ -10,12 +10,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type {
-  ApriPartita,
-  RispostaThread,
-  RispostaTurno,
-  StatoPartita,
-} from "./tipi";
+import type { ApriPartita, RispostaTurno, StatoPartita } from "./tipi";
 import { useGioco } from "../store/gioco";
 
 export function usePartita() {
@@ -52,13 +47,16 @@ export function partitaAssente(errore: unknown): boolean {
   return errore instanceof ApiError && errore.status === 404;
 }
 
+// REGOLA DI AUTORITÀ: il backend è l'UNICA fonte di verità; il client non
+// costruisce MAI dati fondendo incrementi. La cache viene (a) rimpiazzata in
+// blocco con lo stato fresco appena consegnato dal server (C-4), oppure (b)
+// invalidata e riletta dal server. Niente merge client-side: un merge è una
+// seconda superficie di deposito che può divergere (e correrebbe con le
+// invalidazioni SSE).
 function applicaTurno(qc: QueryClient, risposta: RispostaTurno) {
-  const { post, ...stato } = risposta;
+  const { post: _post, ...stato } = risposta; // i post incrementali NON si fondono
   qc.setQueryData<StatoPartita>(["partita"], stato);
-  qc.setQueryData<RispostaThread>(["thread"], (vecchio) => ({
-    versione: risposta.versione,
-    post: [...(vecchio?.post ?? []), ...post],
-  }));
+  void qc.invalidateQueries({ queryKey: ["thread"] }); // il thread si RILEGGE
   void qc.invalidateQueries({ queryKey: ["scheda"] }); // HP/status possono cambiare
 }
 
