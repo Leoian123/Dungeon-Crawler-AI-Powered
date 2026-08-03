@@ -68,8 +68,17 @@ class StatoHost:
     gli indici delle opzioni valgono SOLO per lo snapshot corrente.
     """
 
-    def __init__(self, directory: Path | None = None) -> None:
+    def __init__(
+        self,
+        directory: Path | None = None,
+        *,
+        contenuti_ufficiali: Path | None = None,
+        contenuti_locali: Path | None = None,
+    ) -> None:
         self.directory = Path(directory) if directory is not None else DIRECTORY_SALVATAGGI
+        # Libreria dei contenuti (None = default di main): iniettabili nei test.
+        self.contenuti_ufficiali = contenuti_ufficiali
+        self.contenuti_locali = contenuti_locali
         self.sessione: SessioneGioco | None = None
         self.cronaca: CronacaBus | None = None
         self.lock = asyncio.Lock()  # il motore NON è rientrante: un ingresso alla volta

@@ -4,6 +4,7 @@
 
 import type {
   ApriPartita,
+  AssetVista,
   CorpoErrore,
   RiepilogoAzione,
   RispostaCrawlers,
@@ -11,6 +12,7 @@ import type {
   RispostaTurno,
   SchedaVista,
   StatoPartita,
+  TipoAsset,
 } from "./tipi";
 
 export class ApiError extends Error {
@@ -67,4 +69,27 @@ export const api = {
     richiesta<RispostaTurno>("/api/partita/azione", post({ testo, versione })),
   salva: (versione: number) =>
     richiesta<{ messaggio: string }>("/api/partita/salva", post({ versione })),
+  // Libreria dei contenuti (GM mode). Gli asset viaggiano come oggetti grezzi:
+  // la VERITÀ della validazione è il 422 del server (lint deterministico).
+  assets: (tipo: TipoAsset) =>
+    richiesta<{ asset: AssetVista[] }>(`/api/contenuti/${tipo}`),
+  asset: <T>(tipo: TipoAsset, slug: string) =>
+    richiesta<T>(`/api/contenuti/${tipo}/${slug}`),
+  creaAsset: <T extends { slug: string }>(tipo: TipoAsset, corpo: T) =>
+    richiesta<T>(`/api/contenuti/${tipo}`, post(corpo)),
+  aggiornaAsset: <T extends { slug: string }>(tipo: TipoAsset, corpo: T) =>
+    richiesta<T>(`/api/contenuti/${tipo}/${corpo.slug}`, {
+      method: "PUT",
+      body: JSON.stringify(corpo),
+    }),
+  eliminaAsset: (tipo: TipoAsset, slug: string) =>
+    richiesta<{ eliminato: string }>(`/api/contenuti/${tipo}/${slug}`, {
+      method: "DELETE",
+    }),
+  affini: (tipo: TipoAsset, tags: string[]) =>
+    richiesta<{ affini: AssetVista[] }>(
+      `/api/contenuti/affini?tipo=${tipo}&tags=${encodeURIComponent(tags.join(","))}`,
+    ),
+  stagioneRisolta: (slug: string) =>
+    richiesta<unknown>(`/api/contenuti/stagioni/${slug}/risolto`),
 };

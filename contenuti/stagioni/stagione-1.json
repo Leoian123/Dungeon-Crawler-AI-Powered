@@ -1,0 +1,19 @@
+{
+  "slug": "stagione-1",
+  "versione": 1,
+  "tags": [
+    "falsa-idra",
+    "esordio"
+  ],
+  "numero": 1,
+  "titolo": "La Falsa Idra",
+  "tagline": "TERRORE A NOVE TESTE",
+  "mondo": "Terra",
+  "stile": [
+    "Il crawl è uno show: il dungeon recita per un pubblico che non si vede."
+  ],
+  "lore": "Gli alieni ultra-capitalisti hanno privatizzato il pianeta: chi vuole reclamarlo scende. Questa è la prima stagione trasmessa da questo mondo.",
+  "piani": [
+    "falsa-idra"
+  ]
+}

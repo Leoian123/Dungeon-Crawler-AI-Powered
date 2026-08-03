@@ -17,6 +17,7 @@ import { useGioco, type Sezione } from "./store/gioco";
 import { BarraOpzioni } from "./components/BarraOpzioni";
 import { ComposerAzione } from "./components/ComposerAzione";
 import { ForumShell } from "./components/ForumShell";
+import { GameMaster } from "./components/GameMaster";
 import { HubCrawler } from "./components/HubCrawler";
 import {
   Avviso,
@@ -142,6 +143,7 @@ const TAB: { id: Sezione; etichetta: string }[] = [
   { id: "hub", etichetta: "Hub" },
   { id: "gioco", etichetta: "Partita" },
   { id: "forum", etichetta: "Forum" },
+  { id: "gm", etichetta: "Game Master" },
 ];
 
 export default function App() {
@@ -172,6 +174,7 @@ export default function App() {
       {sezione === "hub" && <HubCrawler />}
       {sezione === "gioco" && <SezioneGioco />}
       {sezione === "forum" && <ForumShell />}
+      {sezione === "gm" && <GameMaster />}
       <Avviso />
     </div>
   );

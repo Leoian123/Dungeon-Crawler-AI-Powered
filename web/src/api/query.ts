@@ -10,7 +10,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { api, ApiError } from "./client";
-import type { ApriPartita, RispostaTurno, StatoPartita } from "./tipi";
+import type { ApriPartita, RispostaTurno, StatoPartita, TipoAsset } from "./tipi";
 import { useGioco } from "../store/gioco";
 
 export function usePartita() {
@@ -33,6 +33,56 @@ export function useThread(abilitata: boolean) {
 
 export function useCrawlers() {
   return useQuery({ queryKey: ["crawlers"], queryFn: api.crawlers });
+}
+
+// --- Libreria dei contenuti (GM mode) ----------------------------------------
+
+export function useAssets(tipo: TipoAsset) {
+  return useQuery({ queryKey: ["contenuti", tipo], queryFn: () => api.assets(tipo) });
+}
+
+export function useAsset<T>(tipo: TipoAsset, slug: string | null) {
+  return useQuery({
+    queryKey: ["contenuti", tipo, slug],
+    queryFn: () => api.asset<T>(tipo, slug as string),
+    enabled: slug !== null,
+  });
+}
+
+/** Mutation generica di authoring: successo → si rilegge la collezione dal
+ * server (mai merge client-side); errore → avviso col lint del server. */
+export function useSalvaAsset(tipo: TipoAsset) {
+  const qc = useQueryClient();
+  const setAvviso = useGioco((s) => s.setAvviso);
+  return useMutation({
+    mutationFn: ({ corpo, nuovo }: { corpo: { slug: string }; nuovo: boolean }) =>
+      nuovo ? api.creaAsset(tipo, corpo) : api.aggiornaAsset(tipo, corpo),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["contenuti", tipo] });
+      setAvviso("Asset salvato nella libreria locale.");
+    },
+    onError: (errore) =>
+      setAvviso(errore instanceof Error ? errore.message : String(errore)),
+  });
+}
+
+export function useEliminaAsset(tipo: TipoAsset) {
+  const qc = useQueryClient();
+  const setAvviso = useGioco((s) => s.setAvviso);
+  return useMutation({
+    mutationFn: ({ slug }: { slug: string }) => api.eliminaAsset(tipo, slug),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["contenuti", tipo] }),
+    onError: (errore) =>
+      setAvviso(errore instanceof Error ? errore.message : String(errore)),
+  });
+}
+
+export function useAffini(tipo: TipoAsset, tags: string[]) {
+  return useQuery({
+    queryKey: ["affini", tipo, tags.join(",")],
+    queryFn: () => api.affini(tipo, tags),
+    enabled: tags.length > 0,
+  });
 }
 
 export function useScheda(abilitata: boolean) {

@@ -93,6 +93,9 @@ class Budget:
     blocchi_ammessi: frozenset[Blocco]
     archetipo_default: Archetipo
     anomala: bool = False
+    # Vincolo del design di piano (stagione attiva): default = tutti — i budget
+    # segnaposto e i chiamanti storici restano invariati.
+    archetipi_ammessi: frozenset[Archetipo] = frozenset(Archetipo)
 
 
 # `PROB_ANOMALIA` vive in `calibrazione.py` (riesposto sopra).
@@ -129,16 +132,33 @@ def _budget_anomalo(livello: int) -> Budget:
     )
 
 
-def prepara_contesto(livello: int, rng: random.Random) -> Budget:
+def prepara_contesto(livello: int, rng: random.Random, *, piano=None) -> Budget:
     """Tira l'**anomalia SEEDED** e calcola il budget + set ammissibile (FNC §5.1/§5.5).
 
     Chi decide di sforare è il **motore**, non l'AI: con bassa probabilità il tiro
     sostituisce il budget normale con uno gonfiato. È RNG del motore (seeded,
     riproducibile in debug — FNC §9), non nondeterminismo dell'LLM.
+
+    `piano` è il design del piano corrente (`design.PianoAttivo`, duck-typed per
+    non accoppiare il catalogo al modulo design): se presente, il budget ORDINARIO
+    viene dai suoi set (gradi/blocchi/archetipi ammessi) — è il vincolo hard del
+    contenuto autorato. L'ANOMALIA non è cappata dal design: resta il tiro del
+    dungeon coi set interi (anche il delirio è del motore, non dell'autore).
+    Senza piano (save legacy, harness, banco): il segnaposto storico, invariato.
     """
     if rng.random() < PROB_ANOMALIA:
         return _budget_anomalo(livello)
-    return _budget_normale(livello)
+    if piano is None:
+        return _budget_normale(livello)
+    return Budget(
+        livello=livello,
+        gradi_ammessi=frozenset(piano.gradi),
+        blocchi_ammessi=frozenset(piano.blocchi),
+        archetipi_ammessi=frozenset(piano.archetipi),
+        # Deterministico e in-budget per costruzione (il lint impone archetipi ≥1).
+        archetipo_default=piano.archetipi[0],
+        anomala=False,
+    )
 
 
 # --- Classi di prova: soglia (motore) + ancore (catalogo) (G §7.2/§7.4) --------

@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 import type { GmScelta } from "../api/tipi";
-import { useApriPartita } from "../api/query";
+import { useApriPartita, useAssets } from "../api/query";
 
 export function CreaCrawler({
   gm,
@@ -15,6 +15,9 @@ export function CreaCrawler({
 }) {
   const [nome, setNome] = useState("");
   const [seed, setSeed] = useState(1);
+  const [stagione, setStagione] = useState<string>("");
+  const stagioni = useAssets("stagioni");
+  const disponibili = (stagioni.data?.asset ?? []).filter((s) => s.valido);
   const apri = useApriPartita();
   const valido = nome.trim().length > 0;
 
@@ -42,10 +45,31 @@ export function CreaCrawler({
           className="rounded border border-pergamena/25 bg-abisso px-3 py-2 text-pergamena focus:border-torcia/60 focus:outline-none"
         />
       </label>
+      <label className="flex flex-col gap-1 text-sm">
+        Stagione dello show
+        <select
+          value={stagione}
+          disabled={apri.isPending}
+          onChange={(e) => setStagione(e.target.value)}
+          className="rounded border border-pergamena/25 bg-abisso px-3 py-2 text-pergamena focus:border-torcia/60 focus:outline-none"
+        >
+          <option value="">— quella di default —</option>
+          {disponibili.map((s) => (
+            <option key={s.slug} value={s.slug}>
+              {s.etichetta} ({s.origine})
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="flex gap-2">
         <button
           disabled={!valido || apri.isPending}
-          onClick={() => apri.mutate({ gm, nuovo: { nome: nome.trim(), seed } })}
+          onClick={() =>
+            apri.mutate({
+              gm,
+              nuovo: { nome: nome.trim(), seed, stagione: stagione || null },
+            })
+          }
           className="rounded bg-torcia px-4 py-2 font-bold text-abisso transition hover:bg-torcia/90 disabled:opacity-40"
         >
           {apri.isPending ? "Discesa in corso…" : "Scendi nel dungeon"}

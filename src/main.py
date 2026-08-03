@@ -31,12 +31,18 @@ from uuid import uuid4
 from contracts import (
     AnomalyTriggered,
     Archetipo,
+    AssetVista,
     Blocco,
     BusEventi,
     ClasseProva,
     CombatResolved,
     CrawlerVista,
+    MobAsset,
+    PianoAsset,
+    PianoRisolto,
     SchedaVista,
+    Stagione,
+    StagioneRisolta,
     DiscesaPiano,
     Durata,
     EncounterStarted,
@@ -86,6 +92,12 @@ from motore import (
     messaggi_da_archivio,
     messaggi_pendenti,
     mob_corrente,
+    MobAttivo,
+    PianoAttivo,
+    StagioneAttiva,
+    design_piano_corrente,
+    lint_registry,
+    stagione_corrente,
     prepara_riepilogo,
     proietta_scheda,
     protagonista,
@@ -106,9 +118,228 @@ _MENU_COMBATTIMENTO = (OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzio
 # percorso: default = `salvataggi/` alla radice del repo (gitignored), override
 # con la variabile d'ambiente DCC_SAVE_DIR. L'elenco è uno scan delle intestazioni
 # (H §5), mai un registro.
-DIRECTORY_SALVATAGGI = Path(
-    os.environ.get("DCC_SAVE_DIR") or Path(__file__).resolve().parent.parent / "salvataggi"
+_RADICE_REPO = Path(__file__).resolve().parent.parent
+DIRECTORY_SALVATAGGI = Path(os.environ.get("DCC_SAVE_DIR") or _RADICE_REPO / "salvataggi")
+
+# --- La LIBRERIA dei contenuti dello show (stagioni/piani/mob) -------------------
+#
+# Asset normalizzati e riusabili (riferimenti per slug, tag per l'affinità):
+# gli UFFICIALI sono versionati nel repo (`contenuti/`), i LOCALI — creati dal
+# GM mode — vivono in una cartella gitignored (lo "stato di guscio persistente"
+# di H §12). In lettura l'ufficiale vince sullo slug; le ufficiali sono
+# read-only per l'authoring (si duplicano). Il runtime NON legge mai la
+# libreria: consuma la stagione RISOLTA e congelata nel World alla creazione.
+DIRECTORY_CONTENUTI = Path(os.environ.get("DCC_CONTENUTI_DIR") or _RADICE_REPO / "contenuti")
+DIRECTORY_CONTENUTI_LOCALI = Path(
+    os.environ.get("DCC_CONTENUTI_LOCALI_DIR") or _RADICE_REPO / "contenuti_locali"
 )
+STAGIONE_DEFAULT = "stagione-1"
+
+TipoAsset = str  # "stagioni" | "piani" | "mob" (le tre collezioni della libreria)
+_MODELLI_ASSET: dict[str, type] = {"stagioni": Stagione, "piani": PianoAsset, "mob": MobAsset}
+
+
+def _etichetta_asset(tipo: str, asset) -> str:
+    return asset.nome if tipo == "mob" else asset.titolo
+
+
+def _tipo_vista(tipo: str) -> str:
+    return {"stagioni": "stagione", "piani": "piano", "mob": "mob"}[tipo]
+
+
+def _scandisci_collezione(
+    tipo: str, cartella: Path, origine: str
+) -> dict[str, tuple[object | None, AssetVista]]:
+    """Una collezione da disco, LASCA (H-22): file non conforme → voce
+    `valido=False`, mostrata ma inutilizzabile — mai un crash di scan."""
+    modello = _MODELLI_ASSET[tipo]
+    voci: dict[str, tuple[object | None, AssetVista]] = {}
+    base = cartella / tipo
+    if not base.exists():
+        return voci
+    for percorso in sorted(base.glob("*.json")):
+        try:
+            asset = modello.model_validate_json(percorso.read_text(encoding="utf-8"))
+            vista = AssetVista(
+                slug=asset.slug,
+                tipo=_tipo_vista(tipo),
+                etichetta=_etichetta_asset(tipo, asset),
+                tags=asset.tags,
+                origine=origine,
+                valido=True,
+            )
+            voci[asset.slug] = (asset, vista)
+        except (OSError, ValueError) as _errore:  # ValidationError è un ValueError
+            slug = percorso.stem
+            voci.setdefault(
+                slug,
+                (
+                    None,
+                    AssetVista(
+                        slug=slug, tipo=_tipo_vista(tipo), etichetta="«corrotto»",
+                        origine=origine, valido=False,
+                    ),
+                ),
+            )
+    return voci
+
+
+def _collezione(
+    tipo: str, ufficiali: Path | None = None, locali: Path | None = None
+) -> dict[str, tuple[object | None, AssetVista]]:
+    """Fusione locali+ufficiali: sull'ombreggiatura di slug l'UFFICIALE vince."""
+    fuse = _scandisci_collezione(tipo, locali or DIRECTORY_CONTENUTI_LOCALI, "locale")
+    fuse.update(_scandisci_collezione(tipo, ufficiali or DIRECTORY_CONTENUTI, "ufficiale"))
+    return fuse
+
+
+def elenca_asset(
+    tipo: str, *, ufficiali: Path | None = None, locali: Path | None = None
+) -> list[AssetVista]:
+    return [
+        vista
+        for _slug, (_asset, vista) in sorted(_collezione(tipo, ufficiali, locali).items())
+    ]
+
+
+def carica_asset(
+    tipo: str, slug: str, *, ufficiali: Path | None = None, locali: Path | None = None
+):
+    """L'asset per slug (ufficiale vince), `None` se assente o corrotto."""
+    voce = _collezione(tipo, ufficiali, locali).get(slug)
+    return voce[0] if voce else None
+
+
+def salva_asset_locale(
+    asset, *, sovrascrivi: bool = False,
+    ufficiali: Path | None = None, locali: Path | None = None,
+) -> None:
+    """Scrive un asset nella libreria LOCALE (authoring): lint del registry
+    (F-6), slug mai in conflitto con un ufficiale, scrittura atomica."""
+    tipo = next(t for t, m in _MODELLI_ASSET.items() if isinstance(asset, m))
+    if tipo == "mob":
+        errori = lint_registry([asset.archetipo], asset.blocchi)
+    elif tipo == "piani":
+        errori = lint_registry(asset.budget.archetipi, asset.budget.blocchi)
+    else:
+        errori = []
+    if errori:
+        raise ValueError("; ".join(errori))
+    if _scandisci_collezione(tipo, ufficiali or DIRECTORY_CONTENUTI, "ufficiale").get(asset.slug):
+        raise ValueError(f"slug riservato a un asset ufficiale: {asset.slug}")
+    cartella = (locali or DIRECTORY_CONTENUTI_LOCALI) / tipo
+    percorso = cartella / f"{asset.slug}.json"
+    if percorso.exists() and not sovrascrivi:
+        raise ValueError(f"slug già esistente in libreria locale: {asset.slug}")
+    cartella.mkdir(parents=True, exist_ok=True)
+    temporaneo = percorso.with_suffix(".json.tmp")
+    temporaneo.write_text(asset.model_dump_json(indent=2), encoding="utf-8")
+    os.replace(temporaneo, percorso)
+
+
+def elimina_asset_locale(
+    tipo: str, slug: str, *, locali: Path | None = None
+) -> bool:
+    percorso = (locali or DIRECTORY_CONTENUTI_LOCALI) / tipo / f"{slug}.json"
+    if not percorso.exists():
+        return False
+    percorso.unlink()
+    return True
+
+
+def risolvi_stagione(
+    stagione: Stagione | str,
+    *, ufficiali: Path | None = None, locali: Path | None = None,
+) -> StagioneRisolta:
+    """Scioglie i riferimenti dell'aggregato (piani → mob) e IMPONE la coerenza:
+    slug pendenti, cast fuori budget e categorie senza binding (F-6) sono errori
+    di authoring sollevati QUI — mai degradi a runtime. Il risultato è pronto
+    per il freeze nel World."""
+    if isinstance(stagione, str):
+        caricata = carica_asset("stagioni", stagione, ufficiali=ufficiali, locali=locali)
+        if caricata is None:
+            raise ValueError(f"stagione assente o corrotta: {stagione}")
+        stagione = caricata
+    errori: list[str] = []
+    piani_risolti: list[PianoRisolto] = []
+    for slug_piano in stagione.piani:
+        piano = carica_asset("piani", slug_piano, ufficiali=ufficiali, locali=locali)
+        if piano is None:
+            errori.append(f"piano riferito ma assente: {slug_piano}")
+            continue
+        cast: list[MobAsset] = []
+        mancanti = False
+        for slug_mob in piano.cast:
+            mob = carica_asset("mob", slug_mob, ufficiali=ufficiali, locali=locali)
+            if mob is None:
+                errori.append(f"mob riferito ma assente: {slug_mob} (piano {slug_piano})")
+                mancanti = True
+            else:
+                cast.append(mob)
+        if mancanti:
+            continue
+        try:
+            piani_risolti.append(
+                PianoRisolto(
+                    slug=piano.slug, versione=piano.versione, tags=piano.tags,
+                    titolo=piano.titolo, tema=piano.tema, stile=piano.stile,
+                    lore=piano.lore, budget=piano.budget, cast=cast, stanze=piano.stanze,
+                )
+            )
+        except ValueError as errore:  # cast⊆budget imposto dal validator
+            errori.append(f"piano {slug_piano}: {errore}")
+        else:
+            errori.extend(lint_registry(piano.budget.archetipi, piano.budget.blocchi))
+    if errori:
+        raise ValueError("stagione non risolvibile:\n- " + "\n- ".join(errori))
+    return StagioneRisolta(
+        slug=stagione.slug, versione=stagione.versione, tags=stagione.tags,
+        numero=stagione.numero, titolo=stagione.titolo, tagline=stagione.tagline,
+        mondo=stagione.mondo, stile=stagione.stile, lore=stagione.lore,
+        piani=piani_risolti,
+    )
+
+
+# --- Affinity matching: il riuso degli asset (gli architetti del dungeon) --------
+#
+# Scoring DETERMINISTICO sui tag: espliciti + impliciti (le categorie contano
+# come tag). Zero LLM, zero costo. Questa firma è la PORTA dietro cui, post-MVP,
+# si innesta il recupero semantico via embeddings ("prima pesca, poi genera",
+# G): richiede un'estensione del contratto Provider (PLK: oggi un solo verbo
+# `genera`) — decisione di spec futura, qui solo annotata.
+
+def _tags_asset(tipo: str, asset) -> set[str]:
+    tags = set(asset.tags)
+    if tipo == "mob":
+        tags |= {asset.archetipo.value, asset.grado.value}
+        tags |= {b.value for b in asset.blocchi}
+    elif tipo == "piani":
+        tags |= {a.value for a in asset.budget.archetipi}
+        tags |= {g.value for g in asset.budget.gradi}
+    return tags
+
+
+def affini(
+    tags: list[str], *, tipo: str, k: int = 5, escludi: tuple[str, ...] = (),
+    ufficiali: Path | None = None, locali: Path | None = None,
+) -> list[AssetVista]:
+    """Gli asset della collezione più affini ai tag dati, ordinati per punteggio
+    (sovrapposizione, poi Jaccard, poi slug — stabile e riproducibile)."""
+    richiesti = {t.strip().lower() for t in tags if t.strip()}
+    if not richiesti:
+        return []
+    classifica: list[tuple[float, float, str, AssetVista]] = []
+    for slug, (asset, vista) in _collezione(tipo, ufficiali, locali).items():
+        if asset is None or slug in escludi:
+            continue
+        propri = _tags_asset(tipo, asset)
+        sovrapposizione = len(richiesti & propri)
+        if sovrapposizione == 0:
+            continue
+        jaccard = sovrapposizione / len(richiesti | propri)
+        classifica.append((-sovrapposizione, -jaccard, slug, vista))
+    classifica.sort()
+    return [vista for *_resto, vista in classifica[:k]]
 
 
 class IstanzaCombattimento:
@@ -214,14 +445,17 @@ class SessioneGioco:
         nome: str = "Carl",
         seed: int = 0,
         n_stanze: int | None = None,
+        stagione: StagioneAttiva | None = None,
     ) -> "SessioneGioco":
         """Nuova run: il protagonista NASCE al confine guscio→run. L'uuid identifica
-        lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta."""
+        lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta.
+        `stagione` è il design RISOLTO e convertito: congelato nel World."""
         sessione = cls(provider, directory=directory, seed=seed)
         sessione.uuid = uuid4().hex[:8]
         sessione.etichetta = nome
         sessione.guscio.nuova_partita(
-            uuid=sessione.uuid, destrezza=10, hp=30, seed=seed, n_stanze=n_stanze
+            uuid=sessione.uuid, destrezza=10, hp=30, seed=seed,
+            n_stanze=n_stanze, stagione=stagione,
         )
         sessione.coda = sessione.guscio.coda
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
@@ -240,6 +474,10 @@ class SessioneGioco:
         sessione = cls(provider, directory=directory, seed=seed)
         if not sessione.guscio.carica(uuid):
             return None
+        if sessione.provider is None:
+            # Offline: il copione si deriva dalla stagione CONGELATA nel save
+            # (design_piano_corrente; save legacy → Falsa Idra), mai dalla libreria.
+            sessione.provider = _fake_da_piano(design_piano_corrente())
         sessione.uuid = uuid
         sessione.coda = sessione.guscio.coda
         sidecar = carica_archivio(directory, uuid)
@@ -552,154 +790,137 @@ class CronacaBus:
         self._coppie = []
 
 
-def _turni_scriptati() -> list[TurnoNarrazione]:
-    """Contenuto scriptato per il provider fake (offline) — SOLO offline: il GM live
-    genera il suo. Esauriti i turni, l'orchestrazione degrada al fallback
-    deterministico (turno neutro): il gioco non si blocca mai.
+# --- Freeze: dal DTO risolto all'aggregato ATTIVO del motore ---------------------
 
-    IL GIRO DELLA FALSA IDRA (piano 1, otto stanze, un turno per stanza in ordine
-    di visita): i manifesti promettono "L'IDRA DEL PRIMO PIANO — TERRORE A NOVE
-    TESTE", ma ogni stanza rivela un'altra testa FINTA della truffa. Ogni turno
-    arruola un mob DIVERSO (archetipo × grado × blocchi → profilo calibrato dal
-    motore): è anche il banco di prova del reclutamento per-stanza."""
+def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
+    """Conversione DTO→dataclass al confine (la colla vive nel composition root)."""
+    return StagioneAttiva(
+        slug=risolta.slug,
+        versione=risolta.versione,
+        numero=risolta.numero,
+        titolo=risolta.titolo,
+        tagline=risolta.tagline,
+        mondo=risolta.mondo,
+        stile=list(risolta.stile),
+        lore=risolta.lore,
+        piani=[
+            PianoAttivo(
+                slug=piano.slug,
+                titolo=piano.titolo,
+                tema=piano.tema,
+                stile=list(piano.stile),
+                lore=piano.lore,
+                gradi=list(piano.budget.gradi),
+                blocchi=list(piano.budget.blocchi),
+                archetipi=list(piano.budget.archetipi),
+                cast=[
+                    MobAttivo(
+                        slug=mob.slug, nome=mob.nome, archetipo=mob.archetipo,
+                        grado=mob.grado, blocchi=list(mob.blocchi),
+                        descrizione=mob.descrizione, prosa_stanza=mob.prosa_stanza,
+                        durata=mob.durata, tags=list(mob.tags),
+                    )
+                    for mob in piano.cast
+                ],
+                stanze=piano.stanze,
+                tags=list(piano.tags),
+            )
+            for piano in risolta.piani
+        ],
+        tags=list(risolta.tags),
+    )
+
+
+def turni_da_piano(piano) -> list[TurnoNarrazione]:
+    """Il copione offline DERIVATO dal cast del piano (una stanza per voce, in
+    ordine). Accetta sia il DTO `PianoRisolto` sia il dataclass `PianoAttivo`
+    (stessi campi sul cast: duck-typed). Esauriti i turni, l'orchestrazione
+    degrada al fallback deterministico: il gioco non si blocca mai."""
     combatti_o_scappa = [
         Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
         Opzione(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
     ]
-    voci: list[tuple[str, Archetipo, Grado, list[Blocco], str, str, Durata]] = [
-        (
-            "Un corridoio umido gocciola luce verde su un manifesto: «L'IDRA DEL "
-            "PRIMO PIANO — TERRORE A NOVE TESTE». Sotto il manifesto, uno Slime "
-            "Mangiascarti ribolle tra rifiuti e un Rolex digerito.",
-            Archetipo.SLIME, Grado.BRONZO, [Blocco.VELENO],
-            "Slime Mangiascarti",
-            "Verde, acido, vagamente offeso dalla tua presenza.",
-            Durata.TURNO,
-        ),
-        (
-            "Un bancone di ossa e nastro adesivo: «BIGLIETTI PER L'IDRA — PAURA "
-            "GARANTITA O NIENTE RIMBORSO». Il goblin dietro il bancone ti squadra "
-            "e raddoppia il prezzo.",
-            Archetipo.GOBLIN, Grado.BRONZO, [],
-            "Goblin Bigliettaio",
-            "Cappellino da giostraio, sorriso a ventiquattro denti, tutti in affitto.",
-            Durata.UN_ATTIMO,
-        ),
-        (
-            "Fili, aghi, cartapesta. Uno scheletro cuce la QUARTA testa dell'idra "
-            "canticchiando: le altre tre pendono dal soffitto, ancora senza occhi.",
-            Archetipo.SCHELETRO, Grado.BRONZO, [Blocco.RIGENERAZIONE],
-            "Scheletro Sarto",
-            "Ditale d'ottone sul metacarpo, pessimo gusto in fatto di bottoni.",
-            Durata.TURNO,
-        ),
-        (
-            "Due slime impilati in un impermeabile fingono di essere un'idra a due "
-            "teste. Il travestimento regge finché quello sopra non sbadiglia.",
-            Archetipo.SLIME, Grado.ARGENTO, [Blocco.VELENO, Blocco.RIGENERAZIONE],
-            "Gemelli nel Trench",
-            "Uno fa la voce grossa, l'altro fa la voce piccola. Nessuno fa l'idra.",
-            Durata.UN_POCHINO,
-        ),
-        (
-            "Un teatrino di bastoni e carrucole: teste d'idra di pezza ruggiscono "
-            "in playback mentre un goblin suda dietro le quinte, sei corde in mano.",
-            Archetipo.GOBLIN, Grado.ARGENTO, [Blocco.RIGENERAZIONE],
-            "Goblin Burattinaio",
-            "Artista incompreso: lo spettacolo continua, si rialza sempre.",
-            Durata.TURNO,
-        ),
-        (
-            "Tre scheletri su una pedana provano IL RUGGITO in canone a tre voci, "
-            "sollevando nuvole di polvere d'osso che pizzica in gola. Il basso è "
-            "stonato e gli altri due fingono di non conoscerlo.",
-            Archetipo.SCHELETRO, Grado.ARGENTO, [Blocco.VELENO],
-            "Coro delle Ossa",
-            "Fanno anche matrimoni e funerali. Soprattutto funerali.",
-            Durata.UN_ATTIMO,
-        ),
-        (
-            "Una vasca gorgogliante dove le «teste di ricambio» crescono come "
-            "lievito madre. Lo slime enorme sul fondo ti guarda con orgoglio "
-            "materno e zero rimorsi.",
-            Archetipo.SLIME, Grado.ARGENTO, [Blocco.VELENO],
-            "Slime Madre",
-            "Ogni testa finta del piano è farina del suo sacco. Letteralmente.",
-            Durata.TURNO,
-        ),
-        (
-            "Il gran finale: un costume da idra a nove teste, corna dipinte d'oro, "
-            "e dentro un goblin col megafono. «Lo spettacolo DEVE continuare», "
-            "ringhia. Il mito del piano era tutto qui.",
-            Archetipo.GOBLIN, Grado.ARGENTO, [Blocco.VELENO, Blocco.RIGENERAZIONE],
-            "Il Regista",
-            "Ha truffato interi piani. L'oro sulle corna è vernice da cantiere.",
-            Durata.UN_POCHINO,
-        ),
-    ]
     return [
         TurnoNarrazione(
-            prosa=prosa,
+            prosa=mob.prosa_stanza,
             entita=EntitaGenerata(
-                archetipo=archetipo,
-                grado=grado,
-                blocchi=blocchi,
-                nome=nome,
-                descrizione=descrizione,
+                archetipo=mob.archetipo,
+                grado=mob.grado,
+                blocchi=list(mob.blocchi),
+                nome=mob.nome,
+                descrizione=mob.descrizione,
             ),
             opzioni=combatti_o_scappa,
-            durata=durata,
+            durata=mob.durata,
         )
-        for prosa, archetipo, grado, blocchi, nome, descrizione, durata in voci
+        for mob in piano.cast
     ]
 
 
-def _provider_o_fake(provider):
-    """`provider=None` ⇒ **FakeProvider scriptato** (offline): il default è SICURO —
-    mai una chiamata di rete implicita (test inclusi). Il backend live si INIETTA
-    esplicitamente (è l'host a sceglierlo dall'ambiente).
+def _turni_scriptati() -> list[TurnoNarrazione]:
+    """RETRO-COMPAT: il copione della stagione di default (la Falsa Idra), oggi
+    DERIVATO dalla libreria (`contenuti/`) — non più hardcoded."""
+    return turni_da_piano(risolvi_stagione(STAGIONE_DEFAULT).piani[0])
 
-    Il FakeProvider è FIFO **per chiamata**: la pipeline GM fa (fino a) 4 chiamate per
-    turno, quindi il copione scripta gli stadi in ordine — ideazione degradata (`None`),
-    IL turno gating, limatura e distillazione degradate. Esaurita la coda, ogni stadio
-    riceve `None`: gli ancillari degradano, la gating cade sul fallback atomico."""
-    if provider is not None:
-        return provider
+
+def _fake_da_piano(piano) -> FakeProvider:
+    """Il **FakeProvider scriptato** (offline): FIFO per chiamata — la pipeline GM
+    fa (fino a) 4 chiamate per turno, quindi il copione scripta gli stadi in
+    ordine: ideazione degradata (`None`), IL turno gating, limatura e
+    distillazione degradate. `piano=None` (save legacy) → la Falsa Idra."""
+    if piano is None:
+        piano = risolvi_stagione(STAGIONE_DEFAULT).piani[0]
     risposte: list[object] = []
-    for turno in _turni_scriptati():
+    for turno in turni_da_piano(piano):
         risposte += [None, turno.model_dump(), None, None]
     return FakeProvider(risposte)
 
 
 def costruisci_sessione(
-    *, nome: str = "Carl", seed: int = 0, directory: Path | None = None, provider=None
+    *,
+    nome: str = "Carl",
+    seed: int = 0,
+    directory: Path | None = None,
+    provider=None,
+    stagione: Stagione | StagioneRisolta | str | None = None,
 ) -> SessioneGioco:
-    """Cabla il provider → `SessioneGioco.nuova` (la porta del motore vista dall'host).
-    Senza `directory` la run vive in una tempdir usa-e-getta (demo/test).
+    """Cabla contenuto+provider → `SessioneGioco.nuova`. Senza `directory` la run
+    vive in una tempdir usa-e-getta (demo/test).
 
-    SOLO offline (provider=None → FakeProvider): il piano ha tante stanze quanti
-    sono i turni del copione — il giro della Falsa Idra copre tutte le stanze.
-    Col GM live la topologia resta quella di calibrazione (`MAPPA_STANZE`)."""
+    `stagione` (slug, DTO o risolta; default `stagione-1`) viene RISOLTA e
+    congelata nella run. Offline (`provider=None`, default SICURO: mai rete
+    implicita): il copione del FakeProvider e la scala del piano derivano dal
+    piano 1 della stagione. Live: la scala è quella autorata (`stanze`) o la
+    calibrazione (`MAPPA_STANZE`); il backend si INIETTA esplicitamente."""
     directory = directory or Path(tempfile.mkdtemp(prefix="dcc-"))
-    n_stanze = len(_turni_scriptati()) if provider is None else None
+    if isinstance(stagione, StagioneRisolta):
+        risolta = stagione
+    else:
+        risolta = risolvi_stagione(stagione if stagione is not None else STAGIONE_DEFAULT)
+    piano1 = risolta.piani[0]
+    if provider is None:
+        n_stanze = piano1.n_stanze  # il copione copre tutte le stanze
+        provider = _fake_da_piano(piano1)
+    else:
+        n_stanze = piano1.stanze  # scala autorata; None → MAPPA_STANZE
     return SessioneGioco.nuova(
-        _provider_o_fake(provider),
+        provider,
         directory=directory,
         nome=nome,
         seed=seed,
         n_stanze=n_stanze,
+        stagione=_stagione_a_attiva(risolta),
     )
 
 
 def carica_sessione(
     *, uuid: str, directory: Path | None = None, provider=None
 ) -> SessioneGioco | None:
-    """Riapre un crawler sospeso dalla cartella dei salvataggi (`None` se
-    illeggibile). Stessa politica provider di `costruisci_sessione`."""
+    """Riapre un crawler sospeso (`None` se illeggibile). Il provider offline si
+    deriva DOPO il load, dalla stagione congelata nel save (mai dalla libreria:
+    le run non vedono le modifiche di authoring)."""
     directory = directory or DIRECTORY_SALVATAGGI
-    return SessioneGioco.da_salvataggio(
-        _provider_o_fake(provider), directory=directory, uuid=uuid
-    )
+    return SessioneGioco.da_salvataggio(provider, directory=directory, uuid=uuid)
 
 
 def elenca_crawler(directory: Path | None = None) -> list[CrawlerVista]:

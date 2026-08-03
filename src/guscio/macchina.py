@@ -57,6 +57,7 @@ from motore import (
     crea_profondita,
     crea_protagonista,
     crea_seme,
+    crea_stagione,
     crea_tempo_piano,
     mappa_to_dict,
     entra_run_nuova,
@@ -171,19 +172,24 @@ class Guscio:
         hp: int = 30,
         seed: int = 0,
         n_stanze: int | None = None,
+        stagione=None,
     ) -> None:
         """Confine guscio→run, nuova partita (3a): `"run"` fresco e il protagonista
         **nasce** qui (Carl predefinito, G §6.5). Mai a una transizione di fase (E-5).
 
         `n_stanze` sovrascrive il default di calibrazione (`MAPPA_STANZE`) per la
         topologia del piano: lo usa l'host quando il contenuto è un copione a
-        lunghezza nota (es. il giro scriptato del GM offline)."""
+        lunghezza nota (es. il giro scriptato del GM offline). `stagione` è
+        l'aggregato di contenuto RISOLTO (`design.StagioneAttiva`): viene
+        congelato qui, accanto agli altri singleton, e viaggia col save."""
         assert self.stato == StatoGuscio.MENU, self.stato
         entra_run_nuova()  # H esegue lo switch al `"run"` fresco; il guscio lo orchestra
         # I singleton di stato nascono qui; `FaseCorrente` la crea `avvia_run`.
         crea_profondita()
         crea_seme(seed)
         crea_tempo_piano()
+        if stagione is not None:
+            crea_stagione(stagione)  # il design della run: congelato al confine (E-5)
         crea_mappa(random.Random(seed), n_stanze)  # topologia seeded (G-18 garantito)
         crea_protagonista(destrezza=destrezza, punti_vita=hp, id_dominio=uuid)
         self.coda = avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE, **self._sistemi_run())

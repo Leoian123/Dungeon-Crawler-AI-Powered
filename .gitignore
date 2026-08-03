@@ -39,6 +39,10 @@ Thumbs.db
 # Crawler salvati dall'host web (slot = crawler, H §1): stato di gioco locale.
 salvataggi/
 
+# Asset creati dal GM mode (stato di guscio persistente, H §12): contenuto
+# locale dell'installazione. Gli UFFICIALI in contenuti/ sono invece versionati.
+contenuti_locali/
+
 # Override di calibrazione (§11) scritti dalla console admin (`calibratore`): numeri locali
 # in fase di taratura, MAI da versionare. I default vivono in `motore/calibrazione.py`.
 calibrazione.overrides.json

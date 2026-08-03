@@ -217,6 +217,8 @@ def valida_turno(
         return None
     if not set(eg.blocchi) <= budget.blocchi_ammessi:
         return None
+    if eg.archetipo not in budget.archetipi_ammessi:
+        return None  # il design del piano vincola anche gli archetipi
 
     # Clamp d'ingresso al combattimento (C3): la durata è ricondotta a TURNO.
     if ingresso_combattimento and cand.durata != Durata.TURNO:

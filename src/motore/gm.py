@@ -61,6 +61,12 @@ from contracts import (
 
 from .calibrazione import DURATA_AZIONE, ETICHETTA_TEMPO, FORBICE_DURATA
 from .catalogo import ANCORE_CLASSE, Budget, carico_tick, prepara_contesto
+from .design import (
+    PianoAttivo,
+    StagioneAttiva,
+    design_piano_corrente,
+    stagione_corrente,
+)
 from .fase import in_combattimento
 from .mappa import (
     mappa_corrente,
@@ -98,6 +104,45 @@ PREFISSO_GM = "\n".join([
     "[contratto] Rispondi SOLO nella forma strutturata richiesta in coda.",
 ])
 
+
+def prefisso_gm(
+    stagione: StagioneAttiva | None, piano: PianoAttivo | None
+) -> str:
+    """Il canale `sistema` del GM, colorato dal design ATTIVO della run.
+
+    Tutto il colore (stagione, tema, stile, lore, cast) è STATICO per la run a
+    piano fisso — il design è congelato all'ingresso — quindi vive qui, nel
+    blocco di sistema, dove il prompt caching lo paga una volta: byte-identico
+    a ogni turno dentro la run, cambia solo tra piani/stagioni. La cascata
+    della voce è composizione: prefisso base + stile di stagione + piano.
+    Senza design (`None`): il prefisso base, byte-identico allo storico.
+    Il cast è ORIENTATIVO (soft): l'hard resta il budget nel gate.
+    """
+    if stagione is None and piano is None:
+        return PREFISSO_GM
+    righe = [PREFISSO_GM]
+    if stagione is not None:
+        titolo = f" — «{stagione.titolo}»" if stagione.titolo else ""
+        righe.append(
+            f"[stagione] n.{stagione.numero}{titolo}; mondo reclamato: {stagione.mondo}"
+        )
+        if stagione.tagline:
+            righe.append(f"[stagione/tagline] {stagione.tagline}")
+        righe += [f"[stagione/stile] {r}" for r in stagione.stile]
+        if stagione.lore:
+            righe.append(f"[stagione/lore] {stagione.lore}")
+    if piano is not None:
+        righe.append(f"[piano] «{piano.titolo}»")
+        righe.append(f"[piano/tema] {piano.tema}")
+        righe += [f"[piano/stile] {r}" for r in piano.stile]
+        if piano.lore:
+            righe.append(f"[piano/lore] {piano.lore}")
+        if piano.cast:
+            righe.append("[piano/cast] cast suggerito (puoi variare DENTRO il budget): " + "; ".join(
+                f"{m.nome} ({m.archetipo.value}/{m.grado.value})" for m in piano.cast
+            ))
+    return "\n".join(righe)
+
 _ISTRUZIONE_IDEAZIONE = (
     "[istruzione] Proponi l'IDEA della scena, consultiva: intenzione "
     "(scontro|prova|quiete|transizione), tono, focus (una frase), fino a 3 ganci "
@@ -131,6 +176,7 @@ class Fascicolo:
     memoria: tuple[str, ...]
     azione: str = ""                        # "" = turno di reveal (nessuna azione)
     esito_scontro: FattiScontro | None = None  # handoff dall'istanza di combattimento
+    piano_etichetta: str = ""               # grounding compatto del design attivo
 
 
 def componi_fascicolo(
@@ -148,6 +194,13 @@ def componi_fascicolo(
         totale = len(mappa.piano.adiacenze)
     else:  # harness senza mappa: fascicolo minimo
         stanza, visitate, totale = 0, 0, 0
+    stagione = stagione_corrente()
+    piano = design_piano_corrente()
+    etichetta = ""
+    if piano is not None:
+        etichetta = f"«{piano.titolo}»"
+        if stagione is not None:
+            etichetta += f" (stagione {stagione.numero})"
     return Fascicolo(
         tick=tempo_piano_corrente(),
         livello=livello_corrente(),
@@ -160,6 +213,7 @@ def componi_fascicolo(
         memoria=memoria.finestra(),
         azione=azione,
         esito_scontro=esito_scontro,
+        piano_etichetta=etichetta,
     )
 
 
@@ -177,7 +231,10 @@ def sezione_fascicolo(f: Fascicolo) -> str:
     palesi = ", ".join(f"{k}={v}" for k, v in f.proiezione.primarie.items()) or "ignote"
     occulte = ", ".join(f.proiezione.primarie_occulte) or "nessuna"
     stato = ", ".join(f.proiezione.descrittori) or "ignoto"
-    righe = [
+    righe = []
+    if f.piano_etichetta:
+        righe.append(f"[fascicolo/piano] {f.piano_etichetta}")
+    righe += [
         f"[fascicolo/tempo] tick di piano: {f.tick}",
         f"[fascicolo/mappa] stanza {f.stanza}; visitate {f.visitate}/{f.totale}; "
         f"uscite: {', '.join(map(str, f.uscite)) or 'nessuna'}; scala: {'sì' if f.scala else 'no'}",
@@ -322,7 +379,7 @@ def spendi_tempo(bus, durata: Durata, *, ingresso_combattimento: bool = False) -
 # --- Stadio 1: ideazione (consultiva, ≤1 chiamata, 0 retry) ---------------------
 
 async def ideazione(
-    provider, fascicolo: Fascicolo, budget: Budget
+    provider, fascicolo: Fascicolo, budget: Budget, *, sistema: str = PREFISSO_GM
 ) -> Ideazione | None:
     """La chiamata di brainstorming: legge il fascicolo, propone l'IDEA. `None` =
     degrado silenzioso (si compone senza)."""
@@ -331,7 +388,7 @@ async def ideazione(
         costruisci_prompt(budget, fascicolo.proiezione, voce="").strip(),
         _ISTRUZIONE_IDEAZIONE,
     ])
-    return await _chiama_con_policy(provider, prompt, Ideazione, PREFISSO_GM)
+    return await _chiama_con_policy(provider, prompt, Ideazione, sistema)
 
 
 # --- Prompt degli stadi ancillari ----------------------------------------------
@@ -484,8 +541,12 @@ async def esegui_turno_gm(
 
     # --- Stadio 1: ideazione (consultiva; None ⇒ si compone senza) -------------
     _nota(avanzamento, "Il GM riflette sulla scena…", 0.1)
-    budget = prepara_contesto(fascicolo.livello, rng)
-    idea = await ideazione(provider, fascicolo, budget)
+    # Il design ATTIVO (stagione congelata nella run): colora il canale sistema
+    # (statico per la run → cache piena) e vincola il budget del gate.
+    piano_attivo = design_piano_corrente()
+    sistema = prefisso_gm(stagione_corrente(), piano_attivo)
+    budget = prepara_contesto(fascicolo.livello, rng, piano=piano_attivo)
+    idea = await ideazione(provider, fascicolo, budget, sistema=sistema)
 
     # --- Stadio 2: composizione — LA chiamata gating (gate+fallback invariati) --
     _nota(avanzamento, "Il GM scrive il turno…", 0.35)
@@ -496,7 +557,7 @@ async def esegui_turno_gm(
     ] if x)
     risultato = await procura_turno(
         provider, budget, fascicolo.proiezione, voce=voce,
-        ingresso_combattimento=ingresso_combattimento, sistema=PREFISSO_GM,
+        ingresso_combattimento=ingresso_combattimento, sistema=sistema,
     )
     durata = risultato.turno.durata
 
@@ -505,7 +566,7 @@ async def esegui_turno_gm(
     if azione and idea is not None and idea.intenzione is IntenzioneScena.PROVA:
         _nota(avanzamento, "Il GM inquadra la prova…", 0.7)
         inq = await _chiama_con_policy(
-            provider, _prompt_prova(fascicolo), InquadramentoProva, PREFISSO_GM
+            provider, _prompt_prova(fascicolo), InquadramentoProva, sistema
         )
         if inq is None:  # degrado deterministico: la prova resta, l'inquadramento no
             inq = InquadramentoProva(classe=ClasseProva.BRONZO, stat=StatId.DESTREZZA)
@@ -523,8 +584,8 @@ async def esegui_turno_gm(
     prosa = risultato.turno.prosa
     limata, riga_memoria = await asyncio.gather(
         genera_prosa(provider, _prompt_limatura(prosa, fascicolo, etichetta, prova_vista),
-                     sistema=PREFISSO_GM),
-        genera_prosa(provider, _prompt_distilla(prosa, fascicolo), sistema=PREFISSO_GM),
+                     sistema=sistema),
+        genera_prosa(provider, _prompt_distilla(prosa, fascicolo), sistema=sistema),
     )
     if limata:
         prosa = limata

@@ -11,7 +11,7 @@ export type StatoComposer =
   | { modo: "scrittura" }
   | { modo: "conferma"; riepilogo: RiepilogoAzione };
 
-export type Sezione = "hub" | "gioco" | "forum";
+export type Sezione = "hub" | "gioco" | "forum" | "gm";
 
 interface StatoGioco {
   sezione: Sezione;

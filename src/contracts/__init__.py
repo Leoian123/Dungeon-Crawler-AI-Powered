@@ -49,6 +49,15 @@ from .schema import (
     Ideazione,
     InquadramentoProva,
 )
+from .contenuti import (
+    AssetVista,
+    BudgetDesign,
+    MobAsset,
+    PianoAsset,
+    PianoRisolto,
+    Stagione,
+    StagioneRisolta,
+)
 from .hub import CrawlerVista
 from .proiezione import SchedaProiezione, SchedaVista
 from .vista import (
@@ -105,6 +114,14 @@ __all__ = [
     "SchedaProiezione",
     "SchedaVista",
     "CrawlerVista",
+    # contenuti dello show (asset riusabili + forme risolte)
+    "AssetVista",
+    "BudgetDesign",
+    "MobAsset",
+    "PianoAsset",
+    "PianoRisolto",
+    "Stagione",
+    "StagioneRisolta",
     # snapshot di rendering per la vista
     "OpzioneVista",
     "SnapshotVista",

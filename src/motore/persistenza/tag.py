@@ -24,6 +24,7 @@ import enum
 import functools
 import typing
 
+from ..design import StagioneAttiva
 from ..fase import FaseCorrente
 from ..modificatori import Modificatori
 from ..piano import ProfonditaPiano, TempoPiano
@@ -50,6 +51,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     ProfonditaPiano: "profondita_piano",
     TempoPiano: "tempo_piano",
     SemeRun: "seme_run",
+    # La stagione attiva (aggregato di contenuto congelato): il design della run
+    # viaggia col save — le run non vedono mai le modifiche di libreria.
+    StagioneAttiva: "stagione",
 }
 _TIPO_PER_TAG: dict[str, type] = {tag: tipo for tipo, tag in _TAG_PER_TIPO.items()}
 

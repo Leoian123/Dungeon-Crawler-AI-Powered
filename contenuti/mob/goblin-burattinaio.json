@@ -1,0 +1,18 @@
+{
+  "slug": "goblin-burattinaio",
+  "versione": 1,
+  "tags": [
+    "falsa-idra",
+    "teatro",
+    "artista"
+  ],
+  "nome": "Goblin Burattinaio",
+  "archetipo": "goblin",
+  "grado": "argento",
+  "blocchi": [
+    "rigenerazione"
+  ],
+  "descrizione": "Artista incompreso: lo spettacolo continua, si rialza sempre.",
+  "prosa_stanza": "Un teatrino di bastoni e carrucole: teste d'idra di pezza ruggiscono in playback mentre un goblin suda dietro le quinte, sei corde in mano.",
+  "durata": "turno"
+}

@@ -23,8 +23,26 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from contracts import PlayerChoseOption
-from main import carica_sessione, costruisci_sessione, elenca_crawler
+from contracts import MobAsset, PianoAsset, PlayerChoseOption, Stagione
+from main import (
+    STAGIONE_DEFAULT,
+    affini,
+    carica_asset,
+    carica_sessione,
+    costruisci_sessione,
+    elenca_asset,
+    elenca_crawler,
+    elimina_asset_locale,
+    risolvi_stagione,
+    salva_asset_locale,
+)
+
+# Le collezioni della libreria contenuti e i loro modelli di authoring.
+_MODELLI_CONTENUTI: dict[str, type] = {
+    "stagioni": Stagione,
+    "piani": PianoAsset,
+    "mob": MobAsset,
+}
 
 from .sse import flusso_eventi
 from .stato import PostThread, StatoHost
@@ -47,6 +65,7 @@ class NuovoCrawler(BaseModel):
     model_config = ConfigDict(extra="forbid")
     nome: str = Field(min_length=1, max_length=40)
     seed: int = 0
+    stagione: str | None = None  # slug della stagione; None = quella di default
 
 
 class CaricaCrawler(BaseModel):
@@ -188,6 +207,102 @@ def crea_app(stato: StatoHost) -> FastAPI:
 
     # --- Ciclo di vita della partita -----------------------------------------
 
+    # --- Libreria dei contenuti (GM mode): stagioni/piani/mob -----------------
+    # Nessuna guardia di sessione: l'authoring non tocca le run in corso (la
+    # stagione è CONGELATA nel World alla creazione). Gli asset ufficiali sono
+    # read-only: si duplicano; i locali si creano/modificano/eliminano.
+
+    def _dirs() -> dict:
+        return {
+            "ufficiali": stato.contenuti_ufficiali,
+            "locali": stato.contenuti_locali,
+        }
+
+    def _collezione_valida(tipo: str) -> None:
+        if tipo not in _MODELLI_CONTENUTI:
+            raise ErroreApi(404, "collezione_sconosciuta", f"collezione: {tipo!r}")
+
+    def _valida_corpo(tipo: str, corpo: dict):
+        try:
+            return _MODELLI_CONTENUTI[tipo].model_validate(corpo)
+        except ValueError as errore:
+            raise ErroreApi(
+                422, "contenuto_non_valido", str(errore)
+            ) from errore
+
+    @app.get("/api/contenuti/affini")
+    async def contenuti_affini(tipo: str, tags: str, k: int = 5) -> dict:
+        """Affinity matching deterministico sui tag (il riuso degli asset)."""
+        _collezione_valida(tipo)
+        richiesti = [t for t in tags.split(",") if t.strip()]
+        return {
+            "affini": [
+                v.model_dump(mode="json")
+                for v in affini(richiesti, tipo=tipo, k=k, **_dirs())
+            ]
+        }
+
+    @app.get("/api/contenuti/{tipo}")
+    async def elenca_contenuti(tipo: str) -> dict:
+        _collezione_valida(tipo)
+        return {"asset": [v.model_dump(mode="json") for v in elenca_asset(tipo, **_dirs())]}
+
+    @app.post("/api/contenuti/{tipo}", status_code=201)
+    async def crea_contenuto(tipo: str, corpo: dict) -> dict:
+        _collezione_valida(tipo)
+        asset = _valida_corpo(tipo, corpo)
+        try:
+            salva_asset_locale(asset, **_dirs())
+        except ValueError as errore:
+            codice = "slug_esistente" if "slug" in str(errore) else "contenuto_non_valido"
+            raise ErroreApi(409 if codice == "slug_esistente" else 422, codice, str(errore))
+        return asset.model_dump(mode="json")
+
+    @app.get("/api/contenuti/{tipo}/{slug}")
+    async def leggi_contenuto(tipo: str, slug: str) -> dict:
+        _collezione_valida(tipo)
+        asset = carica_asset(tipo, slug, **_dirs())
+        if asset is None:
+            raise ErroreApi(404, "asset_assente", f"{tipo}/{slug} assente o corrotto.")
+        return asset.model_dump(mode="json")
+
+    @app.put("/api/contenuti/{tipo}/{slug}")
+    async def aggiorna_contenuto(tipo: str, slug: str, corpo: dict) -> dict:
+        _collezione_valida(tipo)
+        asset = _valida_corpo(tipo, corpo)
+        if asset.slug != slug:
+            raise ErroreApi(422, "contenuto_non_valido", "slug del body ≠ slug del path")
+        origini = {v.slug: v.origine for v in elenca_asset(tipo, **_dirs())}
+        if origini.get(slug) == "ufficiale":
+            raise ErroreApi(403, "asset_ufficiale", "gli asset ufficiali si duplicano, non si modificano")
+        if slug not in origini:
+            raise ErroreApi(404, "asset_assente", f"{tipo}/{slug} non esiste")
+        try:
+            salva_asset_locale(asset, sovrascrivi=True, **_dirs())
+        except ValueError as errore:
+            raise ErroreApi(422, "contenuto_non_valido", str(errore))
+        return asset.model_dump(mode="json")
+
+    @app.delete("/api/contenuti/{tipo}/{slug}")
+    async def elimina_contenuto(tipo: str, slug: str) -> dict:
+        _collezione_valida(tipo)
+        origini = {v.slug: v.origine for v in elenca_asset(tipo, **_dirs())}
+        if origini.get(slug) == "ufficiale":
+            raise ErroreApi(403, "asset_ufficiale", "gli asset ufficiali non si eliminano")
+        if not elimina_asset_locale(tipo, slug, locali=stato.contenuti_locali):
+            raise ErroreApi(404, "asset_assente", f"{tipo}/{slug} non esiste")
+        return {"eliminato": slug}
+
+    @app.get("/api/contenuti/stagioni/{slug}/risolto")
+    async def stagione_risolta(slug: str) -> dict:
+        """La stagione coi riferimenti SCIOLTI (o gli errori di risoluzione):
+        è la prova del GM mode prima di giocarci."""
+        try:
+            risolta = risolvi_stagione(slug, **_dirs())
+        except ValueError as errore:
+            raise ErroreApi(422, "stagione_non_risolvibile", str(errore))
+        return risolta.model_dump(mode="json")
+
     @app.get("/api/crawlers")
     async def crawlers() -> dict:
         """L'elenco degli slot (slot = crawler, H §1): la vista dell'hub. Nessuna
@@ -211,9 +326,17 @@ def crea_app(stato: StatoHost) -> FastAPI:
             provider, etichetta = None, "GM offline (contenuto scriptato)"
         # provider=None ⇒ FakeProvider: il default resta SICURO, il live è esplicito.
         if ric.nuovo is not None:
+            # La stagione si RISOLVE prima di creare la run: gli errori di
+            # authoring muoiono qui, mai a partita aperta.
+            try:
+                risolta = risolvi_stagione(
+                    ric.nuovo.stagione or STAGIONE_DEFAULT, **_dirs()
+                )
+            except ValueError as errore:
+                raise ErroreApi(422, "stagione_non_risolvibile", str(errore))
             sessione = costruisci_sessione(
                 nome=ric.nuovo.nome, seed=ric.nuovo.seed,
-                directory=stato.directory, provider=provider,
+                directory=stato.directory, provider=provider, stagione=risolta,
             )
         else:
             sessione = carica_sessione(

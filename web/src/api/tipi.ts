@@ -102,8 +102,76 @@ export interface SchedaVista {
 export type GmScelta = "fake" | "live";
 
 export type ApriPartita =
-  | { gm: GmScelta; nuovo: { nome: string; seed: number } }
+  | { gm: GmScelta; nuovo: { nome: string; seed: number; stagione?: string | null } }
   | { gm: GmScelta; carica: { uuid: string } };
+
+// --- Contenuti dello show (asset riusabili, speculari a contracts/contenuti.py) --
+
+export const GRADI = ["bronzo", "argento", "oro", "platino", "leggendario", "celestiale"] as const;
+export const BLOCCHI = ["veleno", "rigenerazione", "stordito"] as const;
+export const ARCHETIPI = ["slime", "scheletro", "goblin"] as const;
+export const DURATE = ["turno", "un_attimo", "un_pochino", "un_bel_po"] as const;
+
+export type Grado = (typeof GRADI)[number];
+export type Blocco = (typeof BLOCCHI)[number];
+export type Archetipo = (typeof ARCHETIPI)[number];
+export type DurataTurno = (typeof DURATE)[number];
+
+export type TipoAsset = "stagioni" | "piani" | "mob";
+
+export interface BudgetDesign {
+  gradi: Grado[];
+  blocchi: Blocco[];
+  archetipi: Archetipo[];
+}
+
+export interface MobAsset {
+  slug: string;
+  versione: number;
+  tags: string[];
+  nome: string;
+  archetipo: Archetipo;
+  grado: Grado;
+  blocchi: Blocco[];
+  descrizione: string;
+  prosa_stanza: string;
+  durata: DurataTurno;
+}
+
+export interface PianoAsset {
+  slug: string;
+  versione: number;
+  tags: string[];
+  titolo: string;
+  tema: string;
+  stile: string[];
+  lore: string;
+  budget: BudgetDesign;
+  cast: string[]; // slug di MobAsset, in ordine di apparizione
+  stanze: number | null;
+}
+
+export interface StagioneAsset {
+  slug: string;
+  versione: number;
+  tags: string[];
+  numero: number;
+  titolo: string;
+  tagline: string;
+  mondo: string;
+  stile: string[];
+  lore: string;
+  piani: string[]; // slug di PianoAsset, per profondità
+}
+
+export interface AssetVista {
+  slug: string;
+  tipo: "stagione" | "piano" | "mob";
+  etichetta: string;
+  tags: string[];
+  origine: "ufficiale" | "locale";
+  valido: boolean;
+}
 
 export interface RispostaTurno extends StatoPartita {
   post: PostThread[];

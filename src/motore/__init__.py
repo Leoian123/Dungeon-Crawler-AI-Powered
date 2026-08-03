@@ -189,6 +189,15 @@ from .mappa import (
     stanza_visitata,
     uscite,
 )
+from .design import (
+    MobAttivo,
+    PianoAttivo,
+    StagioneAttiva,
+    crea_stagione,
+    design_piano_corrente,
+    lint_registry,
+    stagione_corrente,
+)
 from .piano import (
     LIVELLO_INIZIALE,
     ProfonditaPiano,
@@ -442,6 +451,14 @@ __all__ = [
     # prove di abilità
     "Prova",
     "risolvi_prova",
+    # stagione attiva (design di contenuto congelato nella run)
+    "MobAttivo",
+    "PianoAttivo",
+    "StagioneAttiva",
+    "crea_stagione",
+    "design_piano_corrente",
+    "lint_registry",
+    "stagione_corrente",
     # livello / piano / discesa
     "LIVELLO_INIZIALE",
     "ProfonditaPiano",
