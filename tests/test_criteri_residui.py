@@ -66,7 +66,8 @@ def test_G23_blocchi_sono_primitivi_componibili() -> None:
     # un'entità è una *somma* di questi componenti (composizione aperta).
     for blocco, tipo in REGISTRY_BLOCCHI.items():
         assert isinstance(tipo, type) and issubclass(tipo, Status), blocco
-        assert {f.name for f in dataclasses.fields(tipo)} == {"rango", "durata"}
+        # `innato` = stato d'istanza (capacità vs afflizione), resta dato puro.
+        assert {f.name for f in dataclasses.fields(tipo)} == {"rango", "durata", "innato"}
 
 
 # --- C-3: il motore non importa una vista/adattatore (host-agnostico) -----------

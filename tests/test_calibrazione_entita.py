@@ -25,10 +25,11 @@ def test_ogni_archetipo_ha_il_profilo_completo() -> None:
             assert f"ARCH.{nome}.{suf}" in cal.CATALOGO, (nome, suf)
 
 
-def test_default_storici_invariati() -> None:
-    # Le tre leve storiche non cambiano valore di default (nessun cambio di gameplay).
+def test_default_correnti_del_catalogo() -> None:
+    # Pin dei default §11 correnti. `pv_base` è stato TARATO sul TTK 3–6 round
+    # (prima 5: ogni mob bronzo moriva in un colpo — vedi tests/test_ttk.py).
     p = cal.REGISTRY_ARCHETIPI[Archetipo.GOBLIN]
-    assert (p.destrezza_base, p.pv_base, p.danno_base) == (7, 5, 2)
+    assert (p.destrezza_base, p.pv_base, p.danno_base) == (7, 12, 2)
     assert p.armatura == "veste" and p.taglia == "media" and p.arma == "naturale"
 
 

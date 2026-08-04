@@ -45,10 +45,11 @@ def test_pipeline_gate_passa_e_stat_reali(mondo_isolato: str) -> None:
     assert len(esiti) == 1
     e = esiti[0]
     assert e.trasporto_ok and e.gate_ok and e.motivo_gate is None
-    # Stat VALIDATE dal motore (formula-madre): slime pv_base 6 × rango(bronzo=1) × liv 3 = 18.
+    # Stat VALIDATE dal motore (formula-madre): slime pv_base 15 (tarato TTK) ×
+    # rango(bronzo=1) × liv 3 = 45.
     assert e.stat is not None
-    assert e.stat["primarie"]["costituzione"] == 18
-    assert isinstance(e.stat["max_hp"], int) and e.stat["max_hp"] == 18   # int, non float
+    assert e.stat["primarie"]["costituzione"] == 45
+    assert isinstance(e.stat["max_hp"], int) and e.stat["max_hp"] == 45   # int, non float
     assert e.stat["atk_eff"] >= 1
     # Drop/azioni riportati (sperimentali).
     assert e.candidato.drop and e.candidato.azioni

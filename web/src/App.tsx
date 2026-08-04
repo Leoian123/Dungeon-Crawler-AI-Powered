@@ -24,6 +24,7 @@ import {
   BannerFase,
   BannerMorte,
   BannerVittoria,
+  PannelloStato,
   ProgressoGM,
 } from "./components/Pannelli";
 import { PannelloParty } from "./components/SchedaPG";
@@ -70,6 +71,10 @@ function Partita({ stato }: { stato: StatoPartita }) {
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <BannerFase fase={stato.fase} />
+          {stato.fase === "combattimento" && stato.snapshot && (
+            // In scontro i descrittori portano anche il NEMICO coi suoi HP.
+            <PannelloStato stato={stato.snapshot.stato} />
+          )}
 
           <main className="flex-1">
             <ThreadForum post={thread.data?.post ?? []} />

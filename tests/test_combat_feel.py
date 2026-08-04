@@ -1,0 +1,173 @@
+"""Il feel del combattimento: eventi di colpo, round in un click, status attivi,
+trasmissione on-hit, fuga, crollo registrato. Tutto via porte, offline, seeded."""
+
+from __future__ import annotations
+
+import asyncio
+
+from contracts import (
+    Archetipo,
+    Blocco,
+    BudgetDesign,
+    ColpoInferto,
+    CombatResolved,
+    EffettoStatus,
+    Grado,
+    MobAsset,
+    PianoRisolto,
+    PlayerChoseOption,
+    StagioneRisolta,
+    StatusApplicato,
+)
+from guscio import Guscio
+from main import CronacaBus, costruisci_sessione
+from motore import SistemaCrollo, Veleno, protagonista
+
+
+def _stagione(mob: MobAsset) -> StagioneRisolta:
+    piano = PianoRisolto(
+        slug="p", versione=1, titolo="Feel", tema="prova",
+        budget=BudgetDesign(
+            gradi=[mob.grado], blocchi=list(mob.blocchi), archetipi=[mob.archetipo]
+        ),
+        cast=[mob],
+    )
+    return StagioneRisolta(
+        slug="s-feel", versione=1, numero=1, titolo="Feel", mondo="X", piani=[piano]
+    )
+
+
+def _mob_argento(blocchi: list[Blocco]) -> MobAsset:
+    # ARGENTO: sopravvive al primo colpo → il nemico RISPONDE nello stesso click.
+    return MobAsset(
+        slug="spugna", nome="Spugna Argentata", archetipo=Archetipo.SLIME,
+        grado=Grado.ARGENTO, blocchi=blocchi, prosa_stanza="La spugna ribolle.",
+    )
+
+
+def _apri_scontro(sessione):
+    snap = asyncio.run(sessione.prossima_narrazione())
+    indice = next(o.indice for o in snap.opzioni if o.etichetta == "Combatti")
+    sessione.coda.accoda(PlayerChoseOption(indice))
+    return sessione.avanza()
+
+
+def test_un_click_e_un_round_intero(run_pulita, tmp_path) -> None:
+    sessione = costruisci_sessione(
+        nome="Round", seed=1, directory=tmp_path, stagione=_stagione(_mob_argento([]))
+    )
+    cronaca = CronacaBus(sessione.bus)
+    try:
+        snap = _apri_scontro(sessione)
+        assert snap.fase == "combattimento"
+        righe_apertura = cronaca.preleva()
+        assert any("scontro ha inizio" in r for r in righe_apertura)
+        # Il PRIMO click: il mio colpo E la risposta del nemico, nella stessa cronaca.
+        sessione.coda.accoda(PlayerChoseOption(0))
+        snap = sessione.avanza()
+        righe = cronaca.preleva()
+        assert any(r.startswith("Colpisci ") for r in righe), righe
+        assert any("ti colpisce" in r or "stordito" in r for r in righe), righe
+        # E lo stato mostra il nemico con i suoi HP.
+        assert any("Spugna Argentata" in s and "/" in s for s in snap.stato), snap.stato
+    finally:
+        cronaca.chiudi()
+
+
+def test_veleno_trasmesso_dal_colpo_e_ticka(run_pulita, tmp_path) -> None:
+    sessione = costruisci_sessione(
+        nome="Tossico", seed=1, directory=tmp_path,
+        stagione=_stagione(_mob_argento([Blocco.VELENO])),
+    )
+    applicati: list[StatusApplicato] = []
+    effetti: list[EffettoStatus] = []
+    sessione.bus.registra(StatusApplicato, applicati.append)
+    sessione.bus.registra(EffettoStatus, effetti.append)
+    try:
+        snap = _apri_scontro(sessione)
+        guardia = 0
+        while snap.fase == "combattimento" and guardia < 20:
+            sessione.coda.accoda(PlayerChoseOption(0))
+            snap = sessione.avanza()
+            guardia += 1
+        # Il mob velenoso ha colpito almeno una volta → il colpo AVVELENA il
+        # protagonista (afflizione, non capacità)…
+        assert any(a.bersaglio == "" and a.status == "veleno" for a in applicati), applicati
+        pent, _m, _s = protagonista()
+        import esper
+
+        veleno = esper.try_component(pent, Veleno)
+        # …e l'afflizione TICKA sui turni del protagonista (HP mossi dal veleno).
+        assert any(e.bersaglio == "" and e.delta_hp < 0 for e in effetti), effetti
+        if veleno is not None:  # può essere già scaduto: l'evento sopra basta
+            assert veleno.innato is False
+    finally:
+        sessione.bus.deregistra(StatusApplicato, applicati.append)
+        sessione.bus.deregistra(EffettoStatus, effetti.append)
+
+
+def test_rigenerazione_innata_cura_il_mob(run_pulita, tmp_path) -> None:
+    sessione = costruisci_sessione(
+        nome="Rigenerante", seed=1, directory=tmp_path,
+        stagione=_stagione(_mob_argento([Blocco.RIGENERAZIONE])),
+    )
+    effetti: list[EffettoStatus] = []
+    sessione.bus.registra(EffettoStatus, effetti.append)
+    try:
+        snap = _apri_scontro(sessione)
+        guardia = 0
+        while snap.fase == "combattimento" and guardia < 20:
+            sessione.coda.accoda(PlayerChoseOption(0))
+            snap = sessione.avanza()
+            guardia += 1
+        # La capacità PASSIVA cura il portatore nel suo turno (delta positivo).
+        assert any(e.bersaglio == "Spugna Argentata" and e.delta_hp > 0 for e in effetti), effetti
+        assert snap.fase == "narrazione"  # e lo scontro termina comunque (TTK/crollo)
+    finally:
+        sessione.bus.deregistra(EffettoStatus, effetti.append)
+
+
+def test_fuga_dal_combattimento(run_pulita, tmp_path) -> None:
+    sessione = costruisci_sessione(
+        nome="Fuggiasco", seed=1, directory=tmp_path,
+        stagione=_stagione(_mob_argento([])),
+    )
+    risolti: list[CombatResolved] = []
+    sessione.bus.registra(CombatResolved, risolti.append)
+    try:
+        snap = _apri_scontro(sessione)
+        assert [o.etichetta for o in snap.opzioni] == ["Attacca", "Fuggi"]
+        guardia = 0
+        while snap.fase == "combattimento" and guardia < 10:
+            sessione.coda.accoda(PlayerChoseOption(1))  # Fuggi (riprova finché riesce)
+            snap = sessione.avanza()
+            guardia += 1
+        assert snap.fase == "narrazione"
+        assert risolti and risolti[-1].fuga is True and risolti[-1].vittoria is False
+        # Il prossimo turno GM riceve i FATTI della fuga (risolvi prima, narra dopo).
+        assert sessione._fatti_scontro is not None and sessione._fatti_scontro.fuga
+    finally:
+        sessione.bus.deregistra(CombatResolved, risolti.append)
+
+
+def test_crollo_registrato_in_produzione(run_pulita, tmp_path) -> None:
+    # G-L1: la rete di terminazione è ATTIVA nella run vera, non solo nei test.
+    guscio = Guscio(tmp_path)
+    sistemi = guscio._sistemi_run()
+    assert any(isinstance(s, SistemaCrollo) for s in sistemi["solo_combattimento"])
+
+
+def test_colpo_del_protagonista_non_oneshotta_bronzo(run_pulita, tmp_path) -> None:
+    # La regressione madre: il bronzo NON muore al primo colpo (pv_base tarati).
+    sessione = costruisci_sessione(nome="NoOneShot", seed=1, directory=tmp_path)
+    colpi: list[ColpoInferto] = []
+    sessione.bus.registra(ColpoInferto, colpi.append)
+    try:
+        snap = _apri_scontro(sessione)  # Slime Mangiascarti (bronzo)
+        sessione.coda.accoda(PlayerChoseOption(0))
+        snap = sessione.avanza()
+        primo = next(c for c in colpi if c.attaccante == "")
+        assert primo.hp_rimasti > 0, "one-shot: il mob bronzo è morto al primo colpo"
+        assert snap.fase == "combattimento"
+    finally:
+        sessione.bus.deregistra(ColpoInferto, colpi.append)

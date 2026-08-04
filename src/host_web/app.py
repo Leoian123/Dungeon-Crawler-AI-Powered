@@ -33,6 +33,7 @@ from main import (
     elenca_asset,
     elenca_crawler,
     elimina_asset_locale,
+    elimina_crawler,
     risolvi_stagione,
     salva_asset_locale,
 )
@@ -311,6 +312,24 @@ def crea_app(stato: StatoHost) -> FastAPI:
             "crawlers": [c.model_dump(mode="json") for c in elenca_crawler(stato.directory)],
             "attiva": stato.crawler,
         }
+
+    @app.delete("/api/crawlers/{uuid}")
+    async def elimina_slot(uuid: str) -> dict:
+        """Elimina un crawler PASSATO dall'hub (anche gli slot corrotti: è il
+        caso d'uso principale). Vietato a run aperta: l'uscita riscriverebbe il
+        save appena cancellato. Non è un terminale di run (H-20 intatto)."""
+        if stato.sessione is not None:
+            raise ErroreApi(
+                409, "partita_esistente",
+                "C'è una run aperta: chiudila prima di eliminare slot.",
+            )
+        try:
+            trovato = elimina_crawler(uuid, directory=stato.directory)
+        except ValueError as errore:
+            raise ErroreApi(422, "uuid_non_valido", str(errore))
+        if not trovato:
+            raise ErroreApi(404, "crawler_assente", f"nessuno slot per {uuid!r}")
+        return {"eliminato": uuid}
 
     @app.post("/api/partita", status_code=201)
     async def apri_partita(ric: RichiestaPartita) -> dict:

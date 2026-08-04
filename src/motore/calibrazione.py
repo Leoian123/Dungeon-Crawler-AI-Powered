@@ -80,16 +80,18 @@ _SCELTE_ARMA = ("pari", "piu_piccola", "mismatch", "naturale")
 # Profilo-default per archetipo (§11). `intelligenza_base` di default = ex-proxy
 # `destrezza_base // 2` → il comportamento odierno resta invariato finché non si edita.
 _ARCH_PROFILI_DEFAULT: tuple[tuple[str, str, str, dict[str, object]], ...] = (
+    # `pv_base` TARATI sul TTK 3–6 round dell'analisi §5.4 (prima 6/8/5: col
+    # `atk_eff=10` del protagonista ogni mob bronzo moriva in un colpo).
     ("slime", "lo Slime", CAT_ARCH_SLIME, dict(
-        destrezza_base=3, pv_base=6, danno_base=1, intelligenza_base=1, difesa_base=0,
+        destrezza_base=3, pv_base=15, danno_base=1, intelligenza_base=1, difesa_base=0,
         saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
         res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
     ("scheletro", "lo Scheletro", CAT_ARCH_SCHELETRO, dict(
-        destrezza_base=5, pv_base=8, danno_base=2, intelligenza_base=2, difesa_base=0,
+        destrezza_base=5, pv_base=18, danno_base=2, intelligenza_base=2, difesa_base=0,
         saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
         res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
     ("goblin", "il Goblin", CAT_ARCH_GOBLIN, dict(
-        destrezza_base=7, pv_base=5, danno_base=2, intelligenza_base=3, difesa_base=0,
+        destrezza_base=7, pv_base=12, danno_base=2, intelligenza_base=3, difesa_base=0,
         saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
         res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
 )
@@ -192,6 +194,9 @@ _DEFS: tuple[Param, ...] = (
     Param("AP_MAX_MVP", 1, "Action Point per turno nell'MVP (i talenti post-MVP alzano il max o "
           "danno azioni bonus). Il loop è scritto AP-driven fin da subito.", CAT_TURNO,
           "intero ≥1", "int", "AP"),
+    Param("MOLT_ATTACCO_PESANTE", 1.5, "Moltiplicatore di danno della mossa 'attacco_pesante' "
+          "dei nemici (scelta seeded del motore): entra nel check 2 dentro l'unico round.",
+          CAT_TURNO, "1 – 3"),
     Param("DANNO_BASE", 1, "Witness storico del floor positivo del danno (G-L1): ogni colpo a "
           "segno toglie ≥1 HP. Oggi il floor reale è nel check 2; conservato per quel contratto.",
           CAT_TURNO, "intero ≥1", "int", "HP"),
@@ -414,6 +419,7 @@ R_SOGLIA_CROLLO = valore("R_SOGLIA_CROLLO")
 CROLLO_INCREMENTO = valore("CROLLO_INCREMENTO")
 
 AP_MAX_MVP = valore("AP_MAX_MVP")
+MOLT_ATTACCO_PESANTE = valore("MOLT_ATTACCO_PESANTE")
 DANNO_BASE = valore("DANNO_BASE")
 
 PROB_ANOMALIA = valore("PROB_ANOMALIA")

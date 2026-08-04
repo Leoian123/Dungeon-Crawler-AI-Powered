@@ -139,6 +139,9 @@ from .combattimento import (
     SistemaDeathCheck,
     SistemaCrollo,
     collega_combattimento,
+    nemici_in_scontro,
+    prossimo_attivo_e_protagonista,
+    richiedi_fuga,
 )
 from .mutazione import OndataRinforzi, PianoRinforzi, SistemaRinforzi
 from .catalogo import (
@@ -419,6 +422,9 @@ __all__ = [
     "SistemaDeathCheck",
     "SistemaCrollo",
     "collega_combattimento",
+    "nemici_in_scontro",
+    "prossimo_attivo_e_protagonista",
+    "richiedi_fuga",
     # mutazione intra-fase
     "OndataRinforzi",
     "PianoRinforzi",

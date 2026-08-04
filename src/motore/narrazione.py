@@ -403,7 +403,9 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
         ]))
     for blocco in entita.blocchi:
         cls = REGISTRY_BLOCCHI[blocco]
-        componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT))
+        # INNATO: capacità del mob (lo slime È velenoso), non afflizione — non
+        # scade, non danneggia il portatore; agisce sul colpo o come passiva.
+        componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT, innato=True))
 
     return esper.create_entity(*componenti)
 

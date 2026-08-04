@@ -4,9 +4,44 @@
 
 import { useState } from "react";
 import type { CrawlerVista, GmScelta } from "../api/tipi";
-import { useApriPartita, useCrawlers } from "../api/query";
+import { useApriPartita, useCrawlers, useEliminaCrawler } from "../api/query";
 import { useGioco } from "../store/gioco";
 import { CreaCrawler } from "./CreaCrawler";
+
+/** "Elimina" con conferma inline: il permadeath volontario merita un ripensamento. */
+function EliminaSlot({ uuid, bloccata }: { uuid: string; bloccata: boolean }) {
+  const [conferma, setConferma] = useState(false);
+  const elimina = useEliminaCrawler();
+  if (!conferma) {
+    return (
+      <button
+        disabled={bloccata}
+        onClick={() => setConferma(true)}
+        className="text-xs text-sangue/70 transition hover:text-sangue disabled:opacity-40"
+      >
+        Elimina
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-2 text-xs">
+      <span className="text-sangue">Per sempre?</span>
+      <button
+        disabled={elimina.isPending}
+        onClick={() => elimina.mutate({ uuid })}
+        className="font-bold text-sangue hover:underline disabled:opacity-40"
+      >
+        Sì, elimina
+      </button>
+      <button
+        onClick={() => setConferma(false)}
+        className="text-pergamena/60 hover:text-pergamena"
+      >
+        Annulla
+      </button>
+    </span>
+  );
+}
 
 function dataUltimoAccesso(timestamp: number): string {
   if (!timestamp) return "—";
@@ -28,9 +63,10 @@ function CardCrawler({
   const apri = useApriPartita();
   if (crawler.corrotta) {
     return (
-      <div className="flex flex-col gap-1 rounded-lg border border-sangue/40 bg-pietra/60 p-4 opacity-60">
+      <div className="flex flex-col gap-1 rounded-lg border border-sangue/40 bg-pietra/60 p-4">
         <span className="font-bold text-sangue">{crawler.etichetta}</span>
         <span className="text-xs text-pergamena/60">salvataggio corrotto</span>
+        <EliminaSlot uuid={crawler.uuid} bloccata={bloccata} />
       </div>
     );
   }
@@ -48,6 +84,7 @@ function CardCrawler({
       >
         {apri.isPending ? "Discesa…" : "Riprendi la discesa"}
       </button>
+      <EliminaSlot uuid={crawler.uuid} bloccata={bloccata} />
     </div>
   );
 }

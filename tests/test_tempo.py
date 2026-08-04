@@ -257,10 +257,12 @@ def test_J8_passa_turno_non_e_una_genera() -> None:
 def test_J9_flag_status_nel_catalogo_non_sul_componente() -> None:
     import dataclasses
 
-    # I componenti-status portano solo {rango, durata}: nessun campo valenza/risoluzione.
+    # I componenti-status portano {rango, durata, innato}: nessun campo
+    # valenza/risoluzione (quelli sono flag di TIPO, nel catalogo). `innato` è
+    # stato d'ISTANZA (capacità del mob vs afflizione subita), non un flag di tipo.
     for tipo in (Veleno, Confusione):
         campi = {f.name for f in dataclasses.fields(tipo)}
-        assert campi == {"rango", "durata"}
+        assert campi == {"rango", "durata", "innato"}
     # I flag vivono nel catalogo (mappa di tipo).
     assert hasattr(C, "FLAG_STATUS")
 

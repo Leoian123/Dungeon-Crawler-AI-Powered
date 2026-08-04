@@ -244,7 +244,10 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append("[fascicolo/memoria] finora: " + " | ".join(f.memoria))
     if f.esito_scontro is not None:
         e = f.esito_scontro
-        esito = "vinto" if e.vittoria else "chiuso"
+        if getattr(e, "fuga", False):
+            esito = "chiuso con la TUA FUGA"
+        else:
+            esito = "vinto" if e.vittoria else "chiuso"
         righe.append(
             f"[fascicolo/esito-scontro] lo scontro con {e.nemico or 'il nemico'} si è {esito} "
             f"in {e.turni} turni; ferite subite: {'sì' if e.hp_persi > 0 else 'no'}"

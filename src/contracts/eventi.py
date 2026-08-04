@@ -41,11 +41,56 @@ class CombatResolved(EventoDominio):
     """Il combattimento si è risolto. L'esito è già arbitrato dal motore (FNC §5.2).
 
     *Risolvi prima, narra dopo*: l'evento porta un fatto d'esito già deciso, non una
-    richiesta di decisione.
+    richiesta di decisione. `fuga=True` = disimpegno riuscito A SCONTRO APERTO
+    (FNC §4): non è né vittoria né sconfitta — lo scontro si chiude senza esito.
     """
 
     entita: Entita
     vittoria: bool
+    fuga: bool = False
+
+
+@dataclass(frozen=True)
+class ColpoInferto(EventoDominio):
+    """Un colpo è andato a segno (già risolto dal motore: il danno è un fatto).
+
+    `attaccante`/`bersaglio` sono NOMI diegetici; stringa vuota = il protagonista
+    (la vista decide come chiamarlo). `mossa` è la chiave della mossa usata.
+    """
+
+    attaccante: str
+    bersaglio: str
+    danno: int
+    hp_rimasti: int
+    hp_max: int
+    mossa: str = "attacco"
+
+
+@dataclass(frozen=True)
+class StatusApplicato(EventoDominio):
+    """Uno status è stato applicato in scontro (es. il morso velenoso che avvelena)."""
+
+    bersaglio: str  # "" = protagonista
+    status: str     # nome del tipo ("veleno", "stordito", …)
+    fonte: str      # nome diegetico di chi l'ha applicato
+
+
+@dataclass(frozen=True)
+class EffettoStatus(EventoDominio):
+    """Il tick di uno status ha mosso gli HP (veleno −, rigenerazione +)."""
+
+    bersaglio: str  # "" = protagonista
+    status: str
+    delta_hp: int   # negativo = danno
+
+
+@dataclass(frozen=True)
+class TurnoSaltato(EventoDominio):
+    """Un combattente ha perso il turno (stordito) o l'ha speso senza esito
+    (fuga fallita). `nome` "" = protagonista."""
+
+    nome: str
+    causa: str  # "stordito" | "fuga_fallita"
 
 
 @dataclass(frozen=True)

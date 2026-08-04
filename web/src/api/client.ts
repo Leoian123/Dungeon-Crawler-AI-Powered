@@ -50,6 +50,8 @@ export const api = {
   statoPartita: () => richiesta<StatoPartita>("/api/partita"),
   thread: () => richiesta<RispostaThread>("/api/partita/thread"),
   crawlers: () => richiesta<RispostaCrawlers>("/api/crawlers"),
+  eliminaCrawler: (uuid: string) =>
+    richiesta<{ eliminato: string }>(`/api/crawlers/${uuid}`, { method: "DELETE" }),
   apriPartita: (corpo: ApriPartita) =>
     richiesta<StatoPartita>("/api/partita", post(corpo)),
   esci: (versione: number) =>

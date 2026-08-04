@@ -47,10 +47,14 @@ class Danno(Effetto):
     """Primitivo di danno: la quantità (`atk_eff`) è quella di sempre; il `tipo` è solo una
     **chiave** per il filtro delle resistenze (Type Object, layer tipi DT-1) — default
     `GENERICO` (= danno agnostico odierno). **Vietato** sottotipi (`DannoFuoco`) o metodi
-    per-tipo: il tipo è una **variabile membro**, non un override."""
+    per-tipo: il tipo è una **variabile membro**, non un override.
+
+    `moltiplicatore` scala la magnitudine (mossa pesante = 1.5, §11): entra nel
+    check 2 DENTRO lo stesso `round` di graze e resistenze — un solo arrotondamento."""
 
     quantita_da: QuantitaDa
     tipo: TipoDanno = TipoDanno.GENERICO
+    moltiplicatore: float = 1.0
 
 
 @dataclass
@@ -63,3 +67,4 @@ class Azione:
     bersaglio: int | None
     effetti: list[Effetto]
     costo: dict[str, int] = field(default_factory=lambda: {"AP": 1})  # referenzia l'AP per CHIAVE
+    mossa: str = "attacco"         # chiave diegetica della mossa (per la cronaca)

@@ -35,6 +35,20 @@ export function useCrawlers() {
   return useQuery({ queryKey: ["crawlers"], queryFn: api.crawlers });
 }
 
+export function useEliminaCrawler() {
+  const qc = useQueryClient();
+  const setAvviso = useGioco((s) => s.setAvviso);
+  return useMutation({
+    mutationFn: ({ uuid }: { uuid: string }) => api.eliminaCrawler(uuid),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["crawlers"] });
+      setAvviso("Crawler eliminato: lo slot è stato ritirato per sempre.");
+    },
+    onError: (errore) =>
+      setAvviso(errore instanceof Error ? errore.message : String(errore)),
+  });
+}
+
 // --- Libreria dei contenuti (GM mode) ----------------------------------------
 
 export function useAssets(tipo: TipoAsset) {

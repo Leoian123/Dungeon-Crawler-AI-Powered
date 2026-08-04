@@ -18,7 +18,17 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import CombatResolved, EncounterStarted, MortePersonaggio, StatId, TipoDanno
+from contracts import (
+    ClasseProva,
+    ColpoInferto,
+    CombatResolved,
+    EncounterStarted,
+    MortePersonaggio,
+    StatId,
+    StatusApplicato,
+    TipoDanno,
+    TurnoSaltato,
+)
 
 from .azione import Azione, Danno, QuantitaDa
 from .calibrazione import (
@@ -29,6 +39,7 @@ from .calibrazione import (
     F_AUTOHIT,
     G_GRAZE,
     MIN_COLPO,
+    MOLT_ATTACCO_PESANTE,
     MULT_MAX,
     MULT_MIN,
     R_SOGLIA_CROLLO,
@@ -38,8 +49,10 @@ from .calibrazione import (
 from .derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
 from .modificatori import Resistenze
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
+from .prove import risolvi_prova
 from .scheda import ActionPoint, Protagonista, Scheda, protagonista
 from .statistiche import Primarie, stat_eff
+from .status import Brucia, Stordito, Veleno, afflizione_da, applica_status
 from .turno import azzera_turno_attivo, segna_turno_attivo
 
 # `DANNO_BASE` (witness storico del floor positivo del danno, G-L1) vive in `calibrazione.py`
@@ -113,6 +126,7 @@ class StatoCombattimento:
     rng: random.Random             # UNICO stream RNG seeded del motore (decisioni nemici + check 1)
     turni_scontro: int = 0         # turni-combattente risolti (contatore cieco dell'escalation, §8)
     crollo: int = 0                # danno inevitabile corrente dell'escalation (cresce oltre la soglia)
+    fuga_richiesta: bool = False   # il prossimo turno del protagonista tenta la FUGA (FNC §4)
 
 
 # --- Iniziativa (G-3): destrezza desc, tiebreak su chiave stabile seeded -------
@@ -240,6 +254,68 @@ def _tutti_combattenti_vivi() -> list[int]:
     return vivi
 
 
+def _nome_pubblico(entita: int) -> str:
+    """Nome diegetico per gli eventi di vista: il nome del mob rivelato, "" per il
+    protagonista. Import locale: `narrazione` importa già questo modulo."""
+    from .narrazione import EntitaMob
+
+    em = esper.try_component(entita, EntitaMob)
+    if em is not None:
+        return em.nome
+    return "" if esper.has_component(entita, Protagonista) else "il nemico"
+
+
+def _hp_di(entita: int) -> tuple[int, int]:
+    """(attuali, massimi) dove vivono gli HP (`Scheda`/`PuntiVita`)."""
+    scheda = esper.try_component(entita, Scheda)
+    if scheda is not None:
+        return scheda.punti_vita, max_hp(entita)
+    pv = esper.try_component(entita, PuntiVita)
+    if pv is not None:
+        return pv.attuali, pv.massimi
+    return 0, 0
+
+
+def nemici_in_scontro() -> list[tuple[str, int, int]]:
+    """`(nome, hp, hp_max)` dei nemici VIVI dello scontro — per i descrittori
+    dell'host (il giocatore vede chi affronta e quanto gli resta)."""
+    voci: list[tuple[str, int, int]] = []
+    for ent, _marker in esper.get_component(Nemico):
+        if not _e_vivo(ent):
+            continue
+        attuali, massimi = _hp_di(ent)
+        voci.append((_nome_pubblico(ent) or "il nemico", attuali, massimi))
+    return voci
+
+
+def richiedi_fuga() -> None:
+    """Segna che il PROSSIMO turno del protagonista tenterà la fuga (FNC §4): la
+    rotazione resta del sistema-turno (un solo proprietario), la prova la tira lui."""
+    st = stato_combattimento()
+    if st is not None:
+        st[1].fuga_richiesta = True
+
+
+def prossimo_attivo_e_protagonista() -> bool:
+    """PEEK (senza mutare la rotazione): il prossimo combattente vivo è il
+    protagonista? Replica il salto-morti del sistema-turno; fuori scontro → True.
+    Serve all'host per risolvere in un solo comando l'intero giro dei nemici."""
+    st = stato_combattimento()
+    if st is None:
+        return True
+    _ent, stato = st
+    n = len(stato.ordine)
+    if n == 0:
+        return True
+    indice = stato.indice
+    for _ in range(n):
+        indice = (indice + 1) % n
+        candidato = stato.ordine[indice]
+        if _e_vivo(candidato):
+            return esper.has_component(candidato, Protagonista)
+    return True
+
+
 # --- Risolutore a due check (Gruppo 2 §6; GR2-11; layer tipi DT-5/6/7) ----------
 # Modello Mordheim: check 1 (il *se*, stocastico-ma-seeded a banda+graze) → check 2 (il
 # *quanto*, deterministico). Funzioni pure module-level, testabili in isolamento.
@@ -300,7 +376,8 @@ def check2(m: float, att: int, ber: int, danno: Danno) -> int:
         return 0                                       # SCHIVATA piena: niente floor (GR2-11/§7.2)
     base = m * (atk_eff(att) - def_eff(ber) / 100)     # PRE-round: non arrotondare qui
     mult = mult_resistenza(ber, danno.tipo)
-    return max(1, round(base * mult))                  # UNICO round, UNICO floor → GR2-11/DT-5
+    # `moltiplicatore` (mossa pesante) DENTRO lo stesso round: un solo arrotondamento.
+    return max(1, round(base * mult * danno.moltiplicatore))
 
 
 def risolvi_danno(danno: Danno, att: int, ber: int, rng: random.Random) -> int:
@@ -352,6 +429,26 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         # Marca l'entità attiva: i sistemi-status (sempre-attivo) ticcano solo lei (G-24).
         segna_turno_attivo(attivo)
 
+        # STORDITO (afflizione, non capacità): il turno è consumato senza agire.
+        # Il decorso dello status resta di `SistemaStordito` (sempre-attivo, G-5).
+        stordito = esper.try_component(attivo, Stordito)
+        if stordito is not None and not stordito.innato:
+            self.bus.pubblica(TurnoSaltato(nome=_nome_pubblico(attivo), causa="stordito"))
+            return
+
+        # FUGA richiesta (FNC §4): il turno del protagonista tenta il disimpegno
+        # invece dell'azione — prova seeded del MOTORE, mai dell'AI.
+        if stato.fuga_richiesta and esper.has_component(attivo, Protagonista):
+            stato.fuga_richiesta = False
+            if risolvi_prova(
+                stat_eff(attivo, StatId.DESTREZZA), ClasseProva.BRONZO, stato.rng
+            ):
+                # Chiusura senza esito: né vittoria né sconfitta (FNC §4).
+                self.bus.pubblica(CombatResolved(entita=attivo, vittoria=False, fuga=True))
+            else:
+                self.bus.pubblica(TurnoSaltato(nome="", causa="fuga_fallita"))
+            return
+
         ap_comp = esper.component_for_entity(attivo, ActionPoint)
         ap_comp.ap = ap_comp.ap_max
 
@@ -381,12 +478,40 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
                 inflitto = risolvi_danno(effetto, azione.sorgente, azione.bersaglio, stato.rng)
                 if inflitto:
                     infliggi_danno(azione.bersaglio, inflitto)
+                    attuali, massimi = _hp_di(azione.bersaglio)
+                    # Il colpo È un fatto già arbitrato: si narra sul Canale B (FNC §8).
+                    self.bus.pubblica(ColpoInferto(
+                        attaccante=_nome_pubblico(azione.sorgente),
+                        bersaglio=_nome_pubblico(azione.bersaglio),
+                        danno=inflitto,
+                        hp_rimasti=max(0, attuali),  # l'overkill non si mostra
+                        hp_max=massimi,
+                        mossa=azione.mossa,
+                    ))
+                    # Capacità INNATE trasmissibili: il colpo che connette applica
+                    # l'afflizione al bersaglio (lo slime velenoso avvelena, §12).
+                    self._trasmetti_status(azione.sorgente, azione.bersaglio)
         return True
+
+    def _trasmetti_status(self, sorgente: int, bersaglio: int) -> None:
+        for tipo_status in (Veleno, Brucia, Stordito):
+            innato = esper.try_component(sorgente, tipo_status)
+            if innato is None or not innato.innato:
+                continue
+            # La costruzione dell'afflizione vive in status.py (G-5/G-6): qui
+            # solo il momento della trasmissione (il colpo che connette).
+            applica_status(bersaglio, afflizione_da(innato))
+            self.bus.pubblica(StatusApplicato(
+                bersaglio=_nome_pubblico(bersaglio),
+                status=tipo_status.__name__.lower(),
+                fonte=_nome_pubblico(sorgente) or "il colpo",
+            ))
 
     def _scegli_azione(self, attivo: int, stato: StatoCombattimento) -> Azione | None:
         """Sceglie un'`Azione` dall'insieme disponibile sull'entità (oggi `[attacco_base]`).
         Per il protagonista il bersaglio è il primo nemico vivo; per il nemico la scelta è del
         **motore**, seeded (`decidi_azione_nemico`), mai l'LLM (G-4)."""
+        mossa = "attacco"
         if esper.has_component(attivo, Protagonista):
             bersagli = _nemici_vivi()
             bersaglio = bersagli[0] if bersagli else None
@@ -394,14 +519,19 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
             pent, _marker, pscheda = protagonista()
             bersagli = [pent] if (pscheda.vivo and pscheda.punti_vita > 0) else []
             decisione = decidi_azione_nemico(stato.rng, bersagli)
-            bersaglio = decisione[0] if decisione is not None else None
+            if decisione is not None:
+                bersaglio, mossa = decisione  # la MOSSA scelta si usa, non si scarta
+            else:
+                bersaglio = None
         if bersaglio is None:
             return None
-        # Attacco base = l'UNICA istanza dell'MVP: effetti=[Danno], costo={"AP": 1}.
+        # Attacco base = l'istanza di sempre; la mossa pesante scala il danno (§11).
+        moltiplicatore = MOLT_ATTACCO_PESANTE if mossa == "attacco_pesante" else 1.0
         return Azione(
             sorgente=attivo,
             bersaglio=bersaglio,
-            effetti=[Danno(quantita_da=QuantitaDa.ATK_EFF)],
+            effetti=[Danno(quantita_da=QuantitaDa.ATK_EFF, moltiplicatore=moltiplicatore)],
+            mossa=mossa,
         )
 
 

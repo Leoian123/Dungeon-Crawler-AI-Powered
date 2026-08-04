@@ -39,6 +39,7 @@ from motore import (
     NOME_DEFAULT,
     NOME_RUN,
     SistemaBrucia,
+    SistemaCrollo,
     SistemaDeathCheck,
     SistemaDiscesa,
     SistemaMovimento,
@@ -121,14 +122,20 @@ class Guscio:
     def _sistemi_run(self):
         return dict(
             sempre_attivi=[
-                SistemaVeleno(),
-                SistemaBrucia(),
-                SistemaRigenerazione(),
-                SistemaStordito(),
+                SistemaVeleno(self.bus),
+                SistemaBrucia(self.bus),
+                SistemaRigenerazione(self.bus),
+                SistemaStordito(self.bus),
                 SistemaDeathCheck(self.bus),
                 SistemaTempoPiano(),  # contatore di tempo-piano, avanza al tick condiviso (J-14)
             ],
-            solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(self.bus)],
+            # `SistemaCrollo` DOPO il sistema-turno (legge il `turni_scontro` appena
+            # avanzato): la rete di terminazione per costruzione è ATTIVA (G-L1).
+            solo_combattimento=[
+                SistemaRinforzi(),
+                SistemaTurnoCombattimento(self.bus),
+                SistemaCrollo(),
+            ],
             solo_narrazione=[SistemaMovimento(), SistemaDiscesa(self.bus)],
         )
 

@@ -35,7 +35,11 @@ from contracts import (
     Blocco,
     BusEventi,
     ClasseProva,
+    ColpoInferto,
     CombatResolved,
+    EffettoStatus,
+    StatusApplicato,
+    TurnoSaltato,
     CrawlerVista,
     MobAsset,
     PianoAsset,
@@ -97,6 +101,9 @@ from motore import (
     StagioneAttiva,
     design_piano_corrente,
     lint_registry,
+    nemici_in_scontro,
+    prossimo_attivo_e_protagonista,
+    richiedi_fuga,
     stagione_corrente,
     prepara_riepilogo,
     proietta_scheda,
@@ -112,7 +119,10 @@ from provider import FakeProvider
 
 # Menu di combattimento (MVP). Il menu di NARRAZIONE non è più cablato qui: lo compone
 # il MOTORE dalla scena (`componi_opzioni_scena` sulla mappa) — la mappa dispone.
-_MENU_COMBATTIMENTO = (OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzione.COMBATTI),)
+_MENU_COMBATTIMENTO = (
+    OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzione.COMBATTI),
+    OpzioneVista(indice=1, etichetta="Fuggi", tipo=TipoAzione.SCAPPA),
+)
 
 # La cartella dei crawler salvati (slot = crawler, H §1). I doc non fissano il
 # percorso: default = `salvataggi/` alla radice del repo (gitignored), override
@@ -359,6 +369,7 @@ class IstanzaCombattimento:
         self._hp_iniziali = protagonista()[2].punti_vita
         self._conclusa = False
         self._vittoria = False
+        self._fuga = False
         self._coppie = [(CombatResolved, self._su_resolved), (MortePersonaggio, self._su_morte)]
         for tipo, handler in self._coppie:
             bus.registra(tipo, handler)
@@ -366,6 +377,7 @@ class IstanzaCombattimento:
     def _su_resolved(self, evento: CombatResolved) -> None:
         self._conclusa = True
         self._vittoria = bool(getattr(evento, "vittoria", False))
+        self._fuga = bool(getattr(evento, "fuga", False))
 
     def _su_morte(self, _evento: MortePersonaggio) -> None:
         self._conclusa = True  # permadeath: lo scontro non si chiude, la run sì
@@ -375,10 +387,26 @@ class IstanzaCombattimento:
         return _MENU_COMBATTIMENTO
 
     def agisci(self, indice: int) -> None:
-        """Un'azione di combattimento = un turno del motore, deterministico e seeded."""
-        if not self._conclusa and 0 <= indice < len(self.opzioni):
+        """Un comando del giocatore = il SUO turno + le risposte dei nemici, in un
+        colpo solo (feel: il click non "esegue il turno del mob" in silenzio).
+        `indice=1` (Fuggi) marca il turno come tentativo di disimpegno (FNC §4):
+        la prova la tira il MOTORE dentro il suo sistema-turno."""
+        if self._conclusa or not (0 <= indice < len(self.opzioni)):
+            return
+        if indice == 1:
+            richiedi_fuga()
+        tick()  # il turno del protagonista (attacco, o tentativo di fuga)
+        self._turni += 1
+        # Il giro dei nemici, fino a tornare al protagonista (guardia difensiva).
+        guardia = 0
+        while (
+            not self._conclusa
+            and in_combattimento()
+            and not prossimo_attivo_e_protagonista()
+            and guardia < 16
+        ):
             tick()
-            self._turni += 1
+            guardia += 1
 
     @property
     def conclusa(self) -> bool:
@@ -392,6 +420,7 @@ class IstanzaCombattimento:
             turni=self._turni,
             hp_persi=max(0, self._hp_iniziali - hp_ora),
             nemico=self.nemico,
+            fuga=self._fuga,
         )
 
     def chiudi(self) -> None:
@@ -736,6 +765,10 @@ class SessioneGioco:
         pent, _marker, scheda = protagonista()
         hp = f"HP {scheda.punti_vita}/{max_hp(pent)}"  # massimo DERIVATO (§5)
         extra: list[str] = []
+        if in_combattimento():
+            # Il giocatore VEDE chi affronta e quanto gli resta (feel G §5.6).
+            for nome, attuali, massimi in nemici_in_scontro():
+                extra.append(f"{nome}: {attuali}/{massimi}")
         trovata = mappa_corrente()
         if trovata is not None:
             extra.append(f"stanza {trovata[1].stanza_corrente}")
@@ -750,11 +783,68 @@ class SessioneGioco:
 # Lo stesso ruolo "consumatore read-only di eventi" che avrà una UI (IC §2.3), qui
 # ridotto a testo: l'host headless si sottoscrive al bus e raccoglie ciò che il motore
 # emette. Una UI futura sostituirà questo collettore senza toccare il motore.
+def _riga_colpo(e: object) -> str:
+    attaccante = getattr(e, "attaccante", "")
+    bersaglio = getattr(e, "bersaglio", "")
+    danno = getattr(e, "danno", 0)
+    hp = f"({getattr(e, 'hp_rimasti', 0)}/{getattr(e, 'hp_max', 0)})"
+    pesante = " — COLPO PESANTE" if getattr(e, "mossa", "") == "attacco_pesante" else ""
+    if attaccante == "":  # il protagonista colpisce
+        return f"Colpisci {bersaglio or 'il nemico'}: {danno} danni {hp}{pesante}."
+    return f"{attaccante} ti colpisce: {danno} danni {hp}{pesante}."
+
+
+def _riga_status_applicato(e: object) -> str:
+    chi = getattr(e, "bersaglio", "")
+    status = getattr(e, "status", "")
+    if chi == "":
+        return f"Sei {_participio_status(status)}!"
+    return f"{chi} è {_participio_status(status)}."
+
+
+def _participio_status(status: str) -> str:
+    return {
+        "veleno": "avvelenato", "brucia": "in fiamme",
+        "stordito": "stordito", "rigenerazione": "in rigenerazione",
+    }.get(status, status)
+
+
+def _riga_effetto_status(e: object) -> str:
+    chi = getattr(e, "bersaglio", "")
+    delta = getattr(e, "delta_hp", 0)
+    nome_status = getattr(e, "status", "")
+    if delta < 0:
+        soggetto = "Il veleno" if nome_status == "veleno" else (
+            "Le fiamme" if nome_status == "brucia" else nome_status.capitalize()
+        )
+        vittima = "ti" if chi == "" else chi
+        return f"{soggetto} {'morde' if nome_status == 'veleno' else 'mordono'} {vittima}: {delta} HP."
+    chi_bene = "Recuperi" if chi == "" else f"{chi} rigenera"
+    return f"{chi_bene} {delta} HP."
+
+
+def _riga_turno_saltato(e: object) -> str:
+    if getattr(e, "causa", "") == "fuga_fallita":
+        return "Tenti la fuga: FALLITA. Il nemico ne approfitta."
+    nome = getattr(e, "nome", "")
+    return "Sei stordito: salti il turno!" if nome == "" else f"{nome} è stordito: salta il turno."
+
+
+def _riga_risolto(e: object) -> str:
+    if getattr(e, "fuga", False):
+        return "Ti disimpegni: fuga riuscita, lo scontro si dissolve."
+    if getattr(e, "vittoria", False):
+        return "Hai vinto lo scontro."
+    return "Lo scontro si chiude."
+
+
 _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (EncounterStarted, lambda _e: "Lo scontro ha inizio."),
-    (CombatResolved, lambda e: (
-        "Hai vinto lo scontro." if getattr(e, "vittoria", False) else "Lo scontro si chiude."
-    )),
+    (ColpoInferto, _riga_colpo),
+    (StatusApplicato, _riga_status_applicato),
+    (EffettoStatus, _riga_effetto_status),
+    (TurnoSaltato, _riga_turno_saltato),
+    (CombatResolved, _riga_risolto),
     (MortePersonaggio, lambda e: f"Sei morto: {getattr(e, 'causa', '')}."),
     (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
     (DiscesaPiano, lambda e: f"Scendi: piano {getattr(e, 'piano', '?')}."),
@@ -921,6 +1011,34 @@ def carica_sessione(
     le run non vedono le modifiche di authoring)."""
     directory = directory or DIRECTORY_SALVATAGGI
     return SessioneGioco.da_salvataggio(provider, directory=directory, uuid=uuid)
+
+
+_RE_UUID_CRAWLER = r"^[a-z0-9][a-z0-9-]{0,63}$"
+
+
+def elimina_crawler(uuid: str, *, directory: Path | None = None) -> bool:
+    """Elimina uno slot-crawler dall'hub: stato + sidecar Archivio + i backup
+    `.bak` (pulizia completa: è la scelta volontaria del giocatore, non un
+    terminale di run — H-20 intatto; H §10.4: nessun DRM contro il giocatore).
+    L'uuid è validato (niente separatori di percorso). `False` se non c'era nulla."""
+    import re
+
+    if not re.fullmatch(_RE_UUID_CRAWLER, uuid):
+        raise ValueError(f"uuid di crawler non valido: {uuid!r}")
+    directory = directory or DIRECTORY_SALVATAGGI
+    nomi = (
+        f"{uuid}.stato.json",
+        f"{uuid}.archivio.gz",
+        f"{uuid}.bak.stato.json",
+        f"{uuid}.bak.archivio.gz",
+    )
+    trovato = False
+    for nome in nomi:
+        percorso = directory / nome
+        if percorso.exists():
+            percorso.unlink()
+            trovato = True
+    return trovato
 
 
 def elenca_crawler(directory: Path | None = None) -> list[CrawlerVista]:
