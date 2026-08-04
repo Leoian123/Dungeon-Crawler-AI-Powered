@@ -3,7 +3,9 @@
 // codice (turno_stantio → risincronizza; motore_occupato → avviso), mai sul testo.
 
 import type {
+  AnteprimaMob,
   ApriPartita,
+  Vocabolario,
   AssetVista,
   CorpoErrore,
   RiepilogoAzione,
@@ -13,6 +15,8 @@ import type {
   SchedaVista,
   StatoPartita,
   TipoAsset,
+  VistaCalibrazione,
+  VoceAggiornata,
 } from "./tipi";
 
 export class ApiError extends Error {
@@ -92,6 +96,25 @@ export const api = {
     richiesta<{ affini: AssetVista[] }>(
       `/api/contenuti/affini?tipo=${tipo}&tags=${encodeURIComponent(tags.join(","))}`,
     ),
-  stagioneRisolta: (slug: string) =>
-    richiesta<unknown>(`/api/contenuti/stagioni/${slug}/risolto`),
+  vocabolario: () => richiesta<Vocabolario>("/api/vocabolario"),
+  // Calibrazione (GM mode): il valore viaggia GREZZO (stringa dell'input) — il
+  // coerce e la validazione sono del catalogo server-side, mai del client.
+  calibrazione: () => richiesta<VistaCalibrazione>("/api/calibrazione"),
+  calibrazioneImposta: (chiave: string, valore: string | number) =>
+    richiesta<VoceAggiornata>(
+      `/api/calibrazione/voci/${encodeURIComponent(chiave)}`,
+      { method: "PUT", body: JSON.stringify({ valore }) },
+    ),
+  calibrazioneAzzera: (chiave: string) =>
+    richiesta<VoceAggiornata>(
+      `/api/calibrazione/voci/${encodeURIComponent(chiave)}`,
+      { method: "DELETE" },
+    ),
+  calibrazioneSalva: () =>
+    richiesta<{ percorso: string; n: number }>("/api/calibrazione/salva", post({})),
+  calibrazioneAnteprima: (archetipo: string, grado: string, livello: number) =>
+    richiesta<AnteprimaMob>(
+      "/api/calibrazione/anteprima",
+      post({ archetipo, grado, livello }),
+    ),
 };

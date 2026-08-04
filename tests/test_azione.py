@@ -45,9 +45,11 @@ def test_GR2_12_forma_azione() -> None:
     assert az.effetti[0].quantita_da is QuantitaDa.ATK_EFF
     assert az.effetti[0].tipo is TipoDanno.GENERICO     # default untyped (DT-1)
 
-    # Il risolutore costruisce un'`Azione` (non chiama "infliggi attacco").
+    # Il risolutore esegue un'`Azione` composta dal catalogo mosse (Fase 1: la
+    # costruzione vive in mosse.py come DATO; il loop la chiama, non la cabla).
     src = (_MOTORE / "combattimento.py").read_text(encoding="utf-8")
-    assert "Azione(" in src
+    assert "azione_da_mossa(" in src
+    assert "Azione(" in (_MOTORE / "mosse.py").read_text(encoding="utf-8")
 
 
 # --- GR2-13: scelta da un insieme, costo verificato PRIMA, effetti iterati ------

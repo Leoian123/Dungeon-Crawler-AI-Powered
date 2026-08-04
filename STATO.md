@@ -7,9 +7,16 @@
 > ed è **versionato** (a differenza di `docs/`, che è in `.gitignore`).
 >
 > **Aggiornalo** quando: chiudi una fase, crei/fondi un branch, o prendi una decisione che
-> diverge da `docs/`. Ultima revisione: **2026-07-31** — il delta del push corrente
-> (calibrazione per-entità, console web, drenaggio unificato, Mappa, host Textual di gioco)
-> è tracciato in **`README.md`**.
+> diverge da `docs/`. Ultima revisione: **2026-08-04** — refactor **"mob componibili"**
+> (branch `react-ecosystem`): l'enum `Archetipo` è stato sostituito da slug con chiusura
+> PER-RUN (emendamenti D1/D5 su F-1/F-4/F-5/F-6, G-23 — vedi i docs); gli archetipi sono
+> **asset** (`contenuti/archetipi/`, collezione anche via API/SPA), le mosse un
+> **catalogo-dato** (`motore/mosse.py`) eseguito dai system via componente `Repertorio`,
+> il danno è tipato (layer resistenze attivo), i mob per-asset portano `mosse`/`override`
+> e il contratto AI ha il `riferimento` (reclutamento dal cast, 4° strato di gate).
+> Un agente crea archetipi/mob via `POST /api/contenuti/*` e il motore li mette in scena:
+> zero codice. Il delta precedente (calibrazione per-entità, console web, Mappa) resta
+> tracciato in **`README.md`**.
 
 ---
 

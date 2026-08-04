@@ -95,7 +95,8 @@ def applica_stato(stato: Stato) -> None:
     entità a sé (`leggi_fase`/`livello_corrente`/`master_seed` ritrovano il loro
     singleton). Nessun riferimento esper durevole da risolvere (load diretto, §4.4).
     Lo slot `esplorazione`, se popolato, ricostruisce il singleton `Mappa` (topologia,
-    stanza corrente, visitate — i mob effimeri non erano salvati: si ripopola).
+    stanza corrente, visitate); il legame stanza↔mob rinasce dai componenti
+    `EntitaMob` appena ricreati (il loro campo `stanza`), mai da id esper (H-4).
     """
     for ent_ser in stato.corpo.entita:
         componenti = [

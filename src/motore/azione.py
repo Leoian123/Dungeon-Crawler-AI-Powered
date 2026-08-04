@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from contracts import TipoDanno
+from contracts import Blocco, TipoDanno
 
 
 class QuantitaDa(str, Enum):
@@ -55,6 +55,18 @@ class Danno(Effetto):
     quantita_da: QuantitaDa
     tipo: TipoDanno = TipoDanno.GENERICO
     moltiplicatore: float = 1.0
+
+
+@dataclass
+class ApplicaStatus(Effetto):
+    """Primitivo: applica al bersaglio l'afflizione di un `Blocco` del catalogo.
+
+    Il blocco è una **chiave** del vocabolario chiuso (Type Object, come `Danno.tipo`),
+    mai una classe né un numero: rango COPIATO dal grado della sorgente (G §4.3) e
+    durata dalla tabella-dato delle afflizioni — entrambi risolti dal system al
+    momento del colpo, non qui."""
+
+    blocco: Blocco
 
 
 @dataclass

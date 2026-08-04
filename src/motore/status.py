@@ -20,8 +20,11 @@ un hook placeholder (default: nessun danno), la forma è completa.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 import esper
+
+from contracts import Blocco
 
 from .phased import SistemaSempreAttivo
 from .turno import entita_attiva
@@ -81,15 +84,133 @@ class Confusione(Status):
     """
 
 
-def afflizione_da(capacita: Status) -> Status:
-    """L'afflizione trasmessa da una CAPACITÀ innata col colpo (rango COPIATO,
-    G-6: lo status diventa autosufficiente). Lo stordimento si applica corto
-    (1 turno): niente stun-lock. La durata è §11 (`DURATA_BLOCCO_DEFAULT`)."""
+# --- L'ASSE safe/unsafe (J §7, J-9): flag di TIPO, qui col resto del dato-status --
+# (Vivevano in catalogo.py, che li ri-espone per compatibilità: un solo proprietario.)
+
+class Valenza(str, Enum):
+    """Il *segno* dello status — flag ESPLICITO, **non** derivato da `delta < 0` (uno
+    `Stordito`/`Confusione` senza delta-HP è comunque `DANNOSO`, J-9)."""
+
+    BENEFICO = "benefico"
+    DANNOSO = "dannoso"
+    NEUTRO = "neutro"
+
+
+class Risoluzione(str, Enum):
+    """*Come* si risolve il tick. `AI` ⟺ **unsafe** (richiede l'LLM: berserk,
+    confusione). `MOTORE` = deterministico, zero LLM (veleno, brucia, rigenerazione)."""
+
+    MOTORE = "motore"
+    AI = "ai"  # = unsafe
+
+
+# --- LA TABELLA: tutto il dato di uno status in UNA riga (audit 2026-08) ----------
+#
+# ▶ COME SI AGGIUNGE UNO STATUS (tre tocchi, zero rami nel codice):
+#   1. il NOME nel vocabolario AI-facing: una riga nell'enum `Blocco` (contracts) —
+#      solo se dev'essere emettibile da AI/asset (uno status interno può ometterla);
+#   2. la CLASSE-componente qui sotto (dato puro, 2 righe);
+#   3. una RIGA in `SPEC_STATUS`.
+# Da lì derivano DA SOLI: binding del gate (`REGISTRY_BLOCCHI`), flag safe/unsafe
+# (`FLAG_STATUS`), trasmissione col colpo (`TRASMISSIBILI`), sistema di tick
+# (`sistemi_status`), persistenza nel save (tag registry) e foglia di calibrazione
+# `STATUS.<nome>.durata_afflizione` (generata dall'enum). Il test di completezza
+# (`test_status_estensibile.py`) inchioda la catena.
+
+@dataclass(frozen=True)
+class SpecStatus:
+    """La riga-dato di un tipo di status: identità + comportamento + collocazioni.
+
+    `blocco`: il membro del vocabolario AI-facing (None = status interno, mai
+    emettibile da AI/asset — es. Confusione). `trasmissibile`: capacità OFFENSIVA,
+    l'innato la applica col colpo; False = PASSIVA (cura il portatore).
+    `delta_per_rango`: HP mossi per tick d'afflizione (− danno, + cura, 0 = l'effetto
+    sta altrove, come il salto-turno dello Stordito). `con_sistema`: False = nessun
+    tick deterministico (Confusione è AI-risolta, post-MVP). `persistente`: entra
+    nel registry dei tag del save."""
+
+    componente: type[Status]
+    valenza: Valenza
+    risoluzione: Risoluzione
+    trasmissibile: bool = True
+    delta_per_rango: int = 0
+    blocco: Blocco | None = None
+    con_sistema: bool = True
+    persistente: bool = True
+
+
+SPEC_STATUS: tuple[SpecStatus, ...] = (
+    SpecStatus(Veleno, Valenza.DANNOSO, Risoluzione.MOTORE,
+               delta_per_rango=-1, blocco=Blocco.VELENO),
+    SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE,
+               delta_per_rango=-1, blocco=Blocco.BRUCIA),
+    SpecStatus(Rigenerazione, Valenza.BENEFICO, Risoluzione.MOTORE,
+               trasmissibile=False, delta_per_rango=+1, blocco=Blocco.RIGENERAZIONE),
+    SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE,
+               blocco=Blocco.STORDITO),  # niente delta: l'effetto è il salto-turno
+    SpecStatus(Confusione, Valenza.DANNOSO, Risoluzione.AI,
+               trasmissibile=False, con_sistema=False, persistente=False),
+)
+
+SPEC_PER_TIPO: dict[type[Status], SpecStatus] = {s.componente: s for s in SPEC_STATUS}
+
+
+def nome_status(tipo: type[Status]) -> str:
+    """Il nome-dato stabile del tipo (chiave delle foglie §11 e dei tag di save)."""
+    spec = SPEC_PER_TIPO.get(tipo)
+    return spec.blocco.value if spec is not None and spec.blocco else tipo.__name__.lower()
+
+
+# --- Derivazioni (mai una seconda dichiarazione) --------------------------------
+
+@dataclass(frozen=True)
+class ProfiloStatus:
+    """Vista comoda per i system: comportamento + durata d'afflizione (§11)."""
+
+    trasmissibile: bool
+    delta_per_rango: int
+    durata_afflizione: int
+
+
+def _profili_status() -> dict[type[Status], ProfiloStatus]:
+    from .calibrazione import DURATA_AFFLIZIONE, DURATA_BLOCCO_DEFAULT
+
+    return {
+        s.componente: ProfiloStatus(
+            s.trasmissibile,
+            s.delta_per_rango,
+            DURATA_AFFLIZIONE.get(nome_status(s.componente), DURATA_BLOCCO_DEFAULT),
+        )
+        for s in SPEC_STATUS
+    }
+
+
+PROFILO_STATUS: dict[type[Status], ProfiloStatus] = _profili_status()
+
+# I tipi che si trasmettono col colpo (derivato dalla tabella, mai una tupla nel loop).
+TRASMISSIBILI: tuple[type[Status], ...] = tuple(
+    s.componente for s in SPEC_STATUS if s.trasmissibile
+)
+
+# I tipi che round-trippano nel save (il tag registry li importa da qui).
+STATUS_PERSISTENTI: tuple[type[Status], ...] = tuple(
+    s.componente for s in SPEC_STATUS if s.persistente
+)
+
+
+def afflizione(tipo: type[Status], rango: int) -> Status:
+    """Costruisce l'afflizione di `tipo` col rango COPIATO (G-6: autosufficiente) e la
+    durata dalla tabella-dato (`DURATA_BLOCCO_DEFAULT` per i tipi fuori tabella)."""
     from .calibrazione import DURATA_BLOCCO_DEFAULT
 
-    tipo = type(capacita)
-    turni = 1 if tipo is Stordito else DURATA_BLOCCO_DEFAULT
-    return tipo(rango=capacita.rango, durata=turni, innato=False)
+    profilo = PROFILO_STATUS.get(tipo)
+    turni = profilo.durata_afflizione if profilo is not None else DURATA_BLOCCO_DEFAULT
+    return tipo(rango=rango, durata=turni, innato=False)
+
+
+def afflizione_da(capacita: Status) -> Status:
+    """L'afflizione trasmessa da una CAPACITÀ innata col colpo."""
+    return afflizione(type(capacita), capacita.rango)
 
 
 # --- Applicazione: competizione per rango (G-7) -------------------------------
@@ -153,7 +274,7 @@ def _nome_diegetico(entita: int) -> str:
     return "" if esper.has_component(entita, Protagonista) else "il nemico"
 
 
-class _SistemaStatusBase(SistemaSempreAttivo):
+class SistemaStatus(SistemaSempreAttivo):
     """Proprietario unico dell'avanzamento di UN tipo di status (G-5).
 
     Avanza **solo** lo status dell'entità attiva nel giro (G-24): se non c'è
@@ -163,14 +284,23 @@ class _SistemaStatusBase(SistemaSempreAttivo):
     Gli status INNATI (capacità del mob) non sono afflizioni: quelli
     trasmissibili (veleno/brucia/stordito) agiscono sul colpo — mai sul
     portatore; le passive (rigenerazione) applicano l'effetto ma non scadono.
+
+    GENERICO: il tipo arriva dal costruttore (la factory `sistemi_status` ne crea
+    uno per riga di `SPEC_STATUS`) e il COMPORTAMENTO è DATO della tabella — mai
+    una sottoclasse per aggiungere uno status. Le sottoclassi storiche sotto
+    restano come alias di compatibilità (test/registrazioni esplicite).
     """
 
     tipo_status: type[Status] = Status
-    trasmissibile: bool = True  # capacità OFFENSIVA: si trasmette col colpo
-    delta_per_rango: int = 0    # HP mossi per tick d'afflizione (− danno, + cura)
 
-    def __init__(self, bus=None) -> None:
+    def __init__(self, bus=None, *, tipo: type[Status] | None = None) -> None:
         self.bus = bus  # facoltativo: gli effetti si narrano sul Canale B
+        if tipo is not None:
+            self.tipo_status = tipo
+
+    @property
+    def _profilo(self) -> ProfiloStatus:
+        return PROFILO_STATUS.get(self.tipo_status) or ProfiloStatus(True, 0, 1)
 
     def run(self, dt: int) -> None:
         entita = entita_attiva()
@@ -180,7 +310,7 @@ class _SistemaStatusBase(SistemaSempreAttivo):
         if comp is None:
             return
         if comp.innato:
-            if not self.trasmissibile:
+            if not self._profilo.trasmissibile:
                 self.applica_effetto(entita, comp)  # passiva: effetto sì, scadenza no
             return
         self.applica_effetto(entita, comp)
@@ -190,9 +320,9 @@ class _SistemaStatusBase(SistemaSempreAttivo):
 
     def applica_effetto(self, entita: int, comp: Status) -> None:
         """Effetto al tick: `delta_per_rango × rango` HP (0 = nessun effetto)."""
-        if self.delta_per_rango == 0:
+        if self._profilo.delta_per_rango == 0:
             return
-        delta = self.delta_per_rango * comp.rango
+        delta = self._profilo.delta_per_rango * comp.rango
         _applica_delta_hp(entita, delta)
         if self.bus is not None:
             from contracts import EffettoStatus
@@ -206,26 +336,34 @@ class _SistemaStatusBase(SistemaSempreAttivo):
             )
 
 
-class SistemaVeleno(_SistemaStatusBase):
+def sistemi_status(bus=None) -> list[SistemaStatus]:
+    """UN system per ogni riga di `SPEC_STATUS` con tick deterministico: è la
+    registrazione derivata — un nuovo status non tocca né il guscio né gli harness
+    (un solo proprietario per tipo, G-5)."""
+    return [
+        SistemaStatus(bus, tipo=s.componente) for s in SPEC_STATUS if s.con_sistema
+    ]
+
+
+# Alias storici (compatibilità con test e registrazioni esplicite): il tick vero
+# lo fanno le istanze di `sistemi_status`; il comportamento resta in tabella.
+
+class SistemaVeleno(SistemaStatus):
     tipo_status = Veleno
-    delta_per_rango = -1
 
 
-class SistemaBrucia(_SistemaStatusBase):
+class SistemaBrucia(SistemaStatus):
     tipo_status = Brucia
-    delta_per_rango = -1
 
 
-class SistemaRigenerazione(_SistemaStatusBase):
+class SistemaRigenerazione(SistemaStatus):
     tipo_status = Rigenerazione
-    trasmissibile = False  # capacità PASSIVA: rigenera il portatore, non si trasmette
-    delta_per_rango = 1
 
 
-class SistemaStordito(_SistemaStatusBase):
+class SistemaStordito(SistemaStatus):
     tipo_status = Stordito
-    # Nessun delta HP: l'effetto (saltare il turno) lo consulta il loop di
-    # combattimento; qui solo il decorso dell'afflizione (durata).
+    # Nessun delta HP in tabella: l'effetto (saltare il turno) lo consulta il loop
+    # di combattimento; qui solo il decorso dell'afflizione (durata).
 
 
 # NB: `Confusione` (unsafe, AI-risolto) NON ha un sistema-tick deterministico nell'MVP:

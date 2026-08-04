@@ -110,6 +110,54 @@ def test_partita_con_stagione_locale(host) -> None:
     assert "testa-unica" in turno.json()["post"][-1]["messaggio"]["prosa"]
 
 
+def test_archetipi_via_api_e_vocabolario(host) -> None:
+    """Il canale dell'AGENTE (Fase 4): crea un archetipo NUOVO via HTTP, il mob che
+    lo usa passa il lint, la stagione risolve e la run lo mette in scena — zero
+    codice. Il vocabolario espone enum+cataloghi per gli editor."""
+    client, _stato = host
+    voc = client.get("/api/vocabolario").json()
+    assert "bronzo" in voc["gradi"] and "attacco" in voc["mosse"]
+    assert {"slime", "scheletro", "goblin"} <= set(voc["archetipi"])
+    assert "veste" in voc["armature"] and "mischia" in voc["tipi_danno"]
+
+    profilo = {
+        "destrezza_base": 6, "pv_base": 9, "danno_base": 2, "intelligenza_base": 2,
+        "difesa_base": 0, "saggezza_base": 1, "fortuna_base": 2,
+        "armatura": "leggera", "taglia": "piccola", "arma": "naturale",
+    }
+    r = client.post("/api/contenuti/archetipi", json={
+        "slug": "ratto-mutante", "nome": "il Ratto Mutante",
+        "profilo": profilo, "mosse": ["morso_velenoso"],
+    })
+    assert r.status_code == 201, r.text
+    assert "ratto-mutante" in client.get("/api/vocabolario").json()["archetipi"]
+    # Profilo incompleto su slug nuovo → 422 col lint (mai un degrado a runtime).
+    r = client.post("/api/contenuti/archetipi", json={
+        "slug": "mezzo-fatto", "nome": "X", "profilo": {"pv_base": 3},
+    })
+    assert r.status_code == 422 and "profilo incompleto" in r.json()["dettaglio"]
+
+    # Il giro completo: mob dell'archetipo nuovo → piano → stagione → run in scena.
+    client.post("/api/contenuti/mob", json=_mob_json("ratto-alfa", archetipo="ratto-mutante"))
+    client.post("/api/contenuti/piani", json={
+        "slug": "tana", "titolo": "Tana", "tema": "condotti",
+        "budget": {"gradi": ["bronzo"], "blocchi": ["veleno"], "archetipi": ["ratto-mutante"]},
+        "cast": ["ratto-alfa"],
+    })
+    client.post("/api/contenuti/stagioni", json={
+        "slug": "s-ratti", "numero": 1, "titolo": "Ratti", "mondo": "Terra",
+        "piani": ["tana"],
+    })
+    risolta = client.get("/api/contenuti/stagioni/s-ratti/risolto")
+    assert risolta.status_code == 200
+    assert [a["slug"] for a in risolta.json()["archetipi"]] == ["ratto-mutante"]
+    assert risolta.json()["archetipi"][0]["profilo"]["pv_base"] == 9
+    apertura = client.post(
+        "/api/partita", json={"nuovo": {"nome": "Agente", "seed": 1, "stagione": "s-ratti"}}
+    )
+    assert apertura.status_code == 201, apertura.text
+
+
 def test_partita_con_stagione_non_risolvibile(host) -> None:
     client, _stato = host
     client.post(

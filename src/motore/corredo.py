@@ -6,8 +6,8 @@
 
 È il "seam gear" che `derivate.py` legge: un'entità **con** `Corredo` usa i suoi slot, una
 **senza** (protagonista, nemici-da-scalari) ripiega sui default globali `*_DEFAULT` — così
-l'apertura del seam è retro-compatibile bit-per-bit. Componente **effimero**: non è nel
-registry di persistenza (`persistenza/tag.py`), come `Resistenze`.
+l'apertura del seam è retro-compatibile bit-per-bit. Componente **persistente** (registry
+in `persistenza/tag.py`, come `Resistenze`): il profilo del mob rivelato round-trippa.
 """
 
 from __future__ import annotations

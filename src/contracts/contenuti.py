@@ -23,13 +23,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .schema import Archetipo, Blocco, Durata, Grado
+from .schema import RE_SLUG as _RE_SLUG
+from .schema import ArchetipoId, Blocco, Durata, Grado
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 
-# Slug e tag: kebab-case minuscolo, identità stabile degli asset e vocabolario
-# dell'affinità. I tag NON sono enum: sono folksonomia di authoring.
-_RE_SLUG = r"^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$"
+# Slug e tag: kebab-case minuscolo (pattern condiviso con schema.py), identità
+# stabile degli asset e vocabolario dell'affinità. I tag NON sono enum: sono
+# folksonomia di authoring.
 
 
 def _senza_duplicati(valori: list, etichetta: str) -> None:
@@ -48,7 +49,7 @@ class BudgetDesign(BaseModel):
 
     gradi: list[Grado] = Field(min_length=1)
     blocchi: list[Blocco] = Field(default_factory=list)  # vuota = nessun blocco ammesso
-    archetipi: list[Archetipo] = Field(min_length=1)
+    archetipi: list[ArchetipoId] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _unici(self) -> "BudgetDesign":
@@ -78,6 +79,55 @@ class _Asset(BaseModel):
         return self
 
 
+class ProfiloArchetipoDati(BaseModel):
+    """Il profilo numerico di un archetipo COME DATO, authoring-facing.
+
+    Qui i numeri sono LEGALI: li scrive l'autore (umano o agente) dentro l'asset e
+    il motore li valida e li scala con la formula-madre. F-3 resta intatto: questi
+    numeri non attraversano MAI il contratto AI (`EntitaGenerata` resta senza).
+    PARZIALE: un campo `None` si completa dalla calibrazione per gli archetipi
+    storici (che restano di sua proprietà numerica); per uno slug NUOVO il profilo
+    dev'essere completo — lo impone la risoluzione, come errore di authoring.
+    `armatura/taglia/arma` sono chiavi delle tabelle §11 (validate alla risoluzione:
+    contracts non conosce il motore). Resistenze in punti % (<0 resiste, >0
+    vulnerabile; None = eredita, per i nuovi slug vale 0)."""
+
+    model_config = _FROZEN
+
+    destrezza_base: int | None = Field(default=None, ge=1)
+    pv_base: int | None = Field(default=None, ge=1)
+    danno_base: int | None = Field(default=None, ge=1)
+    intelligenza_base: int | None = Field(default=None, ge=1)
+    difesa_base: int | None = Field(default=None, ge=0)
+    saggezza_base: int | None = Field(default=None, ge=1)
+    fortuna_base: int | None = Field(default=None, ge=1)
+    armatura: str | None = None
+    taglia: str | None = None
+    arma: str | None = None
+    res_mischia: float | None = None
+    res_fuoco: float | None = None
+    res_veleno: float | None = None
+
+
+class ArchetipoAsset(_Asset):
+    """Un ARCHETIPO come asset di libreria: l'identità meccanica di una famiglia di
+    mob, creabile da dati (D1: niente enum, niente codice). Alla creazione della run
+    gli archetipi riferiti dalla stagione vengono risolti (profilo completato) e
+    CONGELATI nella `StagioneAttiva`: il gate valida contro quel registry (F-6
+    runtime). `mosse` = repertorio di default dei mob di questo archetipo (chiavi
+    del catalogo mosse del motore; lint alla risoluzione/salvataggio)."""
+
+    nome: str = Field(min_length=1)
+    descrizione: str = ""
+    profilo: ProfiloArchetipoDati | None = None
+    mosse: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _mosse_uniche(self) -> "ArchetipoAsset":
+        _senza_duplicati(self.mosse, "mosse")
+        return self
+
+
 class MobAsset(_Asset):
     """Un membro del cast: profilo CATEGORIALE + flavor + la sua scena.
 
@@ -86,16 +136,23 @@ class MobAsset(_Asset):
     deriva la calibrazione da archetipo × grado × livello."""
 
     nome: str = Field(min_length=1)
-    archetipo: Archetipo
+    archetipo: ArchetipoId
     grado: Grado
     blocchi: list[Blocco] = Field(default_factory=list)
     descrizione: str = ""
     prosa_stanza: str = Field(min_length=1)
     durata: Durata = Durata.TURNO
+    # Espressività per-mob (Fase 5): mosse proprie (vuoto = quelle dell'archetipo,
+    # poi il default del motore) e override PARZIALE del profilo d'archetipo —
+    # vince campo-per-campo. Authoring-facing: numeri legali qui, mai in
+    # `EntitaGenerata` (F-3).
+    mosse: list[str] = Field(default_factory=list)
+    override: ProfiloArchetipoDati | None = None
 
     @model_validator(mode="after")
     def _blocchi_unici(self) -> "MobAsset":
         _senza_duplicati(self.blocchi, "blocchi")
+        _senza_duplicati(self.mosse, "mosse")
         return self
 
 
@@ -195,7 +252,7 @@ class PianoRisolto(BaseModel):
                 raise ValueError(f"cast fuori budget: {mob.slug} ha grado {mob.grado.value}")
             if mob.archetipo not in archetipi:
                 raise ValueError(
-                    f"cast fuori budget: {mob.slug} ha archetipo {mob.archetipo.value}"
+                    f"cast fuori budget: {mob.slug} ha archetipo {mob.archetipo}"
                 )
             if not set(mob.blocchi) <= blocchi:
                 raise ValueError(f"cast fuori budget: {mob.slug} ha blocchi non ammessi")
@@ -203,7 +260,10 @@ class PianoRisolto(BaseModel):
 
 
 class StagioneRisolta(BaseModel):
-    """La stagione coi piani SCIOLTI e coerenti: pronta al freeze nel World."""
+    """La stagione coi piani SCIOLTI e coerenti: pronta al freeze nel World.
+
+    `archetipi` = gli archetipi riferiti da budget/cast, RISOLTI (profilo completo:
+    il merge con la calibrazione è già avvenuto) — il vocabolario chiuso della run."""
 
     model_config = _FROZEN
 
@@ -217,6 +277,7 @@ class StagioneRisolta(BaseModel):
     stile: list[str] = Field(default_factory=list)
     lore: str = ""
     piani: list[PianoRisolto] = Field(min_length=1)
+    archetipi: list[ArchetipoAsset] = Field(default_factory=list)
 
 
 class AssetVista(BaseModel):
@@ -225,7 +286,7 @@ class AssetVista(BaseModel):
     model_config = _FROZEN
 
     slug: str
-    tipo: Literal["stagione", "piano", "mob"]
+    tipo: Literal["stagione", "piano", "mob", "archetipo"]
     etichetta: str
     tags: list[str] = Field(default_factory=list)
     origine: Literal["ufficiale", "locale"] = "ufficiale"

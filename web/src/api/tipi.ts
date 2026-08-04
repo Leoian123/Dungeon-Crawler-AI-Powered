@@ -108,16 +108,57 @@ export type ApriPartita =
 // --- Contenuti dello show (asset riusabili, speculari a contracts/contenuti.py) --
 
 export const GRADI = ["bronzo", "argento", "oro", "platino", "leggendario", "celestiale"] as const;
-export const BLOCCHI = ["veleno", "rigenerazione", "stordito"] as const;
-export const ARCHETIPI = ["slime", "scheletro", "goblin"] as const;
 export const DURATE = ["turno", "un_attimo", "un_pochino", "un_bel_po"] as const;
 
 export type Grado = (typeof GRADI)[number];
-export type Blocco = (typeof BLOCCHI)[number];
-export type Archetipo = (typeof ARCHETIPI)[number];
+// Blocchi e archetipi sono vocabolari VIVI del motore (SPEC_STATUS / registry
+// per-run): arrivano da GET /api/vocabolario, mai da una lista cablata nel client
+// (un blocco nuovo appare nei form da solo).
+export type Blocco = string;
+export type Archetipo = string;
 export type DurataTurno = (typeof DURATE)[number];
 
-export type TipoAsset = "stagioni" | "piani" | "mob";
+export type TipoAsset = "stagioni" | "piani" | "mob" | "archetipi";
+
+/** GET /api/vocabolario: enum del contratto + cataloghi del motore (una sola fonte). */
+export interface Vocabolario {
+  gradi: string[];
+  blocchi: string[];
+  durate: string[];
+  tipi_danno: string[];
+  mosse: string[];
+  archetipi: string[];
+  armature: string[];
+  taglie: string[];
+  armi: string[];
+}
+
+/** Profilo numerico di un archetipo (authoring: null = eredita, solo storici). */
+export interface ProfiloArchetipoDati {
+  destrezza_base?: number | null;
+  pv_base?: number | null;
+  danno_base?: number | null;
+  intelligenza_base?: number | null;
+  difesa_base?: number | null;
+  saggezza_base?: number | null;
+  fortuna_base?: number | null;
+  armatura?: string | null;
+  taglia?: string | null;
+  arma?: string | null;
+  res_mischia?: number | null;
+  res_fuoco?: number | null;
+  res_veleno?: number | null;
+}
+
+export interface ArchetipoAsset {
+  slug: string;
+  versione: number;
+  tags: string[];
+  nome: string;
+  descrizione: string;
+  profilo: ProfiloArchetipoDati | null;
+  mosse: string[];
+}
 
 export interface BudgetDesign {
   gradi: Grado[];
@@ -136,6 +177,10 @@ export interface MobAsset {
   descrizione: string;
   prosa_stanza: string;
   durata: DurataTurno;
+  /** Mosse proprie (vuoto = quelle dell'archetipo, poi il default del motore). */
+  mosse: string[];
+  /** Override parziale del profilo d'archetipo (vince campo-per-campo). */
+  override: ProfiloArchetipoDati | null;
 }
 
 export interface PianoAsset {
@@ -166,11 +211,54 @@ export interface StagioneAsset {
 
 export interface AssetVista {
   slug: string;
-  tipo: "stagione" | "piano" | "mob";
+  tipo: "stagione" | "piano" | "mob" | "archetipo";
   etichetta: string;
   tags: string[];
   origine: "ufficiale" | "locale";
   valido: boolean;
+}
+
+// --- Calibrazione (GM mode): catalogo §11 + override, speculare a
+// src/calibratore_web.costruisci_vista() e agli endpoint /api/calibrazione/*. --
+
+export interface VoceCalibrazione {
+  chiave: string;
+  valore: string | number;
+  default: string | number;
+  spiegazione: string;
+  dominio: string;
+  unita: string;
+  tipo: "int" | "float" | "scelta" | "testo";
+  scelte: string[];
+  override: boolean;
+  sezione: "nemico" | "globale";
+  gruppo: string; // archetipo (nemico) o categoria §11 (globale)
+  etichetta: string;
+  sotto: string; // sottosezione: Statistiche/Geometria/Resistenze o la categoria
+}
+
+export interface VistaCalibrazione {
+  voci: VoceCalibrazione[];
+  archetipi: { archetipo: string; nome: string; titolo: string }[];
+  gradi: string[];
+  percorso_override: string;
+}
+
+export interface VoceAggiornata {
+  chiave: string;
+  valore: string | number;
+  override: boolean;
+}
+
+export interface AnteprimaMob {
+  primarie: Record<string, number>;
+  max_hp: number;
+  atk_eff: number;
+  def_eff_centesimi: number;
+  eva_eff: number;
+  acc_eff: number;
+  resistenze_mult: Record<string, number>;
+  geometria: { armatura: string; taglia: string; arma: string };
 }
 
 export interface RispostaTurno extends StatoPartita {

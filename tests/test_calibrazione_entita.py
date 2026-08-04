@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from contracts import Archetipo, Grado, StatId, TipoDanno
+from contracts import Grado, StatId, TipoDanno
 from motore import calibrazione as cal
 
 
@@ -28,22 +28,25 @@ def test_ogni_archetipo_ha_il_profilo_completo() -> None:
 def test_default_correnti_del_catalogo() -> None:
     # Pin dei default §11 correnti. `pv_base` è stato TARATO sul TTK 3–6 round
     # (prima 5: ogni mob bronzo moriva in un colpo — vedi tests/test_ttk.py).
-    p = cal.REGISTRY_ARCHETIPI[Archetipo.GOBLIN]
+    p = cal.REGISTRY_ARCHETIPI["goblin"]
     assert (p.destrezza_base, p.pv_base, p.danno_base) == (7, 12, 2)
     assert p.armatura == "veste" and p.taglia == "media" and p.arma == "naturale"
 
 
-def test_getter_ritornano_i_default() -> None:
-    assert cal.geometria_da_archetipo(Archetipo.SLIME) == ("veste", "media", "naturale")
-    assert cal.resistenze_da_archetipo(Archetipo.SLIME) == {}  # tutte 0 = identità DT-6
+def test_profilo_porta_geometria_e_resistenze_default() -> None:
+    # Geometria e resistenze si leggono dal PROFILO (i getter dedicati sono stati
+    # ritirati — audit 2026-08: zero consumatori nel motore).
+    p = cal.profilo_corrente("slime")
+    assert (p.armatura, p.taglia, p.arma) == ("veste", "media", "naturale")
+    assert {t: v for t, v in p.resistenze.items() if v != 0} == {}  # tutte 0 = DT-6
 
 
 def test_formula_popola_le_sette_primarie() -> None:
-    pr = cal.primarie_da_archetipo(Archetipo.SLIME, Grado.BRONZO, 1)
+    pr = cal.primarie_da_archetipo("slime", Grado.BRONZO, 1)
     assert set(pr) == set(StatId)  # tutte e 7, non più solo 4
     from motore.catalogo import rango_grado
     rango = rango_grado(Grado.BRONZO)
-    prof = cal.REGISTRY_ARCHETIPI[Archetipo.SLIME]
+    prof = cal.REGISTRY_ARCHETIPI["slime"]
     assert pr[StatId.INTELLIGENZA] == prof.intelligenza_base + rango  # non più proxy //2
     assert pr[StatId.DIFESA] == prof.difesa_base                      # flat, default 0
     assert pr[StatId.FORZA] == prof.danno_base * rango                # moltiplicativa, invariata
@@ -60,14 +63,30 @@ def test_imposta_e_valida_le_nuove_foglie(cal_pulita) -> None:
 
 def test_profilo_corrente_e_fresco(cal_pulita) -> None:
     # REGISTRY_ARCHETIPI è cache-ato all'import; profilo_corrente rilegge gli override ora.
-    assert cal.profilo_corrente(Archetipo.SLIME).taglia == "media"
+    assert cal.profilo_corrente("slime").taglia == "media"
     cal.imposta("ARCH.slime.taglia", "infima")
-    assert cal.profilo_corrente(Archetipo.SLIME).taglia == "infima"
-    assert cal.REGISTRY_ARCHETIPI[Archetipo.SLIME].taglia == "media"  # cache invariata
+    assert cal.profilo_corrente("slime").taglia == "infima"
+    assert cal.REGISTRY_ARCHETIPI["slime"].taglia == "media"  # cache invariata
 
 
-def test_resistenze_da_archetipo_filtra_le_nulle(monkeypatch) -> None:
-    prof = cal.REGISTRY_ARCHETIPI[Archetipo.SLIME]
-    modif = cal.ProfiloArchetipo(**{**vars(prof), "resistenze": {TipoDanno.FUOCO: -50.0, TipoDanno.MISCHIA: 0.0}})
-    monkeypatch.setitem(cal.REGISTRY_ARCHETIPI, Archetipo.SLIME, modif)
-    assert cal.resistenze_da_archetipo(Archetipo.SLIME) == {TipoDanno.FUOCO: -50.0}
+def test_istanzia_filtra_le_resistenze_nulle(cal_pulita, monkeypatch, mondo_isolato) -> None:
+    """Il filtro «assenza = identità DT-6» vive alla materializzazione: una
+    resistenza a 0 nel profilo non produce alcuna voce sull'entità."""
+    import esper
+
+    from contracts import EntitaGenerata, Grado
+    from motore import istanzia_entita, narrazione
+    from motore.modificatori import Resistenze
+
+    cal.imposta("ARCH.slime.res.fuoco", -50)  # fuoco ≠ 0, mischia/veleno restano 0
+    # `istanzia` legge il registry della RUN (cache-ato senza stagione): si
+    # inietta il profilo FRESCO per vedere l'override appena impostato.
+    profilo = cal.profilo_corrente("slime")
+    monkeypatch.setattr(narrazione, "registry_archetipi_correnti", lambda: {"slime": profilo})
+    ent = istanzia_entita(
+        EntitaGenerata(archetipo="slime", grado=Grado.BRONZO, blocchi=[],
+                       nome="x", descrizione=""),
+        livello=1,
+    )
+    res = esper.component_for_entity(ent, Resistenze)
+    assert [(v.contro, v.valore) for v in res.voci] == [(TipoDanno.FUOCO, -50.0)]

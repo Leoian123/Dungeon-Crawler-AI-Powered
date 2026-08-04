@@ -12,7 +12,6 @@ import pytest
 
 from contracts import schema as S
 from contracts import (
-    Archetipo,
     Blocco,
     Durata,
     EntitaGenerata,
@@ -66,10 +65,13 @@ def test_F3_entita_generata_non_ha_livello() -> None:
 
 
 def test_F3_campi_attesi_di_entita_generata() -> None:
-    # Esattamente: archetipo, grado, blocchi, nome, descrizione (F-1/§2).
+    # archetipo, grado, blocchi, nome, descrizione (F-1/§2) + `riferimento` (D5):
+    # il reclutamento dal cast — un NOME da un set chiuso per-run, opzionale,
+    # verificato dal 4° strato del gate. Mai un numero.
     assert set(EntitaGenerata.model_fields) == {
-        "archetipo", "grado", "blocchi", "nome", "descrizione",
+        "archetipo", "grado", "blocchi", "nome", "descrizione", "riferimento",
     }
+    assert EntitaGenerata.model_fields["riferimento"].default is None
 
 
 # --- F-4: campi a conseguenza meccanica = enum chiusi; nessuna leva ------------
@@ -81,12 +83,28 @@ def _enum_chiuso(annotazione: object) -> bool:
     )
 
 
-def test_F4_campi_meccanici_sono_enum_chiusi() -> None:
-    assert _enum_chiuso(EntitaGenerata.model_fields["archetipo"].annotation)
+def test_F4_campi_meccanici_sono_vocabolari_chiusi() -> None:
+    # Grado/Blocco/TipoAzione/Durata restano enum compilati.
     assert _enum_chiuso(EntitaGenerata.model_fields["grado"].annotation)
     assert _enum_chiuso(EntitaGenerata.model_fields["blocchi"].annotation)
     assert _enum_chiuso(Opzione.model_fields["tipo"].annotation)
     assert _enum_chiuso(TurnoNarrazione.model_fields["durata"].annotation)
+
+
+def test_F4_archetipo_slug_a_chiusura_per_run() -> None:
+    # D1: l'archetipo NON è più un enum compilato — è uno slug kebab-case stretto
+    # (forma chiusa qui) la cui APPARTENENZA è validata dal gate contro il registry
+    # congelato nella run (F-6 runtime, coperto in test_narrazione_gate). Il pattern
+    # respinge tutto ciò che non è un nome di catalogo ben formato.
+    def _eg(archetipo: str) -> EntitaGenerata:
+        return EntitaGenerata(
+            archetipo=archetipo, grado=Grado.BRONZO, blocchi=[], nome="x", descrizione="",
+        )
+
+    assert _eg("ratto-mutante").archetipo == "ratto-mutante"  # slug nuovo: forma legale
+    for illegale in ("Non Kebab", "UPPER", "spazi no", "-inizia-male", "a" * 61, ""):
+        with pytest.raises(Exception):
+            _eg(illegale)
 
 
 def test_F4_nessuna_leva_di_budget_o_anomalia() -> None:

@@ -12,7 +12,9 @@ gioco qui, solo trasporto + guardie. Regole:
   - la chiave LLM resta env-only: il client sceglie solo `"fake"|"live"`, qui se ne
     verifica la PRESENZA (mai il valore) — PLK §4.
 Importa SOLO `main` + `contracts` (e `provider` lazy, come `gioco_textual`): mai
-`motore`, mai esper — membrana verificata in tests/test_membrana_vista.py.
+`motore`, mai esper — membrana verificata in tests/test_membrana_vista.py. La
+calibrazione passa dal backend del calibratore (`calibratore_web`, host-tool peer):
+è LUI a parlare con `motore.calibrazione`, qui solo trasporto.
 """
 
 from __future__ import annotations
@@ -23,9 +25,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from contracts import MobAsset, PianoAsset, PlayerChoseOption, Stagione
+import calibratore_web
+
+from contracts import PlayerChoseOption
 from main import (
+    MODELLI_ASSET,
     STAGIONE_DEFAULT,
+    SalvataggioInCombattimento,
     affini,
     carica_asset,
     carica_sessione,
@@ -36,14 +42,12 @@ from main import (
     elimina_crawler,
     risolvi_stagione,
     salva_asset_locale,
+    vocabolario,
 )
 
-# Le collezioni della libreria contenuti e i loro modelli di authoring.
-_MODELLI_CONTENUTI: dict[str, type] = {
-    "stagioni": Stagione,
-    "piani": PianoAsset,
-    "mob": MobAsset,
-}
+# Le collezioni della libreria e i loro modelli di authoring: UNA mappa, quella
+# del composition root (prima era duplicata qui — audit 2026-08).
+_MODELLI_CONTENUTI = MODELLI_ASSET
 
 from .sse import flusso_eventi
 from .stato import PostThread, StatoHost
@@ -110,6 +114,21 @@ class RichiestaAzione(BaseModel):
     model_config = ConfigDict(extra="forbid")
     testo: str
     versione: int
+
+
+class RichiestaCalibrazioneValore(BaseModel):
+    """Il valore GREZZO di un override: coerce e validazione (int/float/scelta)
+    vivono nel catalogo (`calibrazione._coerce`), mai qui."""
+
+    model_config = ConfigDict(extra="forbid")
+    valore: int | float | str
+
+
+class RichiestaCalibrazioneAnteprima(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    archetipo: str
+    grado: str
+    livello: int = Field(default=1, ge=1)
 
 
 def _provider_live(stato: StatoHost) -> tuple[object, str]:
@@ -231,6 +250,13 @@ def crea_app(stato: StatoHost) -> FastAPI:
                 422, "contenuto_non_valido", str(errore)
             ) from errore
 
+    @app.get("/api/vocabolario")
+    async def vocabolario_api() -> dict:
+        """Il vocabolario per gli editor e gli agenti: enum del contratto, mosse,
+        archetipi noti, chiavi delle tabelle gear — una sola fonte, mai duplicati
+        cablati nel client."""
+        return vocabolario(**_dirs())
+
     @app.get("/api/contenuti/affini")
     async def contenuti_affini(tipo: str, tags: str, k: int = 5) -> dict:
         """Affinity matching deterministico sui tag (il riuso degli asset)."""
@@ -255,8 +281,10 @@ def crea_app(stato: StatoHost) -> FastAPI:
         try:
             salva_asset_locale(asset, **_dirs())
         except ValueError as errore:
-            codice = "slug_esistente" if "slug" in str(errore) else "contenuto_non_valido"
-            raise ErroreApi(409 if codice == "slug_esistente" else 422, codice, str(errore))
+            # Conflitto di slug (riservato/duplicato) → 409; ogni altro lint → 422.
+            conflitto = str(errore).startswith(("slug riservato", "slug già esistente"))
+            codice = "slug_esistente" if conflitto else "contenuto_non_valido"
+            raise ErroreApi(409 if conflitto else 422, codice, str(errore))
         return asset.model_dump(mode="json")
 
     @app.get("/api/contenuti/{tipo}/{slug}")
@@ -303,6 +331,46 @@ def crea_app(stato: StatoHost) -> FastAPI:
         except ValueError as errore:
             raise ErroreApi(422, "stagione_non_risolvibile", str(errore))
         return risolta.model_dump(mode="json")
+
+    # --- Calibrazione (GM mode): il catalogo §11 + gli override ----------------
+    # Nessuna guardia di sessione: come l'authoring, la calibrazione non tocca la
+    # run in corso — le costanti pubbliche del motore sono derivate all'IMPORT,
+    # quindi gli override valgono dal prossimo avvio dell'host; l'ANTEPRIMA invece
+    # rilegge i valori freschi (è il banco di prova del bilanciamento).
+
+    @app.get("/api/calibrazione")
+    async def calibrazione_vista() -> dict:
+        return calibratore_web.costruisci_vista()
+
+    @app.put("/api/calibrazione/voci/{chiave}")
+    async def calibrazione_imposta(chiave: str, ric: RichiestaCalibrazioneValore) -> dict:
+        if not calibratore_web.esiste(chiave):
+            raise ErroreApi(404, "parametro_sconosciuto", f"parametro: {chiave!r}")
+        esito = calibratore_web.applica(chiave, ric.valore)
+        if not esito["ok"]:
+            raise ErroreApi(422, "valore_non_valido", esito["errore"])
+        return {"chiave": chiave, "valore": esito["valore"], "override": esito["override"]}
+
+    @app.delete("/api/calibrazione/voci/{chiave}")
+    async def calibrazione_azzera(chiave: str) -> dict:
+        if not calibratore_web.esiste(chiave):
+            raise ErroreApi(404, "parametro_sconosciuto", f"parametro: {chiave!r}")
+        esito = calibratore_web.azzera(chiave)
+        return {"chiave": chiave, "valore": esito["valore"], "override": False}
+
+    @app.post("/api/calibrazione/salva")
+    async def calibrazione_salva() -> dict:
+        esito = calibratore_web.salva()
+        return {"percorso": esito["percorso"], "n": esito["n"]}
+
+    @app.post("/api/calibrazione/anteprima")
+    async def calibrazione_anteprima(ric: RichiestaCalibrazioneAnteprima) -> dict:
+        # Entità usa-e-getta nel World corrente, creata ed eliminata nello stesso
+        # tratto sincrono: nessun interleaving con i turni (asyncio, zero await).
+        try:
+            return calibratore_web.anteprima(ric.archetipo, ric.grado, ric.livello)
+        except ValueError as errore:
+            raise ErroreApi(422, "anteprima_non_valida", str(errore))
 
     @app.get("/api/crawlers")
     async def crawlers() -> dict:
@@ -388,7 +456,10 @@ def crea_app(stato: StatoHost) -> FastAPI:
         sessione = _sessione()
         _guardie_di_gioco(ric.versione)
         async with stato.lock:
-            messaggio = sessione.esci()
+            try:
+                messaggio = sessione.esci()
+            except SalvataggioInCombattimento as errore:
+                raise ErroreApi(409, "fase_non_valida", str(errore))
             stato.azzera_run()
         return {"messaggio": messaggio}
 
@@ -505,7 +576,11 @@ def crea_app(stato: StatoHost) -> FastAPI:
     async def salva(ric: RichiestaVersione) -> dict:
         sessione = _sessione()
         _guardie_di_gioco(ric.versione)
-        return {"messaggio": sessione.salva()}
+        try:
+            return {"messaggio": sessione.salva()}
+        except SalvataggioInCombattimento as errore:
+            # A scontro aperto il save produrrebbe un soft-lock (audit 2026-08).
+            raise ErroreApi(409, "fase_non_valida", str(errore))
 
     # --- SSE ------------------------------------------------------------------
 

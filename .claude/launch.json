@@ -14,6 +14,20 @@
       "runtimeArgs": ["--prefix", "web", "run", "dev"],
       "port": 5173,
       "autoPort": false
+    },
+    {
+      "name": "host-web-fake-alt",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "C:\\Project\\DCC\\gioca_web.bat", "--fake", "--porta", "8018"],
+      "port": 8018,
+      "autoPort": false
+    },
+    {
+      "name": "web-dev-alt",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set DCC_API_PORT=8018&& npm --prefix web run dev -- --port 5174 --strictPort"],
+      "port": 5174,
+      "autoPort": false
     }
   ]
 }

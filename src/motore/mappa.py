@@ -15,7 +15,8 @@ Proprietà:
     (solo-narrazione, Canale A): adiacenza e assenza di ingaggio le verifica il
     motore — un intento non valido è consumato senza effetto;
   - i **nemici** registrati per stanza sono riferimenti runtime a entità vive del
-    World (mai persistiti: al save restano fuori, la stanza si ripopola);
+    World (gli id non si serializzano mai, H-4); il LEGAME mob↔stanza però è dato
+    (`EntitaMob.stanza`) e al load `mappa_da_dict` lo ricollega;
   - la mappa persiste nello slot `esplorazione` del save (topologia, stanza corrente,
     visitate) via `mappa_to_dict`/`mappa_da_dict`.
 """
@@ -31,6 +32,7 @@ from contracts import PlayerSiMuove, TipoAzione
 
 from .calibrazione import MAPPA_STANZE
 from .intenti_coda import consuma_messaggi
+from .mob import EntitaMob
 from .phased import SistemaSoloNarrazione
 from .piano import Piano, valida_piano
 
@@ -38,7 +40,8 @@ from .piano import Piano, valida_piano
 @dataclass
 class Mappa:
     """Singleton di run: topologia + stato spaziale. `mob_stanza` è runtime-only
-    (id di entità vive del World corrente — mai serializzati, H-4)."""
+    (id di entità vive del World corrente — mai serializzati, H-4; al load si
+    ricostruisce dal dato `EntitaMob.stanza`)."""
 
     piano: Piano
     stanza_corrente: int
@@ -98,10 +101,17 @@ def segna_visitata() -> None:
 
 
 def registra_mob(entita: int) -> None:
-    """Registra il nemico rivelato nella stanza corrente (il reveal della narrazione)."""
+    """Registra il nemico rivelato nella stanza corrente (il reveal della narrazione).
+
+    Oltre alla voce runtime in `mob_stanza` (id vivo), la stanza è STAMPATA su
+    `EntitaMob.stanza`: è il dato persistente da cui il load ricollega mob↔stanza
+    (gli id esper non sopravvivono al round-trip, H-4)."""
     m = mappa_corrente()
     if m is not None:
         m[1].mob_stanza[m[1].stanza_corrente] = entita
+        em = esper.try_component(entita, EntitaMob)
+        if em is not None:
+            em.stanza = m[1].stanza_corrente
 
 
 def rimuovi_mob() -> None:
@@ -134,6 +144,17 @@ def mob_corrente() -> int | None:
         mappa.mob_stanza.pop(mappa.stanza_corrente, None)
         return None
     return ent
+
+
+def nome_mob_corrente() -> str:
+    """Il nome diegetico del mob della stanza corrente ("" se assente): la VERITÀ
+    è il componente `EntitaMob`, non un appunto dell'host (che dopo un load o un
+    cache-hit sarebbe stantio — audit 2026-08)."""
+    ent = mob_corrente()
+    if ent is None:
+        return ""
+    em = esper.try_component(ent, EntitaMob)
+    return em.nome if em is not None else ""
 
 
 def scala_presente() -> bool:
@@ -225,7 +246,8 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
 
 def mappa_to_dict() -> dict | None:
     """La mappa come dict JSON-safe per lo slot `esplorazione` (topologia + posizione +
-    visitate). I mob (runtime, effimeri) NON si salvano: la stanza si ripopola."""
+    visitate). Gli ID dei mob (runtime) NON si salvano qui: i mob viaggiano come
+    entità persistenti e il legame stanza↔mob è il dato `EntitaMob.stanza`."""
     m = mappa_corrente()
     if m is None:
         return None
@@ -240,16 +262,26 @@ def mappa_to_dict() -> dict | None:
 
 
 def mappa_da_dict(dati: dict) -> int:
-    """Ricostruisce il singleton `Mappa` dal dict dello slot `esplorazione` (load)."""
+    """Ricostruisce il singleton `Mappa` dal dict dello slot `esplorazione` (load).
+
+    `mob_stanza` (id runtime, mai serializzati — H-4) si RICOLLEGA dai dati: le entità
+    con `EntitaMob.stanza` valorizzata sono i mob di scena persistiti (i caduti sono
+    stati eliminati dal World a fine scontro, quindi non rinascono)."""
     piano = Piano(
         partenza=int(dati["partenza"]),
         adiacenze={int(k): [int(x) for x in v] for k, v in dati["adiacenze"].items()},
         discese={int(x) for x in dati["discese"]},
     )
+    mob_stanza = {
+        em.stanza: ent
+        for ent, em in esper.get_component(EntitaMob)
+        if em.stanza is not None
+    }
     return esper.create_entity(
         Mappa(
             piano=piano,
             stanza_corrente=int(dati["stanza_corrente"]),
             visitate={int(x) for x in dati["visitate"]},
+            mob_stanza=mob_stanza,
         )
     )

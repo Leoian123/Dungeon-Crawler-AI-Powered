@@ -104,6 +104,8 @@ from .derivate import (
 from .azione import Azione, Effetto, Danno, QuantitaDa
 from .turno import TurnoAttivo, entita_attiva, segna_turno_attivo, azzera_turno_attivo
 from .status import (
+    SPEC_STATUS,
+    SpecStatus,
     Status,
     Veleno,
     Brucia,
@@ -111,10 +113,12 @@ from .status import (
     Stordito,
     Confusione,
     applica_status,
+    SistemaStatus,
     SistemaVeleno,
     SistemaBrucia,
     SistemaRigenerazione,
     SistemaStordito,
+    sistemi_status,
 )
 from .combattimento import (
     DANNO_BASE,
@@ -144,6 +148,8 @@ from .combattimento import (
     richiedi_fuga,
 )
 from .mutazione import OndataRinforzi, PianoRinforzi, SistemaRinforzi
+from .mob import Repertorio
+from .mosse import CATALOGO_MOSSE, MOSSE_DEFAULT, Mossa, azione_da_mossa, mosse_note
 from .catalogo import (
     REGISTRY_BLOCCHI,
     REGISTRY_ARCHETIPI,
@@ -185,6 +191,7 @@ from .mappa import (
     mappa_to_dict,
     mob_corrente,
     muovi,
+    nome_mob_corrente,
     registra_mob,
     rimuovi_mob,
     scala_presente,
@@ -193,12 +200,15 @@ from .mappa import (
     uscite,
 )
 from .design import (
+    ArchetipoAttivo,
     MobAttivo,
     PianoAttivo,
     StagioneAttiva,
+    archetipo_attivo,
     crea_stagione,
     design_piano_corrente,
     lint_registry,
+    registry_archetipi_correnti,
     stagione_corrente,
 )
 from .piano import (
@@ -396,6 +406,10 @@ __all__ = [
     "Confusione",
     "applica_status",
     "SistemaVeleno",
+    "SistemaStatus",
+    "sistemi_status",
+    "SPEC_STATUS",
+    "SpecStatus",
     "SistemaBrucia",
     "SistemaRigenerazione",
     "SistemaStordito",
@@ -427,6 +441,12 @@ __all__ = [
     "richiedi_fuga",
     # mutazione intra-fase
     "OndataRinforzi",
+    "Repertorio",
+    "CATALOGO_MOSSE",
+    "MOSSE_DEFAULT",
+    "Mossa",
+    "azione_da_mossa",
+    "mosse_note",
     "PianoRinforzi",
     "SistemaRinforzi",
     # catalogo (faccia-motore: registry, formula, budget, ranghi, classi, tempo)
@@ -458,7 +478,10 @@ __all__ = [
     "Prova",
     "risolvi_prova",
     # stagione attiva (design di contenuto congelato nella run)
+    "ArchetipoAttivo",
     "MobAttivo",
+    "archetipo_attivo",
+    "registry_archetipi_correnti",
     "PianoAttivo",
     "StagioneAttiva",
     "crea_stagione",
@@ -490,6 +513,7 @@ __all__ = [
     "mappa_to_dict",
     "mob_corrente",
     "muovi",
+    "nome_mob_corrente",
     "registra_mob",
     "rimuovi_mob",
     "scala_presente",

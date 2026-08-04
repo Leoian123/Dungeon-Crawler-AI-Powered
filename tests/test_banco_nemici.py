@@ -11,7 +11,7 @@ import esper
 import pytest
 
 import banco_nemici as bn
-from contracts import Archetipo, Blocco, Grado
+from contracts import Blocco, Grado
 from provider import FakeProvider
 
 
@@ -24,13 +24,13 @@ def _budget_normale():
 
 def test_schema_core_piu_drop_azioni() -> None:
     n = bn.nemico_scriptato()
-    assert isinstance(n.archetipo, Archetipo) and isinstance(n.grado, Grado)
+    assert isinstance(n.archetipo, str) and isinstance(n.grado, Grado)
     assert isinstance(n.drop, list) and isinstance(n.azioni, list)
     assert n.azioni and all(isinstance(a, str) for a in n.azioni)   # mosse = stringhe
     # extra="forbid": niente campi non previsti.
     with pytest.raises(Exception):
         bn.NemicoSperimentale(  # type: ignore[call-arg]
-            archetipo=Archetipo.SLIME, grado=Grado.BRONZO, blocchi=[], nome="x",
+            archetipo="slime", grado=Grado.BRONZO, blocchi=[], nome="x",
             descrizione="y", drop=[], azioni=[], extra_non_previsto=1,
         )
 
@@ -71,7 +71,7 @@ def test_materializzazione_pulisce_dopo_se(mondo_isolato: str) -> None:
 def test_gate_reject_fuori_budget(mondo_isolato: str) -> None:
     budget = _budget_normale()                               # gradi ammessi: BRONZO, ARGENTO
     fuori = bn.NemicoSperimentale(
-        archetipo=Archetipo.SLIME, grado=Grado.CELESTIALE, blocchi=[],
+        archetipo="slime", grado=Grado.CELESTIALE, blocchi=[],
         nome="Slime Apocalittico", descrizione="Troppo.", drop=[], azioni=["Cancella la realtà"],
     )
     gate_ok, motivo, stat = bn.gate_e_stat(fuori, budget, livello=1)
@@ -82,7 +82,7 @@ def test_gate_reject_fuori_budget(mondo_isolato: str) -> None:
 def test_gate_reject_blocco_fuori_budget(mondo_isolato: str) -> None:
     budget = _budget_normale()                               # blocchi ammessi: VELENO, RIGENERAZIONE
     fuori = bn.NemicoSperimentale(
-        archetipo=Archetipo.SLIME, grado=Grado.BRONZO, blocchi=[Blocco.STORDITO],
+        archetipo="slime", grado=Grado.BRONZO, blocchi=[Blocco.STORDITO],
         nome="Slime Stordente", descrizione="x", drop=[], azioni=[],
     )
     gate_ok, motivo, _ = bn.gate_e_stat(fuori, budget, livello=1)
@@ -102,7 +102,8 @@ def test_cli_fake_smoke(capsys) -> None:
     out = capsys.readouterr().out
     assert "BANCO NEMICI" in out
     assert "Slime Mangiascarti" in out
-    assert "azioni (mosse di combattimento)" in out
+    # Fase 6: le azioni proposte incrociano il catalogo mosse reale (match-rate).
+    assert "azioni (vs catalogo mosse" in out
     assert "SOMMARIO" in out
 
 

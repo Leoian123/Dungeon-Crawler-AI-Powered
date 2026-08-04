@@ -36,7 +36,7 @@ from .intenti import (
     PlayerDiscende,
 )
 from .schema import (
-    Archetipo,
+    ArchetipoId,
     Grado,
     StatId,
     Blocco,
@@ -54,11 +54,13 @@ from .schema import (
     InquadramentoProva,
 )
 from .contenuti import (
+    ArchetipoAsset,
     AssetVista,
     BudgetDesign,
     MobAsset,
     PianoAsset,
     PianoRisolto,
+    ProfiloArchetipoDati,
     Stagione,
     StagioneRisolta,
 )
@@ -102,7 +104,7 @@ __all__ = [
     "PlayerTentaProva",
     "PlayerDiscende",
     # schema AI↔motore
-    "Archetipo",
+    "ArchetipoId",
     "Grado",
     "StatId",
     "Blocco",
@@ -125,8 +127,10 @@ __all__ = [
     # contenuti dello show (asset riusabili + forme risolte)
     "AssetVista",
     "BudgetDesign",
+    "ArchetipoAsset",
     "MobAsset",
     "PianoAsset",
+    "ProfiloArchetipoDati",
     "PianoRisolto",
     "Stagione",
     "StagioneRisolta",

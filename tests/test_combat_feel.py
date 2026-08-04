@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 
 from contracts import (
-    Archetipo,
     Blocco,
     BudgetDesign,
     ColpoInferto,
@@ -40,7 +39,7 @@ def _stagione(mob: MobAsset) -> StagioneRisolta:
 def _mob_argento(blocchi: list[Blocco]) -> MobAsset:
     # ARGENTO: sopravvive al primo colpo → il nemico RISPONDE nello stesso click.
     return MobAsset(
-        slug="spugna", nome="Spugna Argentata", archetipo=Archetipo.SLIME,
+        slug="spugna", nome="Spugna Argentata", archetipo="slime",
         grado=Grado.ARGENTO, blocchi=blocchi, prosa_stanza="La spugna ribolle.",
     )
 

@@ -11,7 +11,6 @@ import asyncio
 import pytest
 
 from contracts import (
-    Archetipo,
     Blocco,
     BudgetDesign,
     Grado,
@@ -37,7 +36,7 @@ from motore.catalogo import prepara_contesto
 from motore.narrazione import valida_turno
 
 
-def _mob(slug: str, *, grado=Grado.BRONZO, archetipo=Archetipo.SLIME,
+def _mob(slug: str, *, grado=Grado.BRONZO, archetipo="slime",
          blocchi=(), tags=()) -> MobAsset:
     return MobAsset(
         slug=slug, nome=slug.replace("-", " ").title(), archetipo=archetipo,
@@ -49,7 +48,7 @@ def _mob(slug: str, *, grado=Grado.BRONZO, archetipo=Archetipo.SLIME,
 def _budget(**kw) -> BudgetDesign:
     kw.setdefault("gradi", [Grado.BRONZO, Grado.ARGENTO])
     kw.setdefault("blocchi", [Blocco.VELENO, Blocco.RIGENERAZIONE])
-    kw.setdefault("archetipi", list(Archetipo))
+    kw.setdefault("archetipi", ["slime", "scheletro", "goblin"])
     return BudgetDesign(**kw)
 
 
@@ -68,10 +67,10 @@ def test_tag_e_slug_malformati_respinti() -> None:
     with pytest.raises(ValueError):
         _mob("m", tags=["Tag Con Spazi"])
     with pytest.raises(ValueError):
-        MobAsset(slug="Maiuscolo", nome="X", archetipo=Archetipo.SLIME,
+        MobAsset(slug="Maiuscolo", nome="X", archetipo="slime",
                  grado=Grado.BRONZO, prosa_stanza="p")
     with pytest.raises(ValueError, match="duplicate"):
-        BudgetDesign(gradi=[Grado.BRONZO, Grado.BRONZO], archetipi=[Archetipo.SLIME])
+        BudgetDesign(gradi=[Grado.BRONZO, Grado.BRONZO], archetipi=["slime"])
 
 
 # --- Parità: la Falsa Idra derivata dalla libreria = il vecchio copione ---------
@@ -159,12 +158,12 @@ def test_anomalia_non_cappata_dal_design() -> None:
 
 def test_gate_respinge_archetipo_fuori_design() -> None:
     turni = _turni_scriptati()
-    goblin = next(t for t in turni if t.entita.archetipo is Archetipo.GOBLIN)
+    goblin = next(t for t in turni if t.entita.archetipo == "goblin")
     piano = _piano_attivo_default()
     from dataclasses import replace
 
     solo_slime = prepara_contesto(
-        1, _RngFisso(0.99), piano=replace(piano, archetipi=[Archetipo.SLIME])
+        1, _RngFisso(0.99), piano=replace(piano, archetipi=["slime"])
     )
     assert valida_turno(goblin, solo_slime) is None
     tutti = prepara_contesto(1, _RngFisso(0.99))  # segnaposto: tutti gli archetipi
@@ -189,7 +188,7 @@ def test_stagione_congelata_round_trip_nel_save(run_pulita, tmp_path) -> None:
     assert tornata.slug == STAGIONE_DEFAULT and tornata.numero == 1
     [piano] = tornata.piani
     assert piano.cast[0].nome == "Slime Mangiascarti"
-    assert piano.cast[0].archetipo is Archetipo.SLIME  # enum RICOSTRUITO, non str
+    assert piano.cast[0].archetipo == "slime"  # enum RICOSTRUITO, non str
     # La stanza già narrata è RILETTA (cache): la storia non si riscrive.
     snap2 = asyncio.run(ripresa.prossima_narrazione())
     assert snap2.prosa == prosa

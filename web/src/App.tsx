@@ -40,6 +40,9 @@ function Partita({ stato }: { stato: StatoPartita }) {
   const terminata = stato.morto || stato.vittoria;
   const bloccata =
     terminata || stato.occupato || progresso !== null || narrazione.isPending;
+  // In combattimento non si salva (soft-lock al ricarico): il server risponde
+  // comunque 409, qui si spengono i bottoni per non far sbattere il giocatore.
+  const salvataggioVietato = bloccata || stato.fase === "combattimento";
 
   return (
     <div className="flex flex-col gap-4">
@@ -47,14 +50,14 @@ function Partita({ stato }: { stato: StatoPartita }) {
         <span className="text-sm italic text-pergamena/60">{stato.gm}</span>
         <div className="flex gap-2">
           <button
-            disabled={bloccata}
+            disabled={salvataggioVietato}
             onClick={() => salva.mutate({ versione: stato.versione })}
             className="rounded border border-pergamena/30 px-3 py-1 text-sm text-pergamena/80 transition hover:bg-pergamena/10 disabled:opacity-40"
           >
             Salva
           </button>
           <button
-            disabled={bloccata || esci.isPending}
+            disabled={salvataggioVietato || esci.isPending}
             onClick={() => esci.mutate({ versione: stato.versione })}
             className="rounded border border-torcia/50 px-3 py-1 text-sm text-torcia transition hover:bg-torcia/10 disabled:opacity-40"
           >

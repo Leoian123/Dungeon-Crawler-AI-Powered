@@ -55,12 +55,10 @@ export function useAssets(tipo: TipoAsset) {
   return useQuery({ queryKey: ["contenuti", tipo], queryFn: () => api.assets(tipo) });
 }
 
-export function useAsset<T>(tipo: TipoAsset, slug: string | null) {
-  return useQuery({
-    queryKey: ["contenuti", tipo, slug],
-    queryFn: () => api.asset<T>(tipo, slug as string),
-    enabled: slug !== null,
-  });
+/** Il vocabolario (enum + cataloghi + archetipi noti): la fonte dei menu degli
+ * editor — mai liste cablate nel client. */
+export function useVocabolario() {
+  return useQuery({ queryKey: ["vocabolario"], queryFn: api.vocabolario });
 }
 
 /** Mutation generica di authoring: successo → si rilegge la collezione dal
@@ -73,6 +71,8 @@ export function useSalvaAsset(tipo: TipoAsset) {
       nuovo ? api.creaAsset(tipo, corpo) : api.aggiornaAsset(tipo, corpo),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["contenuti", tipo] });
+      // Un archetipo nuovo allarga il vocabolario dei menu (mob/piani).
+      void qc.invalidateQueries({ queryKey: ["vocabolario"] });
       setAvviso("Asset salvato nella libreria locale.");
     },
     onError: (errore) =>
@@ -96,6 +96,63 @@ export function useAffini(tipo: TipoAsset, tags: string[]) {
     queryKey: ["affini", tipo, tags.join(",")],
     queryFn: () => api.affini(tipo, tags),
     enabled: tags.length > 0,
+  });
+}
+
+// --- Calibrazione (GM mode) ---------------------------------------------------
+// Stessa regola di autorità: il server valida e coerce, il client invalida e
+// rilegge la vista intera (mai merge locale del valore applicato).
+
+export function useCalibrazione() {
+  return useQuery({ queryKey: ["calibrazione"], queryFn: api.calibrazione });
+}
+
+function useMutazioneCalibrazione<V>(mutationFn: (variabili: V) => Promise<unknown>) {
+  const qc = useQueryClient();
+  const setAvviso = useGioco((s) => s.setAvviso);
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["calibrazione"] });
+      void qc.invalidateQueries({ queryKey: ["cal-anteprima"] });
+    },
+    onError: (errore) =>
+      setAvviso(errore instanceof Error ? errore.message : String(errore)),
+  });
+}
+
+export function useImpostaCalibrazione() {
+  return useMutazioneCalibrazione(
+    ({ chiave, valore }: { chiave: string; valore: string | number }) =>
+      api.calibrazioneImposta(chiave, valore),
+  );
+}
+
+export function useAzzeraCalibrazione() {
+  return useMutazioneCalibrazione(({ chiave }: { chiave: string }) =>
+    api.calibrazioneAzzera(chiave),
+  );
+}
+
+export function useSalvaCalibrazione() {
+  const setAvviso = useGioco((s) => s.setAvviso);
+  return useMutation({
+    mutationFn: () => api.calibrazioneSalva(),
+    onSuccess: ({ n, percorso }) =>
+      setAvviso(`Salvati ${n} override → ${percorso}`),
+    onError: (errore) =>
+      setAvviso(errore instanceof Error ? errore.message : String(errore)),
+  });
+}
+
+export function useAnteprimaCalibrazione(
+  archetipo: string,
+  grado: string,
+  livello: number,
+) {
+  return useQuery({
+    queryKey: ["cal-anteprima", archetipo, grado, livello],
+    queryFn: () => api.calibrazioneAnteprima(archetipo, grado, livello),
   });
 }
 

@@ -96,6 +96,10 @@ def salva_run(
 
     seme = master_seed()
     if archivio is None:
+        # Cintura (audit 2026-08): senza l'Archivio del chiamante si RILEGGE il
+        # sidecar esistente — mai sovrascrivere la storia congelata con un vuoto.
+        archivio = carica_archivio(directory, _peek_uuid())
+    if archivio is None:
         archivio = Archivio(master_seed=seme, model_id=model_id)
 
     stato = serializza_stato(

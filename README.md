@@ -110,12 +110,13 @@ Cose **lasciate apposta** e da decidere in seguito — non rimosse in questo pus
 - Parametri-seam mai passati in produzione: `acc_eff(pct_precisione=…)`,
   `crea_mappa(n_stanze=…)` (solo test), `avvia(apri=…)` in `calibratore_web`.
 
-**Bug noti pre-esistenti** (fuori dallo scope di questo push, già mappati):
+**Bug noti pre-esistenti** (fuori dallo scope di quel push, già mappati):
 `rng_state` salvato ma non riapplicato al load; `salva_run` senza `archivio` scrive un
-sidecar vuoto sovrascrivendo l'esistente; status senza effetto (`applica_effetto` no-op);
-attacchi sempre `TipoDanno.GENERICO` (le resistenze calibrate non vengono ancora
-attivate dagli attacchi); mossa `attacco_pesante` scelta ma scartata; prosa vuota alla
-rivisita di una stanza; nessun indicatore di posizione nella UI.
+sidecar vuoto sovrascrivendo l'esistente; prosa vuota alla rivisita di una stanza;
+nessun indicatore di posizione nella UI. *(Risolti dal refactor "mob componibili":
+gli attacchi ora sono TIPATI — `attacco` è `MISCHIA` nel catalogo mosse — quindi il
+layer resistenze è attivo; la mossa `attacco_pesante` si usa; gli status muovono HP
+via la tabella-dato `PROFILO_STATUS`; il mob rivelato round-trippa nel save.)*
 
 ## Sicurezza della chiave API (PLK §4 + best practice Anthropic/OWASP)
 

@@ -7,13 +7,13 @@
 
 import { useState } from "react";
 import {
-  ARCHETIPI,
-  BLOCCHI,
   DURATE,
   GRADI,
+  type ArchetipoAsset,
   type AssetVista,
   type MobAsset,
   type PianoAsset,
+  type ProfiloArchetipoDati,
   type StagioneAsset,
   type TipoAsset,
 } from "../api/tipi";
@@ -23,17 +23,24 @@ import {
   useAssets,
   useEliminaAsset,
   useSalvaAsset,
+  useVocabolario,
 } from "../api/query";
+import { Calibrazione } from "./Calibrazione";
 
 type Editor =
   | { modo: "chiuso" }
   | { modo: "mob"; corpo: MobAsset; nuovo: boolean }
   | { modo: "piano"; corpo: PianoAsset; nuovo: boolean }
-  | { modo: "stagione"; corpo: StagioneAsset; nuovo: boolean };
+  | { modo: "stagione"; corpo: StagioneAsset; nuovo: boolean }
+  | { modo: "archetipo"; corpo: ArchetipoAsset; nuovo: boolean };
 
 const MOB_VUOTO: MobAsset = {
   slug: "", versione: 1, tags: [], nome: "", archetipo: "slime",
   grado: "bronzo", blocchi: [], descrizione: "", prosa_stanza: "", durata: "turno",
+  mosse: [], override: null,
+};
+const ARCHETIPO_VUOTO: ArchetipoAsset = {
+  slug: "", versione: 1, tags: [], nome: "", descrizione: "", profilo: null, mosse: [],
 };
 const PIANO_VUOTO: PianoAsset = {
   slug: "", versione: 1, tags: [], titolo: "", tema: "", stile: [], lore: "",
@@ -56,9 +63,7 @@ function Campo({ etichetta, children }: { etichetta: string; children: React.Rea
   );
 }
 
-const CLS_INPUT =
-  "rounded border border-pergamena/25 bg-abisso px-3 py-1.5 text-pergamena " +
-  "placeholder:text-pergamena/40 focus:border-torcia/60 focus:outline-none";
+import { CLS_INPUT } from "./ui";
 
 function Testo({ valore, su, ...extra }: {
   valore: string; su: (v: string) => void; placeholder?: string; disabled?: boolean;
@@ -204,18 +209,23 @@ function EditorMob({ iniziale, nuovo, chiudi }: {
 }) {
   const [m, setM] = useState(iniziale);
   const su = (patch: Partial<MobAsset>) => setM({ ...m, ...patch });
+  const voc = useVocabolario().data;
+  const archetipi = voc?.archetipi ?? [m.archetipo];
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-torcia/40 bg-pietra p-4">
       <h3 className="font-bold text-torcia">{nuovo ? "Nuovo mob" : `Mob: ${m.slug}`}</h3>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Campo etichetta="Slug"><Testo valore={m.slug} su={(v) => su({ slug: v })} disabled={!nuovo} /></Campo>
         <Campo etichetta="Nome"><Testo valore={m.nome} su={(v) => su({ nome: v })} /></Campo>
-        <Campo etichetta="Archetipo"><Scelta opzioni={ARCHETIPI} valore={m.archetipo} su={(v) => su({ archetipo: v })} /></Campo>
+        <Campo etichetta="Archetipo"><Scelta opzioni={archetipi} valore={m.archetipo} su={(v) => su({ archetipo: v })} /></Campo>
         <Campo etichetta="Grado"><Scelta opzioni={GRADI} valore={m.grado} su={(v) => su({ grado: v })} /></Campo>
         <Campo etichetta="Durata della scena"><Scelta opzioni={DURATE} valore={m.durata} su={(v) => su({ durata: v })} /></Campo>
         <Campo etichetta="Tags"><Tags valore={m.tags} su={(v) => su({ tags: v })} /></Campo>
       </div>
-      <Campo etichetta="Blocchi"><Spunte opzioni={BLOCCHI} scelte={m.blocchi} su={(v) => su({ blocchi: v })} /></Campo>
+      <Campo etichetta="Blocchi"><Spunte opzioni={voc?.blocchi ?? []} scelte={m.blocchi} su={(v) => su({ blocchi: v })} /></Campo>
+      <Campo etichetta="Mosse proprie (vuoto = quelle dell'archetipo)">
+        <Spunte opzioni={voc?.mosse ?? []} scelte={m.mosse} su={(v) => su({ mosse: v })} />
+      </Campo>
       <Campo etichetta="Descrizione (flavor)"><Testo valore={m.descrizione} su={(v) => su({ descrizione: v })} /></Campo>
       <Campo etichetta="Prosa della stanza (copione offline)"><Area valore={m.prosa_stanza} su={(v) => su({ prosa_stanza: v })} righe={4} /></Campo>
       <AzioniEditor nuovo={nuovo} tipo="mob" corpo={m} chiudi={chiudi} />
@@ -230,6 +240,8 @@ function EditorPiano({ iniziale, nuovo, chiudi }: {
   const su = (patch: Partial<PianoAsset>) => setP({ ...p, ...patch });
   const mob = useAssets("mob");
   const slugMob = (mob.data?.asset ?? []).filter((a) => a.valido).map((a) => a.slug);
+  const voc = useVocabolario().data;
+  const archetipi = voc?.archetipi ?? p.budget.archetipi;
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-torcia/40 bg-pietra p-4">
       <h3 className="font-bold text-torcia">{nuovo ? "Nuovo piano" : `Piano: ${p.slug}`}</h3>
@@ -247,8 +259,8 @@ function EditorPiano({ iniziale, nuovo, chiudi }: {
       <fieldset className="flex flex-col gap-1 rounded border border-pergamena/15 p-2">
         <legend className="px-1 text-xs uppercase tracking-wider text-pergamena/50">Budget (vincolo hard del gate)</legend>
         <Campo etichetta="Gradi ammessi"><Spunte opzioni={GRADI} scelte={p.budget.gradi} su={(v) => su({ budget: { ...p.budget, gradi: v } })} /></Campo>
-        <Campo etichetta="Blocchi ammessi"><Spunte opzioni={BLOCCHI} scelte={p.budget.blocchi} su={(v) => su({ budget: { ...p.budget, blocchi: v } })} /></Campo>
-        <Campo etichetta="Archetipi ammessi"><Spunte opzioni={ARCHETIPI} scelte={p.budget.archetipi} su={(v) => su({ budget: { ...p.budget, archetipi: v } })} /></Campo>
+        <Campo etichetta="Blocchi ammessi"><Spunte opzioni={voc?.blocchi ?? []} scelte={p.budget.blocchi} su={(v) => su({ budget: { ...p.budget, blocchi: v } })} /></Campo>
+        <Campo etichetta="Archetipi ammessi"><Spunte opzioni={archetipi} scelte={p.budget.archetipi} su={(v) => su({ budget: { ...p.budget, archetipi: v } })} /></Campo>
       </fieldset>
       <Campo etichetta="Cast (in ordine di apparizione)">
         <Sequenza voci={p.cast} opzioni={slugMob} su={(v) => su({ cast: v })}
@@ -256,6 +268,96 @@ function EditorPiano({ iniziale, nuovo, chiudi }: {
       </Campo>
       <Affini tipo="mob" tags={p.tags} aggiungi={(slug) => su({ cast: [...p.cast, slug] })} />
       <AzioniEditor nuovo={nuovo} tipo="piani" corpo={p} chiudi={chiudi} />
+    </div>
+  );
+}
+
+/** Numero opzionale: vuoto = null (eredita dalla calibrazione, solo storici). */
+function NumeroOpz({ valore, su }: {
+  valore: number | null | undefined; su: (v: number | null) => void;
+}) {
+  return (
+    <input type="number" value={valore ?? ""} className={CLS_INPUT}
+      onChange={(e) => su(e.target.value === "" ? null : Number(e.target.value))} />
+  );
+}
+
+/** Scelta opzionale con voce vuota "eredita". */
+function SceltaOpz({ opzioni, valore, su }: {
+  opzioni: readonly string[]; valore: string | null | undefined;
+  su: (v: string | null) => void;
+}) {
+  return (
+    <select value={valore ?? ""} onChange={(e) => su(e.target.value || null)}
+      className={CLS_INPUT}>
+      <option value="">— eredita —</option>
+      {opzioni.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+function EditorArchetipo({ iniziale, nuovo, chiudi }: {
+  iniziale: ArchetipoAsset; nuovo: boolean; chiudi: () => void;
+}) {
+  const [a, setA] = useState(iniziale);
+  const voc = useVocabolario().data;
+  const su = (patch: Partial<ArchetipoAsset>) => setA({ ...a, ...patch });
+  const p: ProfiloArchetipoDati = a.profilo ?? {};
+  const suP = (patch: Partial<ProfiloArchetipoDati>) => {
+    const unito = { ...p, ...patch };
+    const vuoto = Object.values(unito).every((v) => v === null || v === undefined);
+    su({ profilo: vuoto ? null : unito });
+  };
+  const NUMERI: { campo: keyof ProfiloArchetipoDati; etichetta: string }[] = [
+    { campo: "destrezza_base", etichetta: "Destrezza base" },
+    { campo: "pv_base", etichetta: "PV base" },
+    { campo: "danno_base", etichetta: "Danno base" },
+    { campo: "intelligenza_base", etichetta: "Intelligenza base" },
+    { campo: "difesa_base", etichetta: "Difesa base (centesimi)" },
+    { campo: "saggezza_base", etichetta: "Saggezza base" },
+    { campo: "fortuna_base", etichetta: "Fortuna base" },
+    { campo: "res_mischia", etichetta: "Res. mischia (%)" },
+    { campo: "res_fuoco", etichetta: "Res. fuoco (%)" },
+    { campo: "res_veleno", etichetta: "Res. veleno (%)" },
+  ];
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-torcia/40 bg-pietra p-4">
+      <h3 className="font-bold text-torcia">
+        {nuovo ? "Nuovo archetipo" : `Archetipo: ${a.slug}`}
+      </h3>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Campo etichetta="Slug"><Testo valore={a.slug} su={(v) => su({ slug: v })} disabled={!nuovo} /></Campo>
+        <Campo etichetta="Nome"><Testo valore={a.nome} su={(v) => su({ nome: v })} /></Campo>
+        <Campo etichetta="Tags"><Tags valore={a.tags} su={(v) => su({ tags: v })} /></Campo>
+      </div>
+      <Campo etichetta="Descrizione"><Testo valore={a.descrizione} su={(v) => su({ descrizione: v })} /></Campo>
+      <Campo etichetta="Mosse (repertorio di default; vuoto = attacco/attacco pesante)">
+        <Spunte opzioni={voc?.mosse ?? []} scelte={a.mosse} su={(v) => su({ mosse: v })} />
+      </Campo>
+      <fieldset className="flex flex-col gap-2 rounded border border-pergamena/15 p-2">
+        <legend className="px-1 text-xs uppercase tracking-wider text-pergamena/50">
+          Profilo numerico — vuoto = eredita dalla calibrazione (solo per gli storici);
+          per uno slug nuovo il profilo è obbligatorio (il server lo impone)
+        </legend>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {NUMERI.map(({ campo, etichetta }) => (
+            <Campo key={campo} etichetta={etichetta}>
+              <NumeroOpz valore={p[campo] as number | null | undefined}
+                su={(v) => suP({ [campo]: v })} />
+            </Campo>
+          ))}
+          <Campo etichetta="Armatura">
+            <SceltaOpz opzioni={voc?.armature ?? []} valore={p.armatura} su={(v) => suP({ armatura: v })} />
+          </Campo>
+          <Campo etichetta="Taglia">
+            <SceltaOpz opzioni={voc?.taglie ?? []} valore={p.taglia} su={(v) => suP({ taglia: v })} />
+          </Campo>
+          <Campo etichetta="Arma">
+            <SceltaOpz opzioni={voc?.armi ?? []} valore={p.arma} su={(v) => suP({ arma: v })} />
+          </Campo>
+        </div>
+      </fieldset>
+      <AzioniEditor nuovo={nuovo} tipo="archetipi" corpo={a} chiudi={chiudi} />
     </div>
   );
 }
@@ -294,10 +396,15 @@ function EditorStagione({ iniziale, nuovo, chiudi }: {
 
 // --- Elenco di collezione --------------------------------------------------------
 
-const COLLEZIONI: { tipo: TipoAsset; etichetta: string }[] = [
-  { tipo: "stagioni", etichetta: "Stagioni" },
-  { tipo: "piani", etichetta: "Piani" },
-  { tipo: "mob", etichetta: "Mob" },
+// Le pagine del GM: le tre collezioni di asset + la calibrazione (catalogo §11).
+type PaginaGM = TipoAsset | "calibrazione";
+
+const PAGINE: { id: PaginaGM; etichetta: string }[] = [
+  { id: "stagioni", etichetta: "Stagioni" },
+  { id: "piani", etichetta: "Piani" },
+  { id: "mob", etichetta: "Mob" },
+  { id: "archetipi", etichetta: "Archetipi" },
+  { id: "calibrazione", etichetta: "Calibrazione" },
 ];
 
 function CardAsset({ vista, tipo, apri, duplica }: {
@@ -339,8 +446,7 @@ function CardAsset({ vista, tipo, apri, duplica }: {
   );
 }
 
-export function GameMaster() {
-  const [collezione, setCollezione] = useState<TipoAsset>("stagioni");
+function Libreria({ collezione }: { collezione: TipoAsset }) {
   const [editor, setEditor] = useState<Editor>({ modo: "chiuso" });
   const assets = useAssets(collezione);
   const chiudi = () => setEditor({ modo: "chiuso" });
@@ -355,24 +461,12 @@ export function GameMaster() {
     if (collezione === "mob") setEditor({ modo: "mob", corpo: await base(MOB_VUOTO), nuovo });
     if (collezione === "piani") setEditor({ modo: "piano", corpo: await base(PIANO_VUOTO), nuovo });
     if (collezione === "stagioni") setEditor({ modo: "stagione", corpo: await base(STAGIONE_VUOTA), nuovo });
+    if (collezione === "archetipi") setEditor({ modo: "archetipo", corpo: await base(ARCHETIPO_VUOTO), nuovo });
   };
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex gap-1">
-          {COLLEZIONI.map((c) => (
-            <button key={c.tipo}
-              onClick={() => { setCollezione(c.tipo); chiudi(); }}
-              className={`rounded px-3 py-1 text-sm transition ${
-                collezione === c.tipo
-                  ? "bg-torcia/15 font-bold text-torcia"
-                  : "text-pergamena/60 hover:bg-pergamena/10"
-              }`}>
-              {c.etichetta}
-            </button>
-          ))}
-        </div>
+      <div className="flex justify-end">
         <button onClick={() => void apriEditor(null, false)}
           className="rounded border border-torcia/60 bg-torcia/10 px-3 py-1 text-sm font-bold text-torcia hover:bg-torcia/25">
           ＋ Nuovo
@@ -382,6 +476,7 @@ export function GameMaster() {
       {editor.modo === "mob" && <EditorMob iniziale={editor.corpo} nuovo={editor.nuovo} chiudi={chiudi} />}
       {editor.modo === "piano" && <EditorPiano iniziale={editor.corpo} nuovo={editor.nuovo} chiudi={chiudi} />}
       {editor.modo === "stagione" && <EditorStagione iniziale={editor.corpo} nuovo={editor.nuovo} chiudi={chiudi} />}
+      {editor.modo === "archetipo" && <EditorArchetipo iniziale={editor.corpo} nuovo={editor.nuovo} chiudi={chiudi} />}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(assets.data?.asset ?? []).map((vista) => (
@@ -395,6 +490,31 @@ export function GameMaster() {
           Collezione vuota: gli architetti del dungeon attendono il tuo primo asset.
         </p>
       )}
+    </div>
+  );
+}
+
+export function GameMaster() {
+  const [pagina, setPagina] = useState<PaginaGM>("stagioni");
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex gap-1">
+        {PAGINE.map((p) => (
+          <button key={p.id}
+            onClick={() => setPagina(p.id)}
+            className={`rounded px-3 py-1 text-sm transition ${
+              pagina === p.id
+                ? "bg-torcia/15 font-bold text-torcia"
+                : "text-pergamena/60 hover:bg-pergamena/10"
+            }`}>
+            {p.etichetta}
+          </button>
+        ))}
+      </div>
+      {pagina === "calibrazione"
+        ? <Calibrazione />
+        : <Libreria key={pagina} collezione={pagina} />}
     </div>
   );
 }

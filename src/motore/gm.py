@@ -138,8 +138,13 @@ def prefisso_gm(
         if piano.lore:
             righe.append(f"[piano/lore] {piano.lore}")
         if piano.cast:
-            righe.append("[piano/cast] cast suggerito (puoi variare DENTRO il budget): " + "; ".join(
-                f"{m.nome} ({m.archetipo.value}/{m.grado.value})" for m in piano.cast
+            # Reclutamento SOFT coerente col gate hard (strato 4): lo slug fra
+            # parentesi quadre è citabile come `riferimento` per mettere in scena
+            # ESATTAMENTE quel mob (con le sue mosse e il suo profilo).
+            righe.append("[piano/cast] cast suggerito (puoi variare DENTRO il budget; "
+                         "per usare un mob del cast metti il suo slug in `riferimento`): "
+                         + "; ".join(
+                f"{m.nome} [{m.slug}] ({m.archetipo}/{m.grado.value})" for m in piano.cast
             ))
     return "\n".join(righe)
 

@@ -9,14 +9,17 @@ Tre proprietà strutturali, verificabili staticamente (F §2):
   - **Zero campi numerici in `EntitaGenerata`** — niente hp/danno/difesa/durate, e
     niente `livello` (profondità di piano, del motore). I numeri li deriva il motore
     (F-3, §4.2; G-17).
-  - **Tutto ciò che ha conseguenza meccanica è un enum chiuso** (Archetipo, Grado,
-    Blocco, TipoAzione, Durata). Solo `prosa/nome/descrizione/etichetta/testo` sono
-    testo libero (F-4).
+  - **Tutto ciò che ha conseguenza meccanica è un vocabolario chiuso** (F-4): enum
+    per Grado/Blocco/TipoAzione/Durata; per gli ARCHETIPI uno slug (`ArchetipoId`)
+    la cui chiusura è **per-run** — il registry congelato nella `StagioneAttiva` al
+    freeze, contro cui il gate valida (F-6 a runtime). Il nome fuori registry non
+    passa MAI il gate: l'autorità resta il motore, la popolazione diventa dato.
+    Solo `prosa/nome/descrizione/etichetta/testo` sono testo libero.
   - **Nessun campo per invocare l'anomalia o alzarsi il budget**: lo schema non lo
     offre, e `extra="forbid"` rifiuta qualunque campo non previsto (F-4, §4.3).
 
 I VALORI degli enum sono **SEGNAPOSTO**: i contenuti veri del catalogo sono di
-G/Gruppo 2 (F §9). Qui si fissa la *forma* (enum chiusi), non le *voci*.
+G/Gruppo 2 (F §9). Qui si fissa la *forma* (vocabolari chiusi), non le *voci*.
 
 Dipendenze: solo stdlib + Pydantic (F-2, §3.1).
 """
@@ -24,8 +27,9 @@ Dipendenze: solo stdlib + Pydantic (F-2, §3.1).
 from __future__ import annotations
 
 from enum import Enum
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 # Config condivisa: vietare campi extra chiude la porta a un campo con cui l'AI
 # proverebbe a invocare l'anomalia o ad alzarsi il budget (F-4, §4.3).
@@ -34,12 +38,16 @@ _CHIUSO = ConfigDict(extra="forbid")
 
 # --- Enum del catalogo: vocabolario chiuso (contenuti in G) -------------------
 
-class Archetipo(str, Enum):
-    """Vocabolario chiuso degli archetipi. Valori SEGNAPOSTO (contenuti in G)."""
+# Slug kebab-case: identità stabile di asset e archetipi (condiviso con contenuti.py).
+RE_SLUG = r"^[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$"
 
-    SLIME = "slime"
-    SCHELETRO = "scheletro"
-    GOBLIN = "goblin"
+# L'identità di un archetipo NON è più un enum compilato: è uno slug la cui chiusura
+# è PER-RUN (il registry archetipi congelato nella stagione al freeze; il gate del
+# motore valida l'appartenenza — F-6 a runtime). La forma resta chiusa: pattern
+# stretto qui, appartenenza al registry nel gate. Decisione D1 (2026-08): "una riga
+# di registry, niente codice" — l'archetipo si CREA come dato, mai come enum.
+Slug = Annotated[str, StringConstraints(pattern=RE_SLUG)]
+ArchetipoId = Slug
 
 
 class Grado(str, Enum):
@@ -86,6 +94,7 @@ class Blocco(str, Enum):
     VELENO = "veleno"
     RIGENERAZIONE = "rigenerazione"
     STORDITO = "stordito"
+    BRUCIA = "brucia"  # acceso nell'audit 2026-08: il sistema esisteva, il nome no
 
 
 class TipoDanno(str, Enum):
@@ -191,11 +200,16 @@ class EntitaGenerata(BaseModel):
 
     model_config = _CHIUSO
 
-    archetipo: Archetipo
+    archetipo: ArchetipoId  # slug: chiusura per-run via registry congelato + gate (F-6)
     grado: Grado
     blocchi: list[Blocco]
     nome: str          # libero (flavor)
     descrizione: str   # libero (flavor)
+    # RECLUTAMENTO strutturato (D5): lo slug di un mob del CAST del piano corrente.
+    # È un NOME da un set chiuso per-run (mai un numero): il gate lo verifica al 4°
+    # strato — fuori cast → rifiuto (fallback F-13). None = mob "coniato" dall'AI
+    # coi soli campi categoriali (il comportamento storico).
+    riferimento: Slug | None = None
 
 
 class Opzione(BaseModel):

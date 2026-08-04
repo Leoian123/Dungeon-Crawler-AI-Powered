@@ -38,17 +38,14 @@ from motore import (
     MODEL_ID_DEFAULT,
     NOME_DEFAULT,
     NOME_RUN,
-    SistemaBrucia,
     SistemaCrollo,
     SistemaDeathCheck,
     SistemaDiscesa,
     SistemaMovimento,
-    SistemaRigenerazione,
     SistemaRinforzi,
-    SistemaStordito,
     SistemaTempoPiano,
     SistemaTurnoCombattimento,
-    SistemaVeleno,
+    sistemi_status,
     avvia_run,
     carica_archivio,
     carica_crawler,
@@ -122,10 +119,9 @@ class Guscio:
     def _sistemi_run(self):
         return dict(
             sempre_attivi=[
-                SistemaVeleno(self.bus),
-                SistemaBrucia(self.bus),
-                SistemaRigenerazione(self.bus),
-                SistemaStordito(self.bus),
+                # I tick di status sono DERIVATI dalla tabella unica (SPEC_STATUS):
+                # un nuovo status non tocca il guscio.
+                *sistemi_status(self.bus),
                 SistemaDeathCheck(self.bus),
                 SistemaTempoPiano(),  # contatore di tempo-piano, avanza al tick condiviso (J-14)
             ],
@@ -259,6 +255,7 @@ class Guscio:
         archivio=None,
         etichetta: str | None = None,
         timestamp: float = 0.0,
+        rng_state: list | None = None,
     ) -> Terminale:
         """Esegue l'hand-off del terminale rilevato (stessa cucitura per 6a/6b/6c):
 
@@ -290,6 +287,7 @@ class Guscio:
                 etichetta=etichetta,
                 timestamp=timestamp,
                 esplorazione=mappa_to_dict(),
+                rng_state=rng_state,
             )
         else:  # SCONFITTA (6a) o PIANO_COMPLETATO (6b): fine-run → invalida
             if uuid is not None:

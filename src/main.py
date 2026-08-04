@@ -30,7 +30,6 @@ from uuid import uuid4
 
 from contracts import (
     AnomalyTriggered,
-    Archetipo,
     AssetVista,
     Blocco,
     BusEventi,
@@ -42,11 +41,14 @@ from contracts import (
     TurnoSaltato,
     CrawlerVista,
     MobAsset,
+    ArchetipoAsset,
     PianoAsset,
     PianoRisolto,
+    ProfiloArchetipoDati,
     SchedaVista,
     Stagione,
     StagioneRisolta,
+    TipoDanno,
     DiscesaPiano,
     Durata,
     EncounterStarted,
@@ -71,6 +73,9 @@ from guscio import Guscio
 from motore import (
     MODEL_ID_DEFAULT,
     Archivio,
+    ArchetipoAttivo,
+    ProfiloArchetipo,
+    mosse_note,
     MemoriaTurni,
     OpzioneScena,
     SpecNemico,
@@ -78,6 +83,7 @@ from motore import (
     atk_eff,
     attacco,
     carica_archivio,
+    carica_da_disco,
     componi_opzioni_scena,
     consuma_messaggi,
     def_eff,
@@ -96,6 +102,7 @@ from motore import (
     messaggi_da_archivio,
     messaggi_pendenti,
     mob_corrente,
+    nome_mob_corrente,
     MobAttivo,
     PianoAttivo,
     StagioneAttiva,
@@ -104,7 +111,6 @@ from motore import (
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
     richiedi_fuga,
-    stagione_corrente,
     prepara_riepilogo,
     proietta_scheda,
     protagonista,
@@ -145,16 +151,20 @@ DIRECTORY_CONTENUTI_LOCALI = Path(
 )
 STAGIONE_DEFAULT = "stagione-1"
 
-TipoAsset = str  # "stagioni" | "piani" | "mob" (le tre collezioni della libreria)
-_MODELLI_ASSET: dict[str, type] = {"stagioni": Stagione, "piani": PianoAsset, "mob": MobAsset}
+TipoAsset = str  # "stagioni" | "piani" | "mob" | "archetipi" (le collezioni della libreria)
+MODELLI_ASSET: dict[str, type] = {
+    "stagioni": Stagione, "piani": PianoAsset, "mob": MobAsset, "archetipi": ArchetipoAsset,
+}
 
 
 def _etichetta_asset(tipo: str, asset) -> str:
-    return asset.nome if tipo == "mob" else asset.titolo
+    return asset.nome if tipo in ("mob", "archetipi") else asset.titolo
 
 
 def _tipo_vista(tipo: str) -> str:
-    return {"stagioni": "stagione", "piani": "piano", "mob": "mob"}[tipo]
+    return {
+        "stagioni": "stagione", "piani": "piano", "mob": "mob", "archetipi": "archetipo",
+    }[tipo]
 
 
 def _scandisci_collezione(
@@ -162,7 +172,7 @@ def _scandisci_collezione(
 ) -> dict[str, tuple[object | None, AssetVista]]:
     """Una collezione da disco, LASCA (H-22): file non conforme → voce
     `valido=False`, mostrata ma inutilizzabile — mai un crash di scan."""
-    modello = _MODELLI_ASSET[tipo]
+    modello = MODELLI_ASSET[tipo]
     voci: dict[str, tuple[object | None, AssetVista]] = {}
     base = cartella / tipo
     if not base.exists():
@@ -220,17 +230,130 @@ def carica_asset(
     return voce[0] if voce else None
 
 
+# I campi CORE del profilo-archetipo (senza le resistenze, che valgono 0 se assenti):
+# per uno slug NUOVO devono esserci tutti; per uno storico i mancanti si ereditano.
+_CAMPI_PROFILO_CORE = (
+    "destrezza_base", "pv_base", "danno_base", "intelligenza_base", "difesa_base",
+    "saggezza_base", "fortuna_base", "armatura", "taglia", "arma",
+)
+_CAMPI_RESISTENZE = {
+    "res_mischia": TipoDanno.MISCHIA, "res_fuoco": TipoDanno.FUOCO, "res_veleno": TipoDanno.VELENO,
+}
+
+
+def _lint_mob_espressivo(mob: MobAsset, errori: list[str]) -> None:
+    """Lint dell'espressività per-mob (Fase 5): mosse nel catalogo del motore,
+    chiavi gear dell'override valide. Accumula errori di authoring."""
+    from motore.calibrazione import COEFF_ACC, M_ARMATURA, M_TAGLIA
+
+    fuori = [m for m in mob.mosse if m not in mosse_note()]
+    if fuori:
+        errori.append(f"mob {mob.slug}: mosse fuori catalogo: " + ", ".join(fuori))
+    if mob.override is not None:
+        for nome, tabella in (("armatura", M_ARMATURA), ("taglia", M_TAGLIA), ("arma", COEFF_ACC)):
+            chiave = getattr(mob.override, nome)
+            if chiave is not None and chiave not in tabella:
+                errori.append(f"mob {mob.slug}: {nome} {chiave!r} non è una chiave di tabella")
+
+
+def _archetipi_noti(ufficiali: Path | None, locali: Path | None) -> set[str]:
+    """Il vocabolario archetipi dell'AUTHORING: storici di calibrazione + asset in
+    libreria (validi). È il set contro cui il lint di mob/piani verifica F-6."""
+    from motore.calibrazione import REGISTRY_ARCHETIPI
+
+    noti = set(REGISTRY_ARCHETIPI)
+    noti |= {
+        slug for slug, (asset, vista) in _collezione("archetipi", ufficiali, locali).items()
+        if asset is not None
+    }
+    return noti
+
+
+def _risolvi_archetipo(
+    slug: str, asset: ArchetipoAsset | None, errori: list[str]
+) -> ArchetipoAsset | None:
+    """Completa il profilo di un archetipo (merge coi valori di calibrazione per gli
+    storici; completo obbligatorio per gli slug nuovi) e valida chiavi gear e mosse.
+    Accumula in `errori` (errore di authoring, mai degrado a runtime)."""
+    from motore.calibrazione import COEFF_ACC, M_ARMATURA, M_TAGLIA, REGISTRY_ARCHETIPI
+    from motore.calibrazione import profilo_corrente
+
+    storico = profilo_corrente(slug) if slug in REGISTRY_ARCHETIPI else None
+    if asset is None and storico is None:
+        errori.append(f"archetipo riferito ma assente: {slug}")
+        return None
+    dati = (asset.profilo if asset is not None else None) or ProfiloArchetipoDati()
+
+    def campo(nome: str, eredita):
+        valore = getattr(dati, nome)
+        return valore if valore is not None else eredita
+
+    if storico is None:
+        mancanti = [n for n in _CAMPI_PROFILO_CORE if getattr(dati, n) is None]
+        if mancanti:
+            errori.append(
+                f"archetipo {slug}: profilo incompleto (slug nuovo, mancano: "
+                + ", ".join(mancanti) + ")"
+            )
+            return None
+    pieno = ProfiloArchetipoDati(
+        destrezza_base=campo("destrezza_base", storico.destrezza_base if storico else None),
+        pv_base=campo("pv_base", storico.pv_base if storico else None),
+        danno_base=campo("danno_base", storico.danno_base if storico else None),
+        intelligenza_base=campo("intelligenza_base", storico.intelligenza_base if storico else None),
+        difesa_base=campo("difesa_base", storico.difesa_base if storico else None),
+        saggezza_base=campo("saggezza_base", storico.saggezza_base if storico else None),
+        fortuna_base=campo("fortuna_base", storico.fortuna_base if storico else None),
+        armatura=campo("armatura", storico.armatura if storico else None),
+        taglia=campo("taglia", storico.taglia if storico else None),
+        arma=campo("arma", storico.arma if storico else None),
+        res_mischia=campo("res_mischia", storico.resistenze.get(TipoDanno.MISCHIA, 0.0) if storico else 0.0),
+        res_fuoco=campo("res_fuoco", storico.resistenze.get(TipoDanno.FUOCO, 0.0) if storico else 0.0),
+        res_veleno=campo("res_veleno", storico.resistenze.get(TipoDanno.VELENO, 0.0) if storico else 0.0),
+    )
+    # Le chiavi gear sono voci delle tabelle §11 (contracts non le conosce: si valida qui).
+    for nome, tabella in (("armatura", M_ARMATURA), ("taglia", M_TAGLIA), ("arma", COEFF_ACC)):
+        chiave = getattr(pieno, nome)
+        if chiave not in tabella:
+            errori.append(f"archetipo {slug}: {nome} {chiave!r} non è una chiave di tabella")
+    mosse = list(asset.mosse) if asset is not None else []
+    fuori = [m for m in mosse if m not in mosse_note()]
+    if fuori:
+        errori.append(f"archetipo {slug}: mosse fuori catalogo: " + ", ".join(fuori))
+    return ArchetipoAsset(
+        slug=slug,
+        versione=asset.versione if asset is not None else 1,
+        tags=list(asset.tags) if asset is not None else [],
+        nome=asset.nome if asset is not None else slug,
+        descrizione=asset.descrizione if asset is not None else "",
+        profilo=pieno,
+        mosse=mosse,
+    )
+
+
 def salva_asset_locale(
     asset, *, sovrascrivi: bool = False,
     ufficiali: Path | None = None, locali: Path | None = None,
 ) -> None:
     """Scrive un asset nella libreria LOCALE (authoring): lint del registry
     (F-6), slug mai in conflitto con un ufficiale, scrittura atomica."""
-    tipo = next(t for t, m in _MODELLI_ASSET.items() if isinstance(asset, m))
+    tipo = next(t for t, m in MODELLI_ASSET.items() if isinstance(asset, m))
     if tipo == "mob":
-        errori = lint_registry([asset.archetipo], asset.blocchi)
+        errori = lint_registry(
+            [asset.archetipo], asset.blocchi,
+            archetipi_noti=_archetipi_noti(ufficiali, locali),
+        )
+        _lint_mob_espressivo(asset, errori)
     elif tipo == "piani":
-        errori = lint_registry(asset.budget.archetipi, asset.budget.blocchi)
+        errori = lint_registry(
+            asset.budget.archetipi, asset.budget.blocchi,
+            archetipi_noti=_archetipi_noti(ufficiali, locali),
+        )
+    elif tipo == "archetipi":
+        # Il lint di authoring anticipa gli errori di risoluzione: profilo completo
+        # (per slug nuovi), chiavi gear valide, mosse nel catalogo.
+        errori = []
+        _risolvi_archetipo(asset.slug, asset, errori)
     else:
         errori = []
     if errori:
@@ -257,6 +380,29 @@ def elimina_asset_locale(
     return True
 
 
+def vocabolario(
+    *, ufficiali: Path | None = None, locali: Path | None = None
+) -> dict:
+    """Il VOCABOLARIO per gli host (SPA, agenti): gli enum del contratto + le chiavi
+    dei cataloghi del motore (mosse, tabelle gear) + gli archetipi noti (storici ∪
+    libreria). È l'unica fonte per i menu degli editor — fine dei duplicati cablati
+    nei client. Passa da qui (composition root), mai da un import di `motore` negli
+    host (membrana C-2a)."""
+    from motore.calibrazione import COEFF_ACC, M_ARMATURA, M_TAGLIA
+
+    return {
+        "gradi": [g.value for g in Grado],
+        "blocchi": [b.value for b in Blocco],
+        "durate": [d.value for d in Durata],
+        "tipi_danno": [t.value for t in TipoDanno if t is not TipoDanno.GENERICO],
+        "mosse": sorted(mosse_note()),
+        "archetipi": sorted(_archetipi_noti(ufficiali, locali)),
+        "armature": list(M_ARMATURA),
+        "taglie": list(M_TAGLIA),
+        "armi": list(COEFF_ACC),
+    }
+
+
 def risolvi_stagione(
     stagione: Stagione | str,
     *, ufficiali: Path | None = None, locali: Path | None = None,
@@ -272,6 +418,7 @@ def risolvi_stagione(
         stagione = caricata
     errori: list[str] = []
     piani_risolti: list[PianoRisolto] = []
+    slug_archetipi: list[str] = []  # in ordine di prima apparizione (deterministico)
     for slug_piano in stagione.piani:
         piano = carica_asset("piani", slug_piano, ufficiali=ufficiali, locali=locali)
         if piano is None:
@@ -285,6 +432,7 @@ def risolvi_stagione(
                 errori.append(f"mob riferito ma assente: {slug_mob} (piano {slug_piano})")
                 mancanti = True
             else:
+                _lint_mob_espressivo(mob, errori)
                 cast.append(mob)
         if mancanti:
             continue
@@ -299,14 +447,26 @@ def risolvi_stagione(
         except ValueError as errore:  # cast⊆budget imposto dal validator
             errori.append(f"piano {slug_piano}: {errore}")
         else:
-            errori.extend(lint_registry(piano.budget.archetipi, piano.budget.blocchi))
+            for slug_arch in list(piano.budget.archetipi) + [m.archetipo for m in cast]:
+                if slug_arch not in slug_archetipi:
+                    slug_archetipi.append(slug_arch)
+            errori.extend(lint_registry([], piano.budget.blocchi))
+    # Gli ARCHETIPI riferiti si risolvono come gli altri asset: profilo completato
+    # (merge con la calibrazione per gli storici) e validato — è il vocabolario
+    # chiuso che verrà congelato nella run (F-6 runtime, D1).
+    archetipi_risolti: list[ArchetipoAsset] = []
+    for slug_arch in slug_archetipi:
+        asset_arch = carica_asset("archetipi", slug_arch, ufficiali=ufficiali, locali=locali)
+        risolto = _risolvi_archetipo(slug_arch, asset_arch, errori)
+        if risolto is not None:
+            archetipi_risolti.append(risolto)
     if errori:
         raise ValueError("stagione non risolvibile:\n- " + "\n- ".join(errori))
     return StagioneRisolta(
         slug=stagione.slug, versione=stagione.versione, tags=stagione.tags,
         numero=stagione.numero, titolo=stagione.titolo, tagline=stagione.tagline,
         mondo=stagione.mondo, stile=stagione.stile, lore=stagione.lore,
-        piani=piani_risolti,
+        piani=piani_risolti, archetipi=archetipi_risolti,
     )
 
 
@@ -321,10 +481,10 @@ def risolvi_stagione(
 def _tags_asset(tipo: str, asset) -> set[str]:
     tags = set(asset.tags)
     if tipo == "mob":
-        tags |= {asset.archetipo.value, asset.grado.value}
+        tags |= {asset.archetipo, asset.grado.value}
         tags |= {b.value for b in asset.blocchi}
     elif tipo == "piani":
-        tags |= {a.value for a in asset.budget.archetipi}
+        tags |= set(asset.budget.archetipi)
         tags |= {g.value for g in asset.budget.gradi}
     return tags
 
@@ -432,6 +592,28 @@ class IstanzaCombattimento:
         self._coppie = []
 
 
+class SalvataggioInCombattimento(RuntimeError):
+    """Salvare/uscire a scontro aperto è vietato per disegno: gli effimeri di
+    combattimento non persistono ma `FaseCorrente` sì — quel save si ricarica
+    "in combattimento" senza scontro (soft-lock permanente, audit 2026-08)."""
+
+
+def _serializza_rng(rng: random.Random) -> list:
+    """`Random.getstate()` in forma JSON-safe (il seam `rng_state` del save, H)."""
+    versione, interno, gauss = rng.getstate()
+    return [versione, list(interno), gauss]
+
+
+def _ripristina_rng(rng: random.Random, dati: list) -> None:
+    """Inverso LASCO di `_serializza_rng`: dato malformato → si riparte dal seed
+    (degrado, non crash — H-12)."""
+    try:
+        versione, interno, gauss = dati
+        rng.setstate((int(versione), tuple(int(x) for x in interno), gauss))
+    except (TypeError, ValueError):
+        pass
+
+
 class SessioneGioco:
     """La porta motore↔host per la v1: narrazione async, intenti sul turno, snapshot.
 
@@ -503,6 +685,14 @@ class SessioneGioco:
         sessione = cls(provider, directory=directory, seed=seed)
         if not sessione.guscio.carica(uuid):
             return None
+        # Lo stream RNG di sessione riparte da dov'era (il seam `rng_state` del
+        # save, prima scritto-e-mai-riletto): rilettura del corpo già validato.
+        try:
+            dati_rng = carica_da_disco(directory, uuid).corpo.rng_state
+        except Exception:
+            dati_rng = None  # lasco: senza stato si riparte dal seed (H-12)
+        if dati_rng:
+            _ripristina_rng(sessione.rng, dati_rng)
         if sessione.provider is None:
             # Offline: il copione si deriva dalla stagione CONGELATA nel save
             # (design_piano_corrente; save legacy → Falsa Idra), mai dalla libreria.
@@ -624,6 +814,7 @@ class SessioneGioco:
         GM congelati) viaggia nel sidecar — non viene più azzerato. Etichetta e
         timestamp alimentano l'indice dell'hub (H §5)."""
         self._guardia_aperta()
+        self._guardia_fase_salvataggio()
         salva_run(
             self.guscio.directory,
             archivio=self.archivio,
@@ -631,6 +822,9 @@ class SessioneGioco:
             etichetta=self.etichetta,
             timestamp=time.time(),
             esplorazione=mappa_to_dict(),
+            # Lo stream RNG di sessione (anomalie, disimpegni, seed di scontro)
+            # riprende da DOVE si era: mai da capo dopo un load.
+            rng_state=_serializza_rng(self.rng),
         )
         return "Partita salvata."
 
@@ -639,6 +833,18 @@ class SessioneGioco:
     def _guardia_aperta(self) -> None:
         if self._chiusa:
             raise RuntimeError("sessione chiusa: la run è già stata conclusa")
+
+    def _guardia_fase_salvataggio(self) -> None:
+        """Il salvataggio in COMBATTIMENTO è vietato: gli effimeri di scontro
+        (`StatoCombattimento`, `Combattente`, `PuntiVita`…) non sono persistenti
+        per disegno, ma `FaseCorrente` sì — un save a metà scontro si ricarica
+        "in combattimento" senza scontro: soft-lock permanente della run
+        (audit 2026-08). Lo scontro è corto (TTK 3–6 round): si risolve o si
+        fugge, poi si salva."""
+        if in_combattimento():
+            raise SalvataggioInCombattimento(
+                "Non si salva in combattimento: risolvi lo scontro (o fuggi) e riprova."
+            )
 
     def ricostruisci_thread(self) -> list[MessaggioGM]:
         """Il thread dei turni GM congelati (per l'host, al caricamento): la chat
@@ -680,9 +886,11 @@ class SessioneGioco:
         (mai il fallback del guscio), con etichetta e timestamp per l'indice.
         Dopo, la sessione è chiusa: run-World smontato, porte spente."""
         self._guardia_aperta()
+        self._guardia_fase_salvataggio()
         self.guscio.esci_volontariamente()
         self.guscio.concludi(
-            archivio=self.archivio, etichetta=self.etichetta, timestamp=time.time()
+            archivio=self.archivio, etichetta=self.etichetta, timestamp=time.time(),
+            rng_state=_serializza_rng(self.rng),
         )
         self._chiusa = True
         return "Partita salvata: puoi riprenderla dall'hub."
@@ -723,7 +931,11 @@ class SessioneGioco:
         # resta solo per robustezza (scena senza mob registrato). Lo scontro è pilotato
         # da un'ISTANZA a parte, creata PRIMA dell'ingaggio (snapshot HP pre-scontro).
         mob = mob_corrente()
-        self._istanza = IstanzaCombattimento(self.bus, nemico=self._nome_mob)
+        # Il nome del nemico viene dall'ENTITÀ (verità del World): l'appunto
+        # `_nome_mob` resta solo come ripiego per lo scalare senza mob registrato.
+        self._istanza = IstanzaCombattimento(
+            self.bus, nemico=nome_mob_corrente() or self._nome_mob
+        )
         ingaggia_combattimento(
             self.bus,
             nemici=None if mob is not None else [SpecNemico(destrezza=5, punti_vita=3)],
@@ -882,6 +1094,21 @@ class CronacaBus:
 
 # --- Freeze: dal DTO risolto all'aggregato ATTIVO del motore ---------------------
 
+def _profilo_attivo(dati: ProfiloArchetipoDati) -> ProfiloArchetipo:
+    """DTO (profilo PIENO, post-risoluzione) → dataclass del motore."""
+    return ProfiloArchetipo(
+        destrezza_base=dati.destrezza_base, pv_base=dati.pv_base,
+        danno_base=dati.danno_base, intelligenza_base=dati.intelligenza_base,
+        difesa_base=dati.difesa_base, saggezza_base=dati.saggezza_base,
+        fortuna_base=dati.fortuna_base, armatura=dati.armatura,
+        taglia=dati.taglia, arma=dati.arma,
+        resistenze={
+            tipo: getattr(dati, nome) or 0.0
+            for nome, tipo in _CAMPI_RESISTENZE.items()
+        },
+    )
+
+
 def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
     """Conversione DTO→dataclass al confine (la colla vive nel composition root)."""
     return StagioneAttiva(
@@ -909,6 +1136,11 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
                         grado=mob.grado, blocchi=list(mob.blocchi),
                         descrizione=mob.descrizione, prosa_stanza=mob.prosa_stanza,
                         durata=mob.durata, tags=list(mob.tags),
+                        mosse=list(mob.mosse),
+                        override=(
+                            mob.override.model_dump(exclude_none=True)
+                            if mob.override is not None else {}
+                        ),
                     )
                     for mob in piano.cast
                 ],
@@ -918,6 +1150,13 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
             for piano in risolta.piani
         ],
         tags=list(risolta.tags),
+        archetipi=[
+            ArchetipoAttivo(
+                slug=arch.slug, nome=arch.nome, descrizione=arch.descrizione,
+                profilo=_profilo_attivo(arch.profilo), mosse=list(arch.mosse),
+            )
+            for arch in risolta.archetipi
+        ],
     )
 
 
@@ -939,6 +1178,9 @@ def turni_da_piano(piano) -> list[TurnoNarrazione]:
                 blocchi=list(mob.blocchi),
                 nome=mob.nome,
                 descrizione=mob.descrizione,
+                # Binding ESPLICITO mob→scena (D5): la stanza N monta IL mob N del
+                # cast (override e mosse suoi), non un sosia posizionale.
+                riferimento=mob.slug,
             ),
             opzioni=combatti_o_scappa,
             durata=mob.durata,

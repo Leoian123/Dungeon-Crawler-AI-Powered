@@ -14,7 +14,6 @@ import asyncio
 import pytest
 
 from contracts import (
-    Archetipo,
     BudgetDesign,
     ColpoInferto,
     Grado,
@@ -26,7 +25,7 @@ from contracts import (
 from main import costruisci_sessione
 
 
-def _stagione_un_mob(archetipo: Archetipo, grado: Grado) -> StagioneRisolta:
+def _stagione_un_mob(archetipo: str, grado: Grado) -> StagioneRisolta:
     mob = MobAsset(
         slug="bersaglio", nome="Bersaglio di Prova", archetipo=archetipo,
         grado=grado, prosa_stanza="Una sagoma di prova ti squadra.",
@@ -45,9 +44,9 @@ def _indice(snap, etichetta: str) -> int:
     return next(o.indice for o in snap.opzioni if o.etichetta == etichetta)
 
 
-@pytest.mark.parametrize("archetipo", list(Archetipo))
+@pytest.mark.parametrize("archetipo", ["slime", "scheletro", "goblin"])
 @pytest.mark.parametrize("grado", [Grado.BRONZO, Grado.ARGENTO])
-def test_ttk_per_profilo(run_pulita, tmp_path, archetipo: Archetipo, grado: Grado) -> None:
+def test_ttk_per_profilo(run_pulita, tmp_path, archetipo: str, grado: Grado) -> None:
     sessione = costruisci_sessione(
         nome="TTK", seed=1, directory=tmp_path, stagione=_stagione_un_mob(archetipo, grado)
     )
@@ -64,11 +63,11 @@ def test_ttk_per_profilo(run_pulita, tmp_path, archetipo: Archetipo, grado: Grad
             guardia += 1
         miei = [c for c in colpi_giocatore if c.attaccante == ""]
         assert 2 <= len(miei) <= 8, (
-            f"{archetipo.value}/{grado.value}: TTK fuori target ({len(miei)} colpi)"
+            f"{archetipo}/{grado.value}: TTK fuori target ({len(miei)} colpi)"
         )
         hp = sessione.scheda().hp
         assert snap.fase == "narrazione" and hp > 0, (
-            f"{archetipo.value}/{grado.value}: non sopravvissuto ({hp} HP)"
+            f"{archetipo}/{grado.value}: non sopravvissuto ({hp} HP)"
         )
     finally:
         sessione.bus.deregistra(ColpoInferto, colpi_giocatore.append)
