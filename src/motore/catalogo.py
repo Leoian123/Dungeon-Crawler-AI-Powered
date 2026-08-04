@@ -18,10 +18,9 @@ completa (G §13.1). Il punto di G è "la forma ora, i numeri dopo".
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 
-from contracts import Archetipo, Blocco, ClasseProva, Durata, Grado
+from contracts import Blocco, ClasseProva, Durata, Grado
 
 # I VALORI §11 vivono in `calibrazione.py` (un solo posto, guida §0); qui se ne **rieaspongono**
 # i migrati per non rompere i consumatori storici (`from .catalogo import REGISTRY_ARCHETIPI`…).
@@ -35,16 +34,20 @@ from .calibrazione import (  # noqa: F401  (re-export)
     SOGLIE_PROVA,
     ProfiloArchetipo,
 )
-from .status import Brucia, Confusione, Rigenerazione, Status, Stordito, Veleno
+from .status import (  # noqa: F401  (Valenza/Risoluzione: re-export di compatibilità)
+    SPEC_STATUS,
+    Risoluzione,
+    Status,
+    Valenza,
+)
 
 # --- Registry: nome → componente / profilo (F §3 faccia-motore, F-6) ----------
 
-# Blocco → classe componente ECS. La chimera "veleno+stordito+rigenerazione" è una
-# **somma di componenti** (FNC §5.5): ogni `Blocco` ha qui la sua realizzazione.
+# Blocco → classe componente ECS, DERIVATO dalla tabella unica `SPEC_STATUS`
+# (status.py): la chimera "veleno+stordito+rigenerazione" è una **somma di
+# componenti** (FNC §5.5), e un Blocco nuovo si accende con una riga di tabella.
 REGISTRY_BLOCCHI: dict[Blocco, type[Status]] = {
-    Blocco.VELENO: Veleno,
-    Blocco.RIGENERAZIONE: Rigenerazione,
-    Blocco.STORDITO: Stordito,
+    s.blocco: s.componente for s in SPEC_STATUS if s.blocco is not None
 }
 
 
@@ -91,15 +94,19 @@ class Budget:
     livello: int
     gradi_ammessi: frozenset[Grado]
     blocchi_ammessi: frozenset[Blocco]
-    archetipo_default: Archetipo
+    archetipo_default: str
     anomala: bool = False
+    # Vincolo del design di piano (stagione attiva): default = gli archetipi del
+    # catalogo di calibrazione — i budget segnaposto e i chiamanti storici restano
+    # invariati. (Slug, non enum: la chiusura è per-run, D1.)
+    archetipi_ammessi: frozenset[str] = frozenset(REGISTRY_ARCHETIPI)
 
 
 # `PROB_ANOMALIA` vive in `calibrazione.py` (riesposto sopra).
 
 # Archetipo di default designato per il fallback (F §6.3): DETERMINISTICO, non pescato.
 # (Scelta categoriale, non un numero §11 → resta qui.)
-ARCHETIPO_DEFAULT = Archetipo.SLIME
+ARCHETIPO_DEFAULT = "slime"
 
 
 def _budget_normale(livello: int) -> Budget:
@@ -120,25 +127,46 @@ def _budget_anomalo(livello: int) -> Budget:
 
     Anche il delirio ha un soffitto (FNC §5.5): non valori a caso, un set più largo.
     """
+    from .design import registry_archetipi_correnti  # locale: evita il ciclo design↔catalogo
+
     return Budget(
         livello=livello,
         gradi_ammessi=frozenset(Grado),         # incl. LEGGENDARIO/CELESTIALE
         blocchi_ammessi=frozenset(Blocco),      # tutti i blocchi
+        # L'anomalia apre TUTTO il vocabolario della run (storici + asset congelati).
+        archetipi_ammessi=frozenset(registry_archetipi_correnti()),
         archetipo_default=ARCHETIPO_DEFAULT,
         anomala=True,
     )
 
 
-def prepara_contesto(livello: int, rng: random.Random) -> Budget:
+def prepara_contesto(livello: int, rng: random.Random, *, piano=None) -> Budget:
     """Tira l'**anomalia SEEDED** e calcola il budget + set ammissibile (FNC §5.1/§5.5).
 
     Chi decide di sforare è il **motore**, non l'AI: con bassa probabilità il tiro
     sostituisce il budget normale con uno gonfiato. È RNG del motore (seeded,
     riproducibile in debug — FNC §9), non nondeterminismo dell'LLM.
+
+    `piano` è il design del piano corrente (`design.PianoAttivo`, duck-typed per
+    non accoppiare il catalogo al modulo design): se presente, il budget ORDINARIO
+    viene dai suoi set (gradi/blocchi/archetipi ammessi) — è il vincolo hard del
+    contenuto autorato. L'ANOMALIA non è cappata dal design: resta il tiro del
+    dungeon coi set interi (anche il delirio è del motore, non dell'autore).
+    Senza piano (save legacy, harness, banco): il segnaposto storico, invariato.
     """
     if rng.random() < PROB_ANOMALIA:
         return _budget_anomalo(livello)
-    return _budget_normale(livello)
+    if piano is None:
+        return _budget_normale(livello)
+    return Budget(
+        livello=livello,
+        gradi_ammessi=frozenset(piano.gradi),
+        blocchi_ammessi=frozenset(piano.blocchi),
+        archetipi_ammessi=frozenset(piano.archetipi),
+        # Deterministico e in-budget per costruzione (il lint impone archetipi ≥1).
+        archetipo_default=piano.archetipi[0],
+        anomala=False,
+    )
 
 
 # --- Classi di prova: soglia (motore) + ancore (catalogo) (G §7.2/§7.4) --------
@@ -187,35 +215,12 @@ def gate_durata(durata: Durata) -> int:
     return carico_tick(durata)
 
 
-# --- Asse safe/unsafe degli status: flag di TIPO nel catalogo (J §7, J-9) ------
-# Due proprietà ortogonali del *tipo*-status (non del componente vivo): alimentano i
-# predicati di downtime/passa-turno (§5/§6). Di sola lettura, non toccano lo stacking.
-
-class Valenza(str, Enum):
-    """Il *segno* dello status — flag ESPLICITO, **non** derivato da `delta < 0` (uno
-    `Stordito`/`Confusione` senza delta-HP è comunque `DANNOSO`, J-9)."""
-
-    BENEFICO = "benefico"
-    DANNOSO = "dannoso"
-    NEUTRO = "neutro"
-
-
-class Risoluzione(str, Enum):
-    """*Come* si risolve il tick. `AI` ⟺ **unsafe** (richiede l'LLM: berserk,
-    confusione). `MOTORE` = deterministico, zero LLM (veleno, brucia, rigenerazione)."""
-
-    MOTORE = "motore"
-    AI = "ai"  # = unsafe
-
-
-# `tipo-status → (valenza, risoluzione)`. Valori (quali status sono DANNOSO/AI) = forma
-# qui, calibrazione Gruppo 2. Vivono sul TIPO nel catalogo, MAI sul componente (J-9).
+# --- Asse safe/unsafe degli status: flag di TIPO (J §7, J-9) -------------------
+# `Valenza`/`Risoluzione` vivono in status.py con la tabella unica `SPEC_STATUS`
+# (un solo proprietario del dato-status); qui il catalogo li ri-espone e DERIVA la
+# mappa storica dei flag — di sola lettura, non tocca lo stacking.
 FLAG_STATUS: dict[type[Status], tuple[Valenza, Risoluzione]] = {
-    Veleno: (Valenza.DANNOSO, Risoluzione.MOTORE),
-    Brucia: (Valenza.DANNOSO, Risoluzione.MOTORE),
-    Rigenerazione: (Valenza.BENEFICO, Risoluzione.MOTORE),
-    Stordito: (Valenza.DANNOSO, Risoluzione.MOTORE),      # dannoso pur senza delta-HP
-    Confusione: (Valenza.DANNOSO, Risoluzione.AI),        # unsafe
+    s.componente: (s.valenza, s.risoluzione) for s in SPEC_STATUS
 }
 
 

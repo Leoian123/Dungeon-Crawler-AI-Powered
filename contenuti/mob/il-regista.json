@@ -1,0 +1,20 @@
+{
+  "slug": "il-regista",
+  "versione": 1,
+  "tags": [
+    "falsa-idra",
+    "truffa",
+    "boss-di-tappa",
+    "finale"
+  ],
+  "nome": "Il Regista",
+  "archetipo": "goblin",
+  "grado": "argento",
+  "blocchi": [
+    "veleno",
+    "rigenerazione"
+  ],
+  "descrizione": "Ha truffato interi piani. L'oro sulle corna è vernice da cantiere.",
+  "prosa_stanza": "Il gran finale: un costume da idra a nove teste, corna dipinte d'oro, e dentro un goblin col megafono. «Lo spettacolo DEVE continuare», ringhia. Il mito del piano era tutto qui.",
+  "durata": "un_pochino"
+}

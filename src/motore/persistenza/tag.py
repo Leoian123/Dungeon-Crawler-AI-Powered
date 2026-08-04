@@ -24,13 +24,16 @@ import enum
 import functools
 import typing
 
+from ..corredo import Corredo
+from ..design import StagioneAttiva
 from ..fase import FaseCorrente
-from ..modificatori import Modificatori
+from ..mob import EntitaMob, Repertorio
+from ..modificatori import Modificatori, Resistenze
 from ..piano import ProfonditaPiano, TempoPiano
-from ..scheda import Protagonista, Scheda
+from ..scheda import ActionPoint, Protagonista, Scheda
 from ..seme import SemeRun
 from ..statistiche import Primarie
-from ..status import Brucia, Rigenerazione, Stordito, Veleno
+from ..status import STATUS_PERSISTENTI, nome_status
 
 # --- Registry: tipo → tag STABILE (H-3). I tag non seguono i nomi di classe. -----
 
@@ -39,14 +42,28 @@ _TAG_PER_TIPO: dict[type, str] = {
     Scheda: "scheda",
     Primarie: "primarie",
     Modificatori: "modificatori",
-    Veleno: "veleno",
-    Brucia: "brucia",
-    Rigenerazione: "rigenerazione",
-    Stordito: "stordito",
+    # AP: risorsa POSSEDUTA del protagonista (G §2.1, guida §6.1) — persistente
+    # come la Scheda, non un'effimera di combattimento (quelle restano fuori).
+    ActionPoint: "action_point",
+    # Gli STATUS persistenti sono DERIVATI dalla tabella unica (status.SPEC_STATUS):
+    # il tag stabile è il nome-dato del tipo (oggi = i nomi storici, H-3 intatto) —
+    # un nuovo status entra nel save con la sua riga di tabella, non qui.
+    **{cls: nome_status(cls) for cls in STATUS_PERSISTENTI},
+    # Il mob di scena rivelato: identità (EntitaMob, con la stanza per il re-link
+    # della mappa), profilo gear e resistenze tipate. Round-trippa nel save: al load
+    # la stanza NON si ripopola più con un sosia — ritrova IL suo mob (H-4: il
+    # legame passa dal dato `stanza`, mai dall'id esper).
+    EntitaMob: "entita_mob",
+    Corredo: "corredo",
+    Resistenze: "resistenze",
+    Repertorio: "repertorio",
     FaseCorrente: "fase_corrente",
     ProfonditaPiano: "profondita_piano",
     TempoPiano: "tempo_piano",
     SemeRun: "seme_run",
+    # La stagione attiva (aggregato di contenuto congelato): il design della run
+    # viaggia col save — le run non vedono mai le modifiche di libreria.
+    StagioneAttiva: "stagione",
 }
 _TIPO_PER_TAG: dict[str, type] = {tag: tipo for tipo, tag in _TAG_PER_TIPO.items()}
 
@@ -121,7 +138,10 @@ def _da_jsonable(dato: object, annot: object) -> object:
         return {_da_jsonable(k, k_t): _da_jsonable(v, v_t) for k, v in dato.items()}
     if origine in (list, tuple):
         (item_t, *_) = typing.get_args(annot) or (object,)
-        return [_da_jsonable(x, item_t) for x in dato]
+        vivi = [_da_jsonable(x, item_t) for x in dato]
+        # L'annotazione comanda anche sul CONTENITORE: un campo `tuple[...]`
+        # round-trippa come tuple, non come list (invariante di tipo, H-L1).
+        return tuple(vivi) if origine is tuple else vivi
     if isinstance(annot, type) and dataclasses.is_dataclass(annot):
         hints = _hints(annot)
         kwargs = {nome: _da_jsonable(v, hints.get(nome)) for nome, v in dato.items()}

@@ -7,7 +7,6 @@ boilerplate Pydantic in ogni test.
 from __future__ import annotations
 
 from contracts import (
-    Archetipo,
     Blocco,
     Durata,
     EntitaGenerata,
@@ -24,7 +23,7 @@ def budget(
     livello: int = 1,
     gradi=(Grado.BRONZO, Grado.ARGENTO),
     blocchi=(Blocco.VELENO, Blocco.RIGENERAZIONE),
-    archetipo_default: Archetipo = ARCHETIPO_DEFAULT,
+    archetipo_default: str = ARCHETIPO_DEFAULT,
     anomala: bool = False,
 ) -> Budget:
     return Budget(
@@ -38,7 +37,7 @@ def budget(
 
 def turno(
     *,
-    archetipo: Archetipo = Archetipo.SLIME,
+    archetipo: str = "slime",
     grado: Grado = Grado.BRONZO,
     blocchi=(Blocco.VELENO,),
     durata: Durata = Durata.TURNO,

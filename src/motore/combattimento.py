@@ -18,9 +18,20 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import CombatResolved, EncounterStarted, MortePersonaggio, StatId, TipoDanno
+from contracts import (
+    ClasseProva,
+    ColpoInferto,
+    CombatResolved,
+    EncounterStarted,
+    MortePersonaggio,
+    StatId,
+    StatusApplicato,
+    TipoDanno,
+    TurnoSaltato,
+)
 
-from .azione import Azione, Danno, QuantitaDa
+from .azione import ApplicaStatus, Azione, Danno
+from .catalogo import REGISTRY_BLOCCHI, rango_grado
 from .calibrazione import (
     AP_MAX_MVP,
     CROLLO_INCREMENTO,
@@ -36,10 +47,14 @@ from .calibrazione import (
     primarie_da_scalari,
 )
 from .derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
+from .mob import EntitaMob, Repertorio
 from .modificatori import Resistenze
+from .mosse import MOSSE_DEFAULT, azione_da_mossa
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
+from .prove import risolvi_prova
 from .scheda import ActionPoint, Protagonista, Scheda, protagonista
 from .statistiche import Primarie, stat_eff
+from .status import TRASMISSIBILI, Stordito, afflizione, afflizione_da, applica_status
 from .turno import azzera_turno_attivo, segna_turno_attivo
 
 # `DANNO_BASE` (witness storico del floor positivo del danno, G-L1) vive in `calibrazione.py`
@@ -51,7 +66,18 @@ from .turno import azzera_turno_attivo, segna_turno_attivo
 
 @dataclass
 class Nemico:
-    """Marker di un combattente nemico (entità EFFIMERA: distrutta su CombatResolved)."""
+    """Marker di un combattente nemico, con il suo **ciclo di vita** (FNC §6.3).
+
+    `arruolato=False` (default) → nemico SPAWNATO all'ingaggio: entità interamente
+    effimera, distrutta su `CombatResolved`. `arruolato=True` → mob di scena **già
+    vivo nel World** (rivelato dalla narrazione, legato alla stanza da
+    `EntitaMob.stanza`): su `CombatResolved` è effimero solo il *ruolo* di nemico —
+    se sopravvive allo scontro (fuga, FNC §4) l'entità RESTA in scena e si limita a
+    perdere i componenti di combattimento. Distruggerla anche da viva renderebbe la
+    fuga migliore della vittoria (stanza svuotata a costo zero) e consumerebbe il
+    cast del piano."""
+
+    arruolato: bool = False
 
 
 @dataclass
@@ -113,6 +139,7 @@ class StatoCombattimento:
     rng: random.Random             # UNICO stream RNG seeded del motore (decisioni nemici + check 1)
     turni_scontro: int = 0         # turni-combattente risolti (contatore cieco dell'escalation, §8)
     crollo: int = 0                # danno inevitabile corrente dell'escalation (cresce oltre la soglia)
+    fuga_richiesta: bool = False   # il prossimo turno del protagonista tenta la FUGA (FNC §4)
 
 
 # --- Iniziativa (G-3): destrezza desc, tiebreak su chiave stabile seeded -------
@@ -195,7 +222,7 @@ def spawn_nemico(*, destrezza: int, punti_vita: int) -> int:
     chiave = stato.prossima_chiave
     stato.prossima_chiave += 1
     return esper.create_entity(
-        Nemico(),
+        Nemico(arruolato=False),  # nato per lo scontro: muore con lo scontro
         Combattente(destrezza=destrezza, chiave_ordine=chiave),
         ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
         Primarie(valori=primarie_da_scalari(destrezza=destrezza, punti_vita=punti_vita)),
@@ -210,21 +237,41 @@ def arruola_entita(entita: int) -> int:
     (destrezza dal fold — GR2-3), `ActionPoint`, `PuntiVita` (pool = `max_hp` derivato
     dalla SUA Costituzione). Le sue `Primarie`/`Corredo`/`Resistenze` restano: le
     derivate del risolutore leggono il profilo calibrato vero. Su `CombatResolved`
-    l'entità segue il ciclo di vita effimero (eliminata come ogni `Nemico`)."""
+    l'entità NON viene distrutta se è ancora viva: `Nemico(arruolato=True)` la marca
+    come mob di scena, e lo smontaggio la congeda invece di eliminarla (FNC §4: la
+    fuga interrompe lo scontro, non cancella il nemico dalla stanza).
+
+    Le **ferite restano**: un mob già ferito (scontro interrotto da una fuga) viene
+    riarruolato col suo `PuntiVita`, non col pool pieno — altrimenti fuggire sarebbe
+    il modo gratuito di rigenerare il nemico."""
     st = stato_combattimento()
     if st is None:
         raise RuntimeError("arruola_entita richiede uno StatoCombattimento attivo")
     _ent_stato, stato = st
     chiave = stato.prossima_chiave
     stato.prossima_chiave += 1
-    hp = max_hp(entita)
-    esper.add_component(entita, Nemico())
+    esper.add_component(entita, Nemico(arruolato=True))
     esper.add_component(
         entita, Combattente(destrezza=stat_eff(entita, StatId.DESTREZZA), chiave_ordine=chiave)
     )
     esper.add_component(entita, ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP))
-    esper.add_component(entita, PuntiVita(attuali=hp, massimi=hp))
+    if esper.try_component(entita, PuntiVita) is None:
+        hp = max_hp(entita)
+        esper.add_component(entita, PuntiVita(attuali=hp, massimi=hp))
     return entita
+
+
+def _congeda(entita: int) -> None:
+    """Toglie a un mob ARRUOLATO sopravvissuto i soli componenti di combattimento:
+    smette di essere un nemico ingaggiato, resta l'entità di scena.
+
+    `PuntiVita` NON viene tolto di proposito — è la ferita che il mob si porta dietro
+    fino al prossimo ingaggio (`arruola_entita` lo riusa). `ActionPoint` sì: è
+    persistente (registry dei tag), e un mob fuori scontro non deve portarne uno nel
+    save."""
+    for componente in (Nemico, Combattente, ActionPoint):
+        if esper.has_component(entita, componente):
+            esper.remove_component(entita, componente)
 
 
 def _nemici_vivi() -> list[int]:
@@ -238,6 +285,73 @@ def _tutti_combattenti_vivi() -> list[int]:
     if pscheda.vivo and pscheda.punti_vita > 0:
         vivi.append(pent)
     return vivi
+
+
+def _nome_pubblico(entita: int) -> str:
+    """Nome diegetico per gli eventi di vista: il nome del mob rivelato, "" per il
+    protagonista."""
+    em = esper.try_component(entita, EntitaMob)
+    if em is not None:
+        return em.nome
+    return "" if esper.has_component(entita, Protagonista) else "il nemico"
+
+
+def _rango_sorgente(entita: int) -> int:
+    """Rango dell'applicatore per gli effetti-status (copiato dal GRADO del mob,
+    G §4.3); 1 per chi non è un mob rivelato (protagonista, nemici-da-scalari)."""
+    em = esper.try_component(entita, EntitaMob)
+    return rango_grado(em.grado) if em is not None else 1
+
+
+def _hp_di(entita: int) -> tuple[int, int]:
+    """(attuali, massimi) dove vivono gli HP (`Scheda`/`PuntiVita`)."""
+    scheda = esper.try_component(entita, Scheda)
+    if scheda is not None:
+        return scheda.punti_vita, max_hp(entita)
+    pv = esper.try_component(entita, PuntiVita)
+    if pv is not None:
+        return pv.attuali, pv.massimi
+    return 0, 0
+
+
+def nemici_in_scontro() -> list[tuple[str, int, int]]:
+    """`(nome, hp, hp_max)` dei nemici VIVI dello scontro — per i descrittori
+    dell'host (il giocatore vede chi affronta e quanto gli resta)."""
+    voci: list[tuple[str, int, int]] = []
+    for ent, _marker in esper.get_component(Nemico):
+        if not _e_vivo(ent):
+            continue
+        attuali, massimi = _hp_di(ent)
+        voci.append((_nome_pubblico(ent) or "il nemico", attuali, massimi))
+    return voci
+
+
+def richiedi_fuga() -> None:
+    """Segna che il PROSSIMO turno del protagonista tenterà la fuga (FNC §4): la
+    rotazione resta del sistema-turno (un solo proprietario), la prova la tira lui."""
+    st = stato_combattimento()
+    if st is not None:
+        st[1].fuga_richiesta = True
+
+
+def prossimo_attivo_e_protagonista() -> bool:
+    """PEEK (senza mutare la rotazione): il prossimo combattente vivo è il
+    protagonista? Replica il salto-morti del sistema-turno; fuori scontro → True.
+    Serve all'host per risolvere in un solo comando l'intero giro dei nemici."""
+    st = stato_combattimento()
+    if st is None:
+        return True
+    _ent, stato = st
+    n = len(stato.ordine)
+    if n == 0:
+        return True
+    indice = stato.indice
+    for _ in range(n):
+        indice = (indice + 1) % n
+        candidato = stato.ordine[indice]
+        if _e_vivo(candidato):
+            return esper.has_component(candidato, Protagonista)
+    return True
 
 
 # --- Risolutore a due check (Gruppo 2 §6; GR2-11; layer tipi DT-5/6/7) ----------
@@ -300,7 +414,8 @@ def check2(m: float, att: int, ber: int, danno: Danno) -> int:
         return 0                                       # SCHIVATA piena: niente floor (GR2-11/§7.2)
     base = m * (atk_eff(att) - def_eff(ber) / 100)     # PRE-round: non arrotondare qui
     mult = mult_resistenza(ber, danno.tipo)
-    return max(1, round(base * mult))                  # UNICO round, UNICO floor → GR2-11/DT-5
+    # `moltiplicatore` (mossa pesante) DENTRO lo stesso round: un solo arrotondamento.
+    return max(1, round(base * mult * danno.moltiplicatore))
 
 
 def risolvi_danno(danno: Danno, att: int, ber: int, rng: random.Random) -> int:
@@ -352,6 +467,26 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         # Marca l'entità attiva: i sistemi-status (sempre-attivo) ticcano solo lei (G-24).
         segna_turno_attivo(attivo)
 
+        # STORDITO (afflizione, non capacità): il turno è consumato senza agire.
+        # Il decorso dello status resta di `SistemaStordito` (sempre-attivo, G-5).
+        stordito = esper.try_component(attivo, Stordito)
+        if stordito is not None and not stordito.innato:
+            self.bus.pubblica(TurnoSaltato(nome=_nome_pubblico(attivo), causa="stordito"))
+            return
+
+        # FUGA richiesta (FNC §4): il turno del protagonista tenta il disimpegno
+        # invece dell'azione — prova seeded del MOTORE, mai dell'AI.
+        if stato.fuga_richiesta and esper.has_component(attivo, Protagonista):
+            stato.fuga_richiesta = False
+            if risolvi_prova(
+                stat_eff(attivo, StatId.DESTREZZA), ClasseProva.BRONZO, stato.rng
+            ):
+                # Chiusura senza esito: né vittoria né sconfitta (FNC §4).
+                self.bus.pubblica(CombatResolved(entita=attivo, vittoria=False, fuga=True))
+            else:
+                self.bus.pubblica(TurnoSaltato(nome="", causa="fuga_fallita"))
+            return
+
         ap_comp = esper.component_for_entity(attivo, ActionPoint)
         ap_comp.ap = ap_comp.ap_max
 
@@ -375,34 +510,81 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         if ap_comp.ap < costo:                               # giuntura 2: costo pagabile? (GR2-13)
             return False
         ap_comp.ap -= costo
-        for effetto in azione.effetti:                       # giuntura 3: itera la lista (oggi di uno)
+        # `a_segno` lega i primitivi della STESSA azione: un `ApplicaStatus` dopo un
+        # `Danno` vale solo se il colpo ha connesso (il morso che avvelena deve mordere);
+        # in una mossa senza Danno si applica e basta (utility pura). Deterministico.
+        a_segno: bool | None = None
+        for effetto in azione.effetti:                       # giuntura 3: itera la lista
             if isinstance(effetto, Danno):
                 # Risolvi PRIMA (motore, seeded), narra DOPO (sul bus): mai LLM qui (G-4).
                 inflitto = risolvi_danno(effetto, azione.sorgente, azione.bersaglio, stato.rng)
+                a_segno = inflitto > 0
                 if inflitto:
                     infliggi_danno(azione.bersaglio, inflitto)
+                    attuali, massimi = _hp_di(azione.bersaglio)
+                    # Il colpo È un fatto già arbitrato: si narra sul Canale B (FNC §8).
+                    self.bus.pubblica(ColpoInferto(
+                        attaccante=_nome_pubblico(azione.sorgente),
+                        bersaglio=_nome_pubblico(azione.bersaglio),
+                        danno=inflitto,
+                        hp_rimasti=max(0, attuali),  # l'overkill non si mostra
+                        hp_max=massimi,
+                        mossa=azione.mossa,
+                    ))
+                    # Capacità INNATE trasmissibili: il colpo che connette applica
+                    # l'afflizione al bersaglio (lo slime velenoso avvelena, §12).
+                    self._trasmetti_status(azione.sorgente, azione.bersaglio)
+            elif isinstance(effetto, ApplicaStatus) and a_segno is not False:
+                # Primitivo del catalogo mosse: afflizione dal Blocco, rango copiato
+                # dal grado della sorgente (G §4.3); il decorso lo decide status.py.
+                cls = REGISTRY_BLOCCHI[effetto.blocco]
+                applica_status(azione.bersaglio, afflizione(cls, _rango_sorgente(azione.sorgente)))
+                self.bus.pubblica(StatusApplicato(
+                    bersaglio=_nome_pubblico(azione.bersaglio),
+                    status=cls.__name__.lower(),
+                    fonte=_nome_pubblico(azione.sorgente) or "il colpo",
+                ))
         return True
 
+    def _trasmetti_status(self, sorgente: int, bersaglio: int) -> None:
+        # L'insieme dei tipi trasmissibili è DATO (status.PROFILO_STATUS), non una
+        # tupla del loop: un nuovo status offensivo entra in tabella, non qui.
+        for tipo_status in TRASMISSIBILI:
+            innato = esper.try_component(sorgente, tipo_status)
+            if innato is None or not innato.innato:
+                continue
+            # La costruzione dell'afflizione vive in status.py (G-5/G-6): qui
+            # solo il momento della trasmissione (il colpo che connette).
+            applica_status(bersaglio, afflizione_da(innato))
+            self.bus.pubblica(StatusApplicato(
+                bersaglio=_nome_pubblico(bersaglio),
+                status=tipo_status.__name__.lower(),
+                fonte=_nome_pubblico(sorgente) or "il colpo",
+            ))
+
     def _scegli_azione(self, attivo: int, stato: StatoCombattimento) -> Azione | None:
-        """Sceglie un'`Azione` dall'insieme disponibile sull'entità (oggi `[attacco_base]`).
-        Per il protagonista il bersaglio è il primo nemico vivo; per il nemico la scelta è del
+        """Sceglie una mossa dal `Repertorio` dell'entità (DATO nel componente; assente
+        → `MOSSE_DEFAULT`) e la traduce in `Azione` via il catalogo (`mosse.py`): il
+        system esegue, il dato decide cosa esiste. Per il protagonista il bersaglio è il
+        primo nemico vivo e la mossa l'attacco base; per il nemico la scelta è del
         **motore**, seeded (`decidi_azione_nemico`), mai l'LLM (G-4)."""
+        rep = esper.try_component(attivo, Repertorio)
+        mosse = tuple(rep.mosse) if rep is not None and rep.mosse else MOSSE_DEFAULT
+        mossa = "attacco"
         if esper.has_component(attivo, Protagonista):
             bersagli = _nemici_vivi()
             bersaglio = bersagli[0] if bersagli else None
         else:
             pent, _marker, pscheda = protagonista()
             bersagli = [pent] if (pscheda.vivo and pscheda.punti_vita > 0) else []
-            decisione = decidi_azione_nemico(stato.rng, bersagli)
-            bersaglio = decisione[0] if decisione is not None else None
+            decisione = decidi_azione_nemico(stato.rng, bersagli, mosse=mosse)
+            if decisione is not None:
+                bersaglio, mossa = decisione  # la MOSSA scelta si usa, non si scarta
+            else:
+                bersaglio = None
         if bersaglio is None:
             return None
-        # Attacco base = l'UNICA istanza dell'MVP: effetti=[Danno], costo={"AP": 1}.
-        return Azione(
-            sorgente=attivo,
-            bersaglio=bersaglio,
-            effetti=[Danno(quantita_da=QuantitaDa.ATK_EFF)],
-        )
+        return azione_da_mossa(mossa, sorgente=attivo, bersaglio=bersaglio)
 
 
 # --- Death-check (G-11): seeded, emette MortePersonaggio, NON CombatResolved ---
@@ -497,8 +679,15 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
         stato.ordine = calcola_iniziativa(combattenti)
 
     def _smonta(_evento: CombatResolved) -> None:
-        for ent, _ in list(esper.get_component(Nemico)):
-            esper.delete_entity(ent, immediate=True)
+        # Il ciclo di vita dipende da COME il nemico è entrato in scontro (FNC §6.3):
+        # lo spawnato è nato per lo scontro e muore con lo scontro; l'arruolato è il
+        # mob della stanza — se è ancora vivo (fuga, FNC §4) viene CONGEDATO, non
+        # distrutto, e resta in scena col suo legame `EntitaMob.stanza`.
+        for ent, nemico in list(esper.get_component(Nemico)):
+            if nemico.arruolato and _e_vivo(ent):
+                _congeda(ent)
+            else:
+                esper.delete_entity(ent, immediate=True)
         azzera_turno_attivo()
         for ent, _ in list(esper.get_component(StatoCombattimento)):
             esper.delete_entity(ent, immediate=True)

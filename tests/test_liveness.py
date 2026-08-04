@@ -11,6 +11,7 @@ import esper
 import pytest
 
 from contracts import CombatResolved, MortePersonaggio
+from motore.calibrazione import R_SOGLIA_CROLLO
 from motore import (
     DANNO_BASE,
     OndataRinforzi,
@@ -32,13 +33,12 @@ from tests.combat_helpers import avvia_scontro
 # G-L1 — Ogni scontro TERMINA (garanzia di fine, verifica (a) + rete (b))
 # ============================================================================
 #
-# Garanzia (a) per l'economia MVP, dimostrata qui: l'unica operazione che cambia gli
-# HP in combattimento è `infliggi_danno` (sottrae `DANNO_BASE > 0`); **nessun
-# sostentamento** (la rigenerazione/gli status sono no-op placeholder). Quindi il
-# totale degli HP in campo è **monotòno decrescente** di ≥1 per turno risolto, e i
-# rinforzi sono **finiti** (ogni ondata rilasciata una volta) → lo scontro termina in
-# un numero di turni limitato. La rete (b) — il binario di mutazione `SistemaRinforzi`
-# (§5) — è presente come escalation, ma nell'MVP non serve perché (a) regge.
+# Con gli status EFFETTIVI (la rigenerazione CURA) la garanzia (a) "monotònia degli
+# HP" non regge più da sola: la terminazione è garantita PER COSTRUZIONE dalla rete
+# (b), l'escalation `SistemaCrollo` (attiva nell'MVP, registrata in produzione): il
+# danno inevitabile cresce lineare, bypassa il risolutore e supera qualunque
+# sostentamento in un numero limitato di round (aritmetica monotòna). I rinforzi
+# restano **finiti** (ogni ondata rilasciata una volta).
 
 
 def test_GL1_danno_base_positivo_garantisce_progresso() -> None:
@@ -79,26 +79,25 @@ def test_GL1_scontro_termina_anche_in_morte(mondo_isolato: str) -> None:
     assert adapter.events_of(MortePersonaggio), "morte non raggiunta: scontro non terminante"
 
 
-def test_GL1_economia_mvp_senza_sostentamento(mondo_isolato: str) -> None:
-    # (a): nessun build con sostentamento ≥ danno. La rigenerazione MVP è un no-op →
-    # gli HP del protagonista sotto attacco sono MONOTÒNI non-crescenti: niente stallo.
+def test_GL1_sostentamento_non_stalla_grazie_al_crollo(mondo_isolato: str) -> None:
+    # La rigenerazione ora CURA (feel MVP): un build con sostentamento ≥ danno è
+    # possibile — la garanzia di terminazione non è più "niente cure" ma la rete
+    # PER COSTRUZIONE dell'escalation (SistemaCrollo, G-L1): il danno inevitabile
+    # cresce lineare e supera qualunque rigenerazione in round limitati.
     _bus, adapter, _enc = avvia_scontro(
         nemici=[SpecNemico(destrezza=5, punti_vita=10**9)],
         hp_prot=60, destrezza_prot=1,
     )
     pent, _marker, _scheda = protagonista()
-    applica_status(pent, Rigenerazione(rango=9, durata=10**9))  # "build difensivo"
+    applica_status(pent, Rigenerazione(rango=9, durata=10**9))  # "build sostentamento"
 
-    hp_prec = protagonista()[2].punti_vita
-    for _ in range(40):
+    for _ in range(2 * (R_SOGLIA_CROLLO + 200)):
         tick()
-        hp = protagonista()[2].punti_vita
-        assert hp <= hp_prec, "la rigenerazione MVP ha curato: sostentamento ⇒ stallo (G-L1)"
-        hp_prec = hp
         if adapter.events_of(MortePersonaggio):
             break
-    # L'HP è sceso davvero (lo scontro avanza verso la fine, non stalla).
-    assert protagonista()[2].punti_vita < 60
+    assert adapter.events_of(MortePersonaggio), (
+        "lo scontro col build-sostentamento non è terminato: il crollo non morde (G-L1)"
+    )
 
 
 def test_GL1_rinforzi_sono_finiti(mondo_isolato: str) -> None:

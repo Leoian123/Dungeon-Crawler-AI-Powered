@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from contracts import Archetipo, ClasseProva, Durata, StatId
+from contracts import ClasseProva, Durata, StatId
 from motore import calibrazione as cal
 
 
@@ -44,7 +44,7 @@ def test_default_consolidati_invariati() -> None:
     assert cal.SOGLIE_PROVA[ClasseProva.BRONZO] == 8 and cal.SOGLIE_PROVA[ClasseProva.CELESTIALE] == 22
     assert cal.CARICO_TICK[Durata.TURNO] == 1 and cal.CARICO_TICK[Durata.UN_BEL_PO] == 8
     assert cal.PRIMARIE_BASE_CARL[StatId.COSTITUZIONE] == 30
-    assert cal.REGISTRY_ARCHETIPI[Archetipo.GOBLIN].destrezza_base == 7
+    assert cal.REGISTRY_ARCHETIPI["goblin"].destrezza_base == 7
 
 
 # --- Override: applica, valida, salva (solo i diversi), azzera -----------------

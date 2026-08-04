@@ -9,7 +9,6 @@ import asyncio
 import esper
 
 from contracts import (
-    Archetipo,
     Blocco,
     Flavor,
     Grado,

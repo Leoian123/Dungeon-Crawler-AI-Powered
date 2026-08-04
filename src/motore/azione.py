@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from contracts import TipoDanno
+from contracts import Blocco, TipoDanno
 
 
 class QuantitaDa(str, Enum):
@@ -47,10 +47,26 @@ class Danno(Effetto):
     """Primitivo di danno: la quantità (`atk_eff`) è quella di sempre; il `tipo` è solo una
     **chiave** per il filtro delle resistenze (Type Object, layer tipi DT-1) — default
     `GENERICO` (= danno agnostico odierno). **Vietato** sottotipi (`DannoFuoco`) o metodi
-    per-tipo: il tipo è una **variabile membro**, non un override."""
+    per-tipo: il tipo è una **variabile membro**, non un override.
+
+    `moltiplicatore` scala la magnitudine (mossa pesante = 1.5, §11): entra nel
+    check 2 DENTRO lo stesso `round` di graze e resistenze — un solo arrotondamento."""
 
     quantita_da: QuantitaDa
     tipo: TipoDanno = TipoDanno.GENERICO
+    moltiplicatore: float = 1.0
+
+
+@dataclass
+class ApplicaStatus(Effetto):
+    """Primitivo: applica al bersaglio l'afflizione di un `Blocco` del catalogo.
+
+    Il blocco è una **chiave** del vocabolario chiuso (Type Object, come `Danno.tipo`),
+    mai una classe né un numero: rango COPIATO dal grado della sorgente (G §4.3) e
+    durata dalla tabella-dato delle afflizioni — entrambi risolti dal system al
+    momento del colpo, non qui."""
+
+    blocco: Blocco
 
 
 @dataclass
@@ -63,3 +79,4 @@ class Azione:
     bersaglio: int | None
     effetti: list[Effetto]
     costo: dict[str, int] = field(default_factory=lambda: {"AP": 1})  # referenzia l'AP per CHIAVE
+    mossa: str = "attacco"         # chiave diegetica della mossa (per la cronaca)

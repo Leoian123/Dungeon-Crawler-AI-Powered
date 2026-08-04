@@ -34,7 +34,7 @@ import esper
 from pydantic import BaseModel, ConfigDict
 
 from contracts import (
-    Archetipo,
+    ArchetipoId,
     Blocco,
     Durata,
     EntitaGenerata,
@@ -47,6 +47,7 @@ from contracts import (
 from motore import (
     REGISTRY_ARCHETIPI,
     REGISTRY_BLOCCHI,
+    mosse_note,
     Primarie,
     acc_eff,
     atk_eff,
@@ -70,7 +71,7 @@ class NemicoSperimentale(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    archetipo: Archetipo
+    archetipo: ArchetipoId
     grado: Grado
     blocchi: list[Blocco]
     nome: str
@@ -104,7 +105,7 @@ def _diagnosi_gate(eg: EntitaGenerata, budget) -> str | None:
     """Mirror dei 3 strati di `valida_turno` per produrre un **motivo** leggibile. `None` =
     passerebbe. L'autorità resta `valida_turno`; questo serve solo al messaggio."""
     if eg.archetipo not in REGISTRY_ARCHETIPI:
-        return f"archetipo '{eg.archetipo.value}' non nel catalogo"
+        return f"archetipo '{eg.archetipo}' non nel catalogo"
     for b in eg.blocchi:
         if b not in REGISTRY_BLOCCHI:
             return f"blocco '{b.value}' non nel catalogo"
@@ -204,10 +205,10 @@ def stampa_confronto(esiti: list[Esito], budget, livello: int, contesto: str, st
         c = e.candidato
         assert c is not None
         if e.gate_ok:
-            _riga(f"  gate: ✓ PASSATO   nemico: «{c.nome}»  [{c.archetipo.value} / {c.grado.value}]", stampa)
+            _riga(f"  gate: ✓ PASSATO   nemico: «{c.nome}»  [{c.archetipo} / {c.grado.value}]", stampa)
         else:
             _riga(f"  gate: ✗ RIFIUTATO — {e.motivo_gate}   (proposto: «{c.nome}» "
-                  f"[{c.archetipo.value} / {c.grado.value}])", stampa)
+                  f"[{c.archetipo} / {c.grado.value}])", stampa)
         _riga(f"  descrizione (DCC): {c.descrizione}", stampa)
         if e.gate_ok and e.stat:
             prim = "  ".join(f"{k}={v}" for k, v in e.stat["primarie"].items())
@@ -219,7 +220,11 @@ def stampa_confronto(esiti: list[Esito], budget, livello: int, contesto: str, st
             _riga(f"    blocchi: {', '.join(b.value for b in c.blocchi) or '—'}", stampa)
         _riga("  [SPERIMENTALE — non ancora validato dal motore]", stampa)
         _riga(f"    drop:   {c.drop}", stampa)
-        _riga(f"    azioni (mosse di combattimento): {c.azioni}", stampa)
+        # Le `azioni` incrociano il catalogo mosse REALE (Fase 6): ✓ = eseguibile
+        # oggi dal motore, ✗ = materia prima per nuove voci di catalogo.
+        marcate = [f"{'✓' if a in mosse_note() else '✗'}{a}" for a in c.azioni]
+        note = sum(1 for a in c.azioni if a in mosse_note())
+        _riga(f"    azioni (vs catalogo mosse, {note}/{len(c.azioni)} note): {marcate}", stampa)
 
     # Riga-sommario per il colpo d'occhio del confronto.
     _riga("", stampa)
@@ -241,7 +246,7 @@ def nemico_scriptato() -> NemicoSperimentale:
     """Nemico in-budget (BRONZO + VELENO) per il percorso `--fake` (e i test): la pipeline
     gira end-to-end senza rete."""
     return NemicoSperimentale(
-        archetipo=Archetipo.SLIME, grado=Grado.BRONZO, blocchi=[Blocco.VELENO],
+        archetipo="slime", grado=Grado.BRONZO, blocchi=[Blocco.VELENO],
         nome="Slime Mangiascarti",
         descrizione="Verde, acido, vagamente offeso dalla tua presenza. Ha digerito un Rolex.",
         drop=["Melma tossica", "Rolex digerito (rotto)", "1 Credito di Sistema"],

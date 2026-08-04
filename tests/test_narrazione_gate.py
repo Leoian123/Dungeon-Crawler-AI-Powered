@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from contracts import Archetipo, Blocco, Durata, Grado
+from contracts import Blocco, Durata, Grado
 from contracts import schema as S
 from motore import (
     REGISTRY_ARCHETIPI,
@@ -68,7 +68,20 @@ def test_F6_ogni_blocco_ha_un_binding() -> None:
 
 
 def test_F6_ogni_archetipo_ha_un_binding() -> None:
-    assert set(REGISTRY_ARCHETIPI) == set(Archetipo), "ogni Archetipo deve avere un profilo"
+    # D1: l'archetipo è uno slug a chiusura per-run. L'invariante F-6 diventa: ogni
+    # nome che il GATE può accettare (il registry stesso, e con lui il default di
+    # fallback e il budget segnaposto) ha un profilo istanziabile — mai un nome
+    # accettabile ma non materializzabile.
+    from motore import ARCHETIPO_DEFAULT, Budget
+
+    assert set(REGISTRY_ARCHETIPI) == {"slime", "scheletro", "goblin"}  # gli storici
+    assert ARCHETIPO_DEFAULT in REGISTRY_ARCHETIPI
+    bud = budget()
+    assert bud.archetipi_ammessi <= set(REGISTRY_ARCHETIPI)
+    assert isinstance(bud, Budget)
+    # Un archetipo ben formato ma FUORI registry non passa il gate (strato 2).
+    fuori = turno(archetipo="drago-inventato")
+    assert valida_turno(fuori, budget()) is None
 
 
 def test_F6_ogni_grado_ha_un_rango() -> None:

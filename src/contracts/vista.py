@@ -131,3 +131,4 @@ class FattiScontro(BaseModel):
     turni: int
     hp_persi: int
     nemico: str = ""
+    fuga: bool = False  # disimpegno riuscito a scontro aperto (FNC §4)

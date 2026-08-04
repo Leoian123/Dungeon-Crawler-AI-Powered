@@ -95,14 +95,29 @@ def applica_stato(stato: Stato) -> None:
     entità a sé (`leggi_fase`/`livello_corrente`/`master_seed` ritrovano il loro
     singleton). Nessun riferimento esper durevole da risolvere (load diretto, §4.4).
     Lo slot `esplorazione`, se popolato, ricostruisce il singleton `Mappa` (topologia,
-    stanza corrente, visitate — i mob effimeri non erano salvati: si ripopola).
+    stanza corrente, visitate); il legame stanza↔mob rinasce dai componenti
+    `EntitaMob` appena ricreati (il loro campo `stanza`), mai da id esper (H-4).
     """
     for ent_ser in stato.corpo.entita:
         componenti = [
             deserializza_componente(c.tag, c.dati) for c in ent_ser.componenti
         ]
         esper.create_entity(*componenti)
+    _ripara_protagonista()
     if stato.corpo.esplorazione:
         from ..mappa import mappa_da_dict  # import locale: H resta leggero all'import
 
         mappa_da_dict(stato.corpo.esplorazione)
+
+
+def _ripara_protagonista() -> None:
+    """Riparazione LASCA dei save scritti prima che un componente posseduto del
+    protagonista entrasse nel registry (H-12: degrado, non crash). Oggi: gli
+    `ActionPoint` — un save legacy ne è privo e il sistema-turno li pretende
+    (`while ap > 0`, G §2.1); si reintegra il default di calibrazione."""
+    from ..calibrazione import AP_MAX_MVP
+    from ..scheda import ActionPoint
+
+    for ent, _marker in esper.get_component(Protagonista):
+        if not esper.has_component(ent, ActionPoint):
+            esper.add_component(ent, ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP))

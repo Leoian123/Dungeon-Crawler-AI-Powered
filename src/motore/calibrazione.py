@@ -27,7 +27,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import Archetipo, ClasseProva, Durata, StatId, TipoAzione, TipoDanno
+from contracts import Blocco, ClasseProva, Durata, StatId, TipoAzione, TipoDanno
 
 
 # --- Il catalogo: ogni placeholder con la sua spiegazione (cosa dovrebbe essere) -
@@ -64,6 +64,7 @@ CAT_CROLLO = "Escalation (crollo) — terminazione"
 CAT_TURNO = "Turno / Action Point"
 CAT_PROB = "Probabilità (anomalia, imboscata)"
 CAT_TEMPO = "Tempo (durate, durata-blocco)"
+CAT_STATUS = "Status — durate delle afflizioni"
 CAT_PROVE = "Prove — soglie delle classi"
 CAT_CARL = "Protagonista (Carl) — primarie base e HP"
 CAT_MAPPA = "Mappa / esplorazione"
@@ -80,16 +81,18 @@ _SCELTE_ARMA = ("pari", "piu_piccola", "mismatch", "naturale")
 # Profilo-default per archetipo (§11). `intelligenza_base` di default = ex-proxy
 # `destrezza_base // 2` → il comportamento odierno resta invariato finché non si edita.
 _ARCH_PROFILI_DEFAULT: tuple[tuple[str, str, str, dict[str, object]], ...] = (
+    # `pv_base` TARATI sul TTK 3–6 round dell'analisi §5.4 (prima 6/8/5: col
+    # `atk_eff=10` del protagonista ogni mob bronzo moriva in un colpo).
     ("slime", "lo Slime", CAT_ARCH_SLIME, dict(
-        destrezza_base=3, pv_base=6, danno_base=1, intelligenza_base=1, difesa_base=0,
+        destrezza_base=3, pv_base=15, danno_base=1, intelligenza_base=1, difesa_base=0,
         saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
         res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
     ("scheletro", "lo Scheletro", CAT_ARCH_SCHELETRO, dict(
-        destrezza_base=5, pv_base=8, danno_base=2, intelligenza_base=2, difesa_base=0,
+        destrezza_base=5, pv_base=18, danno_base=2, intelligenza_base=2, difesa_base=0,
         saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
         res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
     ("goblin", "il Goblin", CAT_ARCH_GOBLIN, dict(
-        destrezza_base=7, pv_base=5, danno_base=2, intelligenza_base=3, difesa_base=0,
+        destrezza_base=7, pv_base=12, danno_base=2, intelligenza_base=3, difesa_base=0,
         saggezza_base=1, fortuna_base=1, armatura="veste", taglia="media", arma="naturale",
         res_mischia=0.0, res_fuoco=0.0, res_veleno=0.0)),
 )
@@ -192,6 +195,9 @@ _DEFS: tuple[Param, ...] = (
     Param("AP_MAX_MVP", 1, "Action Point per turno nell'MVP (i talenti post-MVP alzano il max o "
           "danno azioni bonus). Il loop è scritto AP-driven fin da subito.", CAT_TURNO,
           "intero ≥1", "int", "AP"),
+    Param("MOLT_ATTACCO_PESANTE", 1.5, "Moltiplicatore di danno della mossa 'attacco_pesante' "
+          "dei nemici (scelta seeded del motore): entra nel check 2 dentro l'unico round.",
+          CAT_TURNO, "1 – 3"),
     Param("DANNO_BASE", 1, "Witness storico del floor positivo del danno (G-L1): ogni colpo a "
           "segno toglie ≥1 HP. Oggi il floor reale è nel check 2; conservato per quel contratto.",
           CAT_TURNO, "intero ≥1", "int", "HP"),
@@ -301,9 +307,31 @@ _DEFS: tuple[Param, ...] = (
           CAT_MAPPA, "intero ≥2", "int", "stanze"),
 )
 
-# Le foglie per-archetipo (stat base + geometria + resistenze) sono generate: le tre leve
-# storiche (destrezza/pv/danno) migrano qui, sotto la categoria del loro archetipo.
-_DEFS = _DEFS + _archetipi_defs()
+# Durata di default delle afflizioni per nome-blocco: eccezioni qui, il resto 3.
+_DURATE_AFFLIZIONE_DEFAULT = {"stordito": 1}  # corto per costruzione: niente stun-lock
+
+
+def _status_defs() -> tuple[Param, ...]:
+    """Le foglie `STATUS.<nome>.durata_afflizione`, GENERATE dall'enum `Blocco`:
+    un blocco nuovo nel vocabolario ha la sua durata §11 senza toccare questo file
+    (l'eccezione al default va in `_DURATE_AFFLIZIONE_DEFAULT`)."""
+    out: list[Param] = []
+    for blocco in Blocco:
+        nome = blocco.value
+        default = _DURATE_AFFLIZIONE_DEFAULT.get(nome, 3)
+        nota = " Corto per costruzione (1 = niente stun-lock)." if default == 1 else ""
+        out.append(Param(
+            f"STATUS.{nome}.durata_afflizione", default,
+            f"Turni di decorso di {nome.upper()} applicato come afflizione "
+            f"(rango copiato dall'applicatore, G-6).{nota}",
+            CAT_STATUS, "intero ≥1", "int", "turni",
+        ))
+    return tuple(out)
+
+
+# Le foglie per-status e per-archetipo sono GENERATE (dall'enum Blocco e dai profili
+# base): le tre leve storiche migrano lì, sotto la categoria propria.
+_DEFS = _DEFS + _status_defs() + _archetipi_defs()
 
 CATALOGO: dict[str, Param] = {p.chiave: p for p in _DEFS}
 
@@ -414,11 +442,18 @@ R_SOGLIA_CROLLO = valore("R_SOGLIA_CROLLO")
 CROLLO_INCREMENTO = valore("CROLLO_INCREMENTO")
 
 AP_MAX_MVP = valore("AP_MAX_MVP")
+MOLT_ATTACCO_PESANTE = valore("MOLT_ATTACCO_PESANTE")
 DANNO_BASE = valore("DANNO_BASE")
 
 PROB_ANOMALIA = valore("PROB_ANOMALIA")
 PROB_IMBOSCATA = valore("PROB_IMBOSCATA")
 DURATA_BLOCCO_DEFAULT = valore("DURATA_BLOCCO_DEFAULT")
+# Durata delle afflizioni per nome-blocco (le classi vivono in status.py: qui solo
+# chiavi-stringa, calibrazione non importa i componenti). Derivata dall'ENUM: un
+# blocco nuovo ha la sua voce senza toccare questo dict.
+DURATA_AFFLIZIONE: dict[str, int] = {
+    blocco.value: valore(f"STATUS.{blocco.value}.durata_afflizione") for blocco in Blocco
+}
 HP_DEFAULT = valore("HP_DEFAULT")
 MAPPA_STANZE = valore("MAPPA_STANZE")
 
@@ -490,12 +525,11 @@ class ProfiloArchetipo:
     resistenze: dict[TipoDanno, float]
 
 
-# Vocabolario chiuso → nome-chiave del catalogo (i soli archetipi esistenti, F-6).
-_NOME_ARCHETIPO: dict[Archetipo, str] = {
-    Archetipo.SLIME: "slime",
-    Archetipo.SCHELETRO: "scheletro",
-    Archetipo.GOBLIN: "goblin",
-}
+# Gli archetipi BASE (storici) del catalogo di calibrazione: gli slug sono l'identità
+# (l'enum compilato non esiste più — D1). Gli archetipi NUOVI nascono come asset
+# (`contenuti/archetipi/`) e si congelano nella stagione: qui vive solo la taratura
+# dei tre storici (foglie `ARCH.*`), che resta l'autorità numerica loro.
+ARCHETIPI_BASE: tuple[str, ...] = tuple(nome for nome, _disp, _cat, _d in _ARCH_PROFILI_DEFAULT)
 
 # Tipi di danno tipati (escluso GENERICO, identità DT-6): le foglie `res.<tipo>`.
 _TIPI_RESISTIBILI: tuple[TipoDanno, ...] = (TipoDanno.MISCHIA, TipoDanno.FUOCO, TipoDanno.VELENO)
@@ -521,33 +555,29 @@ def _profilo(nome: str) -> ProfiloArchetipo:
     )
 
 
-# `Archetipo → profilo` (import-time; gli override valgono dal prossimo avvio, come le costanti).
-REGISTRY_ARCHETIPI: dict[Archetipo, ProfiloArchetipo] = {
-    a: _profilo(n) for a, n in _NOME_ARCHETIPO.items()
+# `slug → profilo` (import-time; gli override valgono dal prossimo avvio, come le costanti).
+REGISTRY_ARCHETIPI: dict[str, ProfiloArchetipo] = {
+    nome: _profilo(nome) for nome in ARCHETIPI_BASE
 }
 
 
-def profilo_corrente(archetipo: Archetipo) -> ProfiloArchetipo:
+def profilo_corrente(archetipo: str) -> ProfiloArchetipo:
     """Profilo **fresco** dagli override in memoria (per le anteprime della UI): a differenza
     di `REGISTRY_ARCHETIPI` (cache-ato all'import) rilegge catalogo+override adesso."""
-    return _profilo(_NOME_ARCHETIPO[archetipo])
+    if archetipo not in REGISTRY_ARCHETIPI:
+        raise KeyError(f"archetipo fuori dal catalogo di calibrazione: {archetipo!r}")
+    return _profilo(archetipo)
 
 
-def geometria_da_archetipo(archetipo: Archetipo) -> tuple[str, str, str]:
-    """Slot gear (armatura, taglia, arma) dell'archetipo — dato primitivo per il motore."""
-    p = REGISTRY_ARCHETIPI[archetipo]
-    return p.armatura, p.taglia, p.arma
-
-
-def resistenze_da_archetipo(archetipo: Archetipo) -> dict[TipoDanno, float]:
-    """Resistenze tipate **non nulle** dell'archetipo (assenza = identità DT-6)."""
-    return {t: v for t, v in REGISTRY_ARCHETIPI[archetipo].resistenze.items() if v != 0}
+# (Le vecchie `geometria_da_archetipo`/`resistenze_da_archetipo` sono state ritirate:
+# geometria e resistenze si leggono dal PROFILO — `registry_archetipi_correnti()` a
+# runtime, `profilo_corrente()` per le anteprime. Audit 2026-08: zero consumatori.)
 
 
 # --- Formula-madre: (archetipo, grado, livello) → primarie ---------------------
 
 def primarie_da_archetipo(
-    archetipo: Archetipo, grado, livello: int, *, profilo: ProfiloArchetipo | None = None
+    archetipo: str, grado, livello: int, *, profilo: ProfiloArchetipo | None = None
 ) -> dict[StatId, int]:
     """Formula-madre delle `Primarie` di un'entità generata (SEGNAPOSTO §11).
 

@@ -24,7 +24,7 @@ import sys
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from contracts import Archetipo, Grado
+from contracts import Grado
 from motore import calibrazione as cal
 
 # --- Backend: funzioni pure-ish sopra cal.* (testabili senza HTTP) -------------
@@ -35,6 +35,12 @@ _SOTTO_GEOMETRIA = ("armatura", "taglia", "arma")
 def _e_override(chiave: str) -> bool:
     """Vero se il valore effettivo diverge dal default (badge 'modificato')."""
     return cal.valore(chiave) != cal.CATALOGO[chiave].default
+
+
+def esiste(chiave: str) -> bool:
+    """Vero se `chiave` è una voce del catalogo — per gli host (es. `host_web`) che
+    parlano alla calibrazione SOLO via questo backend, senza importare il motore."""
+    return chiave in cal.CATALOGO
 
 
 def _voce(p: cal.Param) -> dict:
@@ -71,8 +77,8 @@ def _voce(p: cal.Param) -> dict:
 def costruisci_vista() -> dict:
     """Stato completo per il frontend: tutte le voci + l'elenco degli archetipi."""
     archetipi = [
-        {"archetipo": a.value, "nome": nome, "titolo": nome.capitalize()}
-        for a, nome in cal._NOME_ARCHETIPO.items()
+        {"archetipo": slug, "nome": slug, "titolo": slug.capitalize()}
+        for slug in cal.ARCHETIPI_BASE
     ]
     return {
         "voci": [_voce(p) for p in cal.elenco()],
@@ -123,10 +129,11 @@ def anteprima(archetipo: str, grado: str, livello: int) -> dict:
     from motore.modificatori import ResistenzaMod, Resistenze
     from motore.statistiche import Primarie
 
-    arch = Archetipo(archetipo)
+    if archetipo not in cal.REGISTRY_ARCHETIPI:
+        raise ValueError(f"archetipo sconosciuto: {archetipo!r}")
     grad = Grado(grado)
-    profilo = cal.profilo_corrente(arch)  # fresco, non da REGISTRY_ARCHETIPI (cache-ato)
-    primarie = cal.primarie_da_archetipo(arch, grad, livello, profilo=profilo)
+    profilo = cal.profilo_corrente(archetipo)  # fresco, non da REGISTRY_ARCHETIPI (cache-ato)
+    primarie = cal.primarie_da_archetipo(archetipo, grad, livello, profilo=profilo)
     res = {t: v for t, v in profilo.resistenze.items() if v != 0}
 
     comps: list[object] = [

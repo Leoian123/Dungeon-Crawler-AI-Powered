@@ -36,6 +36,13 @@ Thumbs.db
 *.bak.archivio.gz
 *.tmp
 
+# Crawler salvati da un host (slot = crawler, H §1): stato di gioco locale.
+salvataggi/
+
+# Asset creati a runtime dall'authoring (stato di guscio persistente, H §12):
+# contenuto locale dell'installazione. Gli UFFICIALI in contenuti/ sono versionati.
+contenuti_locali/
+
 # Override di calibrazione (§11) scritti dalla console admin (`calibratore`): numeri locali
 # in fase di taratura, MAI da versionare. I default vivono in `motore/calibrazione.py`.
 calibrazione.overrides.json
@@ -45,6 +52,11 @@ calibrazione.overrides.json
 .env
 .env.*
 !.env.example
+
+# La SPA vive SOLO sul branch laboratorio (`react-ecosystem`). Se `web/` compare qui è
+# un residuo su disco di uno switch di branch (node_modules non è tracciato da nessuna
+# parte): su questo branch non va committato MAI — è il branch del solo motore.
+web/
 
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/

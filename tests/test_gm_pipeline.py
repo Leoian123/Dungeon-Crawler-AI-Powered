@@ -293,7 +293,7 @@ def test_salva_scrive_i_record_gm(run_pulita, tmp_path) -> None:
     asyncio.run(sessione.prossima_narrazione())
     sessione.salva()
     from motore.persistenza.disco import leggi_archivio, path_archivio
-    dati = leggi_archivio(path_archivio(tmp_path, "carl"))
+    dati = leggi_archivio(path_archivio(tmp_path, sessione.uuid))
     assert any(r["tipo"] == TIPO_RECORD_GM for r in dati["record"])  # fix del bug sidecar
 
 

@@ -7,9 +7,16 @@
 > ed è **versionato** (a differenza di `docs/`, che è in `.gitignore`).
 >
 > **Aggiornalo** quando: chiudi una fase, crei/fondi un branch, o prendi una decisione che
-> diverge da `docs/`. Ultima revisione: **2026-07-31** — il delta del push corrente
-> (calibrazione per-entità, console web, drenaggio unificato, Mappa, host Textual di gioco)
-> è tracciato in **`README.md`**.
+> diverge da `docs/`. Ultima revisione: **2026-08-04** — travaso del **sistema di gioco**
+> da `react-ecosystem` (vedi §2.1): contenuti come asset, tick degli status acceso, mosse
+> come catalogo-dato, TTK tarato, persistenza riparata. Il delta precedente (calibrazione
+> per-entità, console web, drenaggio unificato, Mappa) resta tracciato in **`README.md`**.
+>
+> **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
+> `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive la
+> SPA React e il suo host HTTP. `headless-game-engine` è il **prodotto**: il motore di
+> gioco, che qui si porta avanti fino a diventare vendibile. Dal laboratorio al prodotto
+> passa **solo il sistema di gioco**, mai la presentazione (vedi §2.1 per cosa resta fuori).
 
 ---
 
@@ -65,9 +72,62 @@ stocastico-ma-seeded a banda/graze); `ActionPoint` posseduto; nemici e mob di na
 resistenze tipate (`ResistenzaMod`). **Tutti i numeri §11 in `motore/calibrazione.py`** (placeholder
 marcati). Restano **solo i numeri** da calibrare (la *forma* è completa).
 
-**Verifica:** **401 test verdi + 2 skip** (i 2 skip = integrazione live Anthropic, saltata senza `ANTHROPIC_API_KEY`). "Giocabile capo-a-fine" dimostrato headless con provider deterministico — e ora anche **dalla UI di gioco** (host Textual opt-in) attraverso la mappa: esplora → combatti → scala → discesa (vittoria). Delta dettagliato in `README.md`.
+**Verifica:** **497 test verdi + 2 skip** (i 2 skip = integrazione live Anthropic, saltata senza `ANTHROPIC_API_KEY`). "Giocabile capo-a-fine" dimostrato headless con provider deterministico: `python -m main` fa narrazione → scontro → status → vittoria → stanza successiva.
 
-**Fuori scope per scelta (non ancora fatto):** i **numeri** d'economia (Gruppo 2 §11, da calibrare), il **tick degli status** (`applica_effetto` ancora no-op), il **replay completo**, e le feature **post-MVP** dichiarate (vedi §4).
+**Fuori scope per scelta (non ancora fatto):** i **numeri** d'economia ancora da tarare oltre il TTK (Gruppo 2 §11), il **replay completo**, e le feature **post-MVP** dichiarate (vedi §4).
+
+---
+
+## 2.1 Travaso del sistema di gioco da `react-ecosystem` (2026-08-04)
+
+`react-ecosystem` aveva accumulato 5 commit sopra questo branch, misti motore + front-end.
+Qui è atterrato **solo il sistema di gioco**; l'host HTTP e la SPA sono rimasti là.
+
+**Cos'è entrato** (~1.900 righe di motore, +71 test → 497):
+
+- **I contenuti diventano dato.** Archetipi, mob, piani e stagioni sono asset JSON in
+  `contenuti/` (`contracts/contenuti.py` + `motore/design.py`): l'enum compilato
+  `Archetipo` lascia il posto a uno **slug con chiusura per-run** (registry congelato nella
+  `StagioneAttiva`, F-6 validato a runtime dal gate — emendamento D1). Un archetipo nuovo è
+  un file, non una riga di codice, ed è dimostrato da un test di fetta verticale.
+- **Quarto strato di gate** (D5): `EntitaGenerata.riferimento` permette all'AI di
+  *reclutare* un mob dal cast del piano — un nome da un set chiuso, mai un numero; fuori
+  cast → fallback F-13.
+- **Il tick degli status non è più un no-op** (era il primo punto aperto di §4.1): tabella
+  unica `SPEC_STATUS`, innato vs afflizione, trasmissione col colpo, durate come foglie §11
+  generate dall'enum `Blocco`.
+- **Mosse come catalogo-dato** (`motore/mosse.py`) eseguito dai system via componente
+  `Repertorio`: gli asset scelgono chiavi, i numeri restano del motore.
+- **TTK tarato** (`pv_base` 6/8/5 → 15/18/12) con `tests/test_ttk.py` come lucchetto.
+- **Persistenza riparata:** `ActionPoint` nel registry dei tag, `rng_state` davvero
+  serializzato, guardia contro il save a scontro aperto, mob di scena persistente col
+  legame stanza↔mob passato dal dato.
+- **Fix della fuga** (FNC §4): non distrugge più il mob della stanza — fuggire non è più
+  strettamente migliore che vincere.
+- `SistemaCrollo` finalmente **cablato** nel bucket dei sistemi: la rete di terminazione
+  G-L1 è attiva in run, non solo nei test.
+
+**Cosa NON è entrato, di proposito:** `src/host_web/` (host FastAPI), `web/` (SPA React),
+i 7 file `tests/test_host_web_*.py`, e le dipendenze `fastapi`/`uvicorn`/`httpx`.
+`requirements.txt` resta quindi **Pydantic e basta** — l'invariante "nessuna dipendenza di
+UI nel motore" regge per costruzione, non per disciplina.
+
+**Debito noto entrato col travaso** (da un audit del delta, in ordine di peso):
+
+1. **I numeri autorati non hanno tetto.** `ProfiloArchetipoDati` valida la *presenza* dei
+   campi, mai la *magnitudine*: chi scrive un asset può mettere `pv_base=99999`.
+   L'invariante "l'AI non emette numeri" è difeso sulla porta in-run, non su quella di
+   authoring. Serve una banda derivata dal catalogo §11.
+2. **Due proprietari della mutazione HP**: `status._applica_delta_hp` e
+   `combattimento.infliggi_danno` scrivono lo stesso campo con clamp diversi.
+3. **Il lucchetto TTK copre 2 gradi su 6**; dal platino in su il protagonista muore senza
+   chiudere lo scontro, e nulla lega il `Grado` alla profondità del piano (rischio G-L2).
+4. **`src/main.py` è passato da 508 a 1360 righe**: il composition root ha assorbito la
+   gestione della libreria contenuti. Va spaccato in pacchetto (taglio di file, non
+   refactor): `libreria/`, `authoring/`, `sessione.py`.
+5. Gli **alias storici** dei sistemi-status (`SistemaVeleno`, …) sopravvivono accanto a
+   `sistemi_status()`: cablarli insieme farebbe ticcare due volte lo stesso status.
+6. `SCHEMA_VERSION` è fermo a 1 benché l'insieme dei componenti persistenti sia cambiato.
 
 ---
 
@@ -83,18 +143,30 @@ Remote: **`origin`** → https://github.com/Leoian123/Dungeon-Crawler-AI-Powered
    │
 1250879  Implementazione del motore del tempo e di Textual UI .. ◀── v1-textual-implementation
    │
-e09f27e  Ritorno a headless: rimozione dell'adattatore Textual . ◀── headless-game-engine  ★ ATTUALE
+e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
+   │
+6d4ab35  Backend Anthropic e OpenAI + gestione chiavi API ..... ◀── main
+   ├───────────────┐
+   │               │
+   │           8d37ffa..  React ecosystem: host web + SPA ...... ◀── react-ecosystem  (LABORATORIO)
+   │                       (5 commit: asset, combat feel, fuga, archetipi)
+   │
+[travaso del solo sistema di gioco] ......................... ◀── headless-game-engine  ★ ATTUALE (PRODOTTO)
 ```
 
-| Branch | Commit | Contenuto | Ruolo |
-|---|---|---|---|
-| **`headless-game-engine`** ★ | `e09f27e` | Tutto `main` **+ motore del tempo (J) + main headless**, **senza** Textual. | **Canonico.** Base di lavoro corrente, la più avanzata (2 commit avanti a `main`, 0 indietro). |
-| `v1-textual-implementation` | `1250879` | `main` + motore del tempo (J) + **UI Textual** (nodo C, fasi 9–10). | **Archivio storico** dell'esperimento con UI. Non più la linea di sviluppo; conservato come riferimento se si volesse riesumare una TUI. |
-| `main` | `5b8bfc7` | Solo fasi 0–7 (scaffolding → guscio), headless+seeded. **Niente** motore del tempo, niente UI. | **Indietro.** Va portato avanti (vedi §5). |
+| Branch | Contenuto | Ruolo |
+|---|---|---|
+| **`headless-game-engine`** ★ | Il **motore di gioco** e nient'altro: `contracts` + `motore` + `guscio` + composition root + contenuti + i suoi test. Unica dipendenza viva: **Pydantic**. | **Il prodotto.** È qui che il motore si porta avanti fino a diventare vendibile. Nessun host, nessuna UI, nessun framework web. |
+| `react-ecosystem` | Tutto il motore **+** host HTTP (`src/host_web`, FastAPI) **+** SPA React (`web/`). | **Il laboratorio.** Ci si gioca e si vede l'evoluzione del gioco. Il motore che matura qui viene travasato nel prodotto; la presentazione resta. |
+| `main` | Allineato a `6d4ab35`. | **Indietro** rispetto a entrambi. Va portato avanti quando il motore è accettato. |
+| `v1-textual-implementation` | `main` storico + **UI Textual** (nodo C, fasi 9–10). | **Archivio.** Riferimento se si volesse riesumare una TUI. |
 
-> **Nota:** `headless-game-engine` è strettamente **avanti** a `main` (nessun commit di
-> `main` manca qui) e contiene tutto il valore di `v1-textual-implementation` **tranne** il
-> layer Textual. È quindi il candidato naturale a diventare la nuova linea principale.
+> **La regola del travaso:** dal laboratorio al prodotto passano solo `src/contracts`,
+> `src/motore`, `src/guscio`, `src/main.py`, gli strumenti del motore a sole stdlib
+> (`banco_nemici.py`, `calibratore_web.py`), `contenuti/` e i test **non** `test_host_web_*`.
+> Non passano mai: `src/host_web/`, `web/`, e le dipendenze che si portano dietro. Se un
+> giorno un test del motore avesse bisogno di `httpx`, quello è il segnale che qualcosa di
+> host è colato dentro.
 
 ---
 
@@ -107,10 +179,14 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual . ◀── headl
   + tabelle di budget/anomalie, numeri degli status, soglie classi di prova, `Durata → carico-tick`.
   Vincolo: l'AI non emette numeri — il motore li deriva (gate catalogo+budget). I due **property-test**
   del check 1 (`tests/test_calibrazione_check1.py`) sono la rete che li vincola.
-- **Tick degli status** (`status.applica_effetto` oggi no-op): un solo `SistemaStatus` generico
-  guidato dalla lista di `Effetto` (Gr2 §16.1), ora che l'atomo `Azione`/`Effetto` esiste.
+- ~~**Tick degli status**~~ — **FATTO** col travaso (§2.1): tabella unica `SPEC_STATUS`, un
+  system per riga generato da `sistemi_status()`, durate come foglie §11. Resta da portare a
+  §11 anche il `delta_per_rango` (oggi letterale nella tabella) e da ritirare gli alias storici.
 - **Calibrazione del gate del nodo A** (G-L1 "ogni scontro termina", G-L2 "ogni piano
-  completabile") con i numeri reali del Gruppo 2, non solo con gli stub.
+  completabile") con i numeri reali del Gruppo 2, non solo con gli stub. Il TTK è tarato per
+  bronzo/argento; **dal platino in su lo scontro non termina** (vedi debito §2.1 punto 3).
+- **Chiudere la porta numerica dell'authoring** (debito §2.1 punto 1): finché un asset può
+  scrivere `pv_base=99999`, "i numeri li deriva il motore" vale solo per l'AI in-run.
 
 ### 4.2 Post-MVP dichiarato (forma predisposta, da accendere)
 - **Replay deterministico completo** — oggi "solo-formato": i marcatori di fallback non

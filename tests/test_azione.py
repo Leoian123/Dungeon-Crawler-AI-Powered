@@ -35,7 +35,8 @@ _MOTORE = Path(__file__).resolve().parents[1] / "src" / "motore"
 
 def test_GR2_12_forma_azione() -> None:
     campi = {f.name for f in dataclasses.fields(Azione)}
-    assert campi == {"sorgente", "bersaglio", "effetti", "costo"}
+    # `mossa` è flavour per la cronaca (chiave diegetica), non una quarta giuntura.
+    assert campi == {"sorgente", "bersaglio", "effetti", "costo", "mossa"}
 
     # L'attacco base è l'UNICA istanza dell'MVP: effetti=[Danno], costo={"AP": 1}.
     az = Azione(sorgente=1, bersaglio=2, effetti=[Danno(quantita_da=QuantitaDa.ATK_EFF)])
@@ -44,9 +45,11 @@ def test_GR2_12_forma_azione() -> None:
     assert az.effetti[0].quantita_da is QuantitaDa.ATK_EFF
     assert az.effetti[0].tipo is TipoDanno.GENERICO     # default untyped (DT-1)
 
-    # Il risolutore costruisce un'`Azione` (non chiama "infliggi attacco").
+    # Il risolutore esegue un'`Azione` composta dal catalogo mosse (Fase 1: la
+    # costruzione vive in mosse.py come DATO; il loop la chiama, non la cabla).
     src = (_MOTORE / "combattimento.py").read_text(encoding="utf-8")
-    assert "Azione(" in src
+    assert "azione_da_mossa(" in src
+    assert "Azione(" in (_MOTORE / "mosse.py").read_text(encoding="utf-8")
 
 
 # --- GR2-13: scelta da un insieme, costo verificato PRIMA, effetti iterati ------

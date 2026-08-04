@@ -38,17 +38,16 @@ from motore import (
     MODEL_ID_DEFAULT,
     NOME_DEFAULT,
     NOME_RUN,
-    SistemaBrucia,
+    SistemaCrollo,
     SistemaDeathCheck,
     SistemaDiscesa,
     SistemaMovimento,
-    SistemaRigenerazione,
     SistemaRinforzi,
-    SistemaStordito,
     SistemaTempoPiano,
     SistemaTurnoCombattimento,
-    SistemaVeleno,
+    sistemi_status,
     avvia_run,
+    carica_archivio,
     carica_crawler,
     collega_combattimento,
     collega_transizioni_fase,
@@ -56,6 +55,7 @@ from motore import (
     crea_profondita,
     crea_protagonista,
     crea_seme,
+    crea_stagione,
     crea_tempo_piano,
     mappa_to_dict,
     entra_run_nuova,
@@ -119,14 +119,19 @@ class Guscio:
     def _sistemi_run(self):
         return dict(
             sempre_attivi=[
-                SistemaVeleno(),
-                SistemaBrucia(),
-                SistemaRigenerazione(),
-                SistemaStordito(),
+                # I tick di status sono DERIVATI dalla tabella unica (SPEC_STATUS):
+                # un nuovo status non tocca il guscio.
+                *sistemi_status(self.bus),
                 SistemaDeathCheck(self.bus),
                 SistemaTempoPiano(),  # contatore di tempo-piano, avanza al tick condiviso (J-14)
             ],
-            solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(self.bus)],
+            # `SistemaCrollo` DOPO il sistema-turno (legge il `turni_scontro` appena
+            # avanzato): la rete di terminazione per costruzione è ATTIVA (G-L1).
+            solo_combattimento=[
+                SistemaRinforzi(),
+                SistemaTurnoCombattimento(self.bus),
+                SistemaCrollo(),
+            ],
             solo_narrazione=[SistemaMovimento(), SistemaDiscesa(self.bus)],
         )
 
@@ -163,17 +168,32 @@ class Guscio:
     # --- Ingresso run: protagonista NASCE o si DESERIALIZZA, solo qui (E-5) ----
 
     def nuova_partita(
-        self, uuid: str = "carl", *, destrezza: int = 10, hp: int = 30, seed: int = 0
+        self,
+        uuid: str = "carl",
+        *,
+        destrezza: int = 10,
+        hp: int = 30,
+        seed: int = 0,
+        n_stanze: int | None = None,
+        stagione=None,
     ) -> None:
         """Confine guscio→run, nuova partita (3a): `"run"` fresco e il protagonista
-        **nasce** qui (Carl predefinito, G §6.5). Mai a una transizione di fase (E-5)."""
+        **nasce** qui (Carl predefinito, G §6.5). Mai a una transizione di fase (E-5).
+
+        `n_stanze` sovrascrive il default di calibrazione (`MAPPA_STANZE`) per la
+        topologia del piano: lo usa l'host quando il contenuto è un copione a
+        lunghezza nota (es. il giro scriptato del GM offline). `stagione` è
+        l'aggregato di contenuto RISOLTO (`design.StagioneAttiva`): viene
+        congelato qui, accanto agli altri singleton, e viaggia col save."""
         assert self.stato == StatoGuscio.MENU, self.stato
         entra_run_nuova()  # H esegue lo switch al `"run"` fresco; il guscio lo orchestra
         # I singleton di stato nascono qui; `FaseCorrente` la crea `avvia_run`.
         crea_profondita()
         crea_seme(seed)
         crea_tempo_piano()
-        crea_mappa(random.Random(seed))  # topologia seeded dal seme di run (G-18 garantito)
+        if stagione is not None:
+            crea_stagione(stagione)  # il design della run: congelato al confine (E-5)
+        crea_mappa(random.Random(seed), n_stanze)  # topologia seeded (G-18 garantito)
         crea_protagonista(destrezza=destrezza, punti_vita=hp, id_dominio=uuid)
         self.coda = avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE, **self._sistemi_run())
         self._registra_handler_run()
@@ -229,7 +249,14 @@ class Guscio:
 
     # --- La cucitura unica: hand-off del terminale (E-4, E-8) ------------------
 
-    def concludi(self) -> Terminale:
+    def concludi(
+        self,
+        *,
+        archivio=None,
+        etichetta: str | None = None,
+        timestamp: float = 0.0,
+        rng_state: list | None = None,
+    ) -> Terminale:
         """Esegue l'hand-off del terminale rilevato (stessa cucitura per 6a/6b/6c):
 
         1. **save-wiring PRIMA dello switch** (World ancora vivo): uscita volontaria
@@ -239,14 +266,29 @@ class Guscio:
            `delete_world("run")`, E-6) — chiamato dalla shell, fuori da ogni handler (E-4).
 
         Da chiamare **dopo** che `esegui_run` ha ceduto il controllo: mai in un handler.
+
+        `archivio`/`etichetta`/`timestamp` riguardano SOLO il ramo uscita volontaria:
+        l'Archivio della sessione va passato dal chiamante che lo possiede — senza,
+        si RILEGGE il sidecar esistente, che così non viene mai azzerato da un
+        salva-ed-esci (il sidecar è la storia congelata dei turni GM, H §11).
         """
         assert self.stato == StatoGuscio.IN_RUN and self._terminale is not None
         terminale = self._terminale
         uuid = self._uuid
 
         if terminale is Terminale.USCITA_VOLONTARIA:
+            if archivio is None and uuid is not None:
+                archivio = carica_archivio(self.directory, uuid)
             # La mappa viaggia nello slot `esplorazione` (topologia + posizione + visitate).
-            salva_run(self.directory, model_id=self.model_id, esplorazione=mappa_to_dict())
+            salva_run(
+                self.directory,
+                archivio=archivio,
+                model_id=self.model_id,
+                etichetta=etichetta,
+                timestamp=timestamp,
+                esplorazione=mappa_to_dict(),
+                rng_state=rng_state,
+            )
         else:  # SCONFITTA (6a) o PIANO_COMPLETATO (6b): fine-run → invalida
             if uuid is not None:
                 invalida(self.directory, uuid)

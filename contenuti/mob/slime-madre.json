@@ -1,0 +1,18 @@
+{
+  "slug": "slime-madre",
+  "versione": 1,
+  "tags": [
+    "falsa-idra",
+    "covo",
+    "boss-di-tappa"
+  ],
+  "nome": "Slime Madre",
+  "archetipo": "slime",
+  "grado": "argento",
+  "blocchi": [
+    "veleno"
+  ],
+  "descrizione": "Ogni testa finta del piano è farina del suo sacco. Letteralmente.",
+  "prosa_stanza": "Una vasca gorgogliante dove le «teste di ricambio» crescono come lievito madre. Lo slime enorme sul fondo ti guarda con orgoglio materno e zero rimorsi.",
+  "durata": "turno"
+}

@@ -16,10 +16,14 @@ from .eventi import (
     Entita,
     EventoDominio,
     EncounterStarted,
+    ColpoInferto,
     CombatResolved,
+    EffettoStatus,
     MortePersonaggio,
     AnomalyTriggered,
     DiscesaPiano,
+    StatusApplicato,
+    TurnoSaltato,
 )
 from .intenti import (
     Intento,
@@ -32,7 +36,7 @@ from .intenti import (
     PlayerDiscende,
 )
 from .schema import (
-    Archetipo,
+    ArchetipoId,
     Grado,
     StatId,
     Blocco,
@@ -49,7 +53,19 @@ from .schema import (
     Ideazione,
     InquadramentoProva,
 )
-from .proiezione import SchedaProiezione
+from .contenuti import (
+    ArchetipoAsset,
+    AssetVista,
+    BudgetDesign,
+    MobAsset,
+    PianoAsset,
+    PianoRisolto,
+    ProfiloArchetipoDati,
+    Stagione,
+    StagioneRisolta,
+)
+from .hub import CrawlerVista
+from .proiezione import SchedaProiezione, SchedaVista
 from .vista import (
     FattiScontro,
     MessaggioGM,
@@ -70,10 +86,14 @@ __all__ = [
     "Entita",
     "EventoDominio",
     "EncounterStarted",
+    "ColpoInferto",
     "CombatResolved",
+    "EffettoStatus",
     "MortePersonaggio",
     "AnomalyTriggered",
     "DiscesaPiano",
+    "StatusApplicato",
+    "TurnoSaltato",
     # intenti
     "Intento",
     "IntentoCombattimento",
@@ -84,7 +104,7 @@ __all__ = [
     "PlayerTentaProva",
     "PlayerDiscende",
     # schema AI↔motore
-    "Archetipo",
+    "ArchetipoId",
     "Grado",
     "StatId",
     "Blocco",
@@ -100,8 +120,20 @@ __all__ = [
     "TonoScena",
     "Ideazione",
     "InquadramentoProva",
-    # proiezione scheda (sola lettura)
+    # proiezione scheda (sola lettura) + scheda per la UI + hub
     "SchedaProiezione",
+    "SchedaVista",
+    "CrawlerVista",
+    # contenuti dello show (asset riusabili + forme risolte)
+    "AssetVista",
+    "BudgetDesign",
+    "ArchetipoAsset",
+    "MobAsset",
+    "PianoAsset",
+    "ProfiloArchetipoDati",
+    "PianoRisolto",
+    "Stagione",
+    "StagioneRisolta",
     # snapshot di rendering per la vista
     "OpzioneVista",
     "SnapshotVista",

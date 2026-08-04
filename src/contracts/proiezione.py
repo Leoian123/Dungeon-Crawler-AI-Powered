@@ -46,3 +46,30 @@ class SchedaProiezione(BaseModel):
     descrittori: tuple[str, ...] = ()
     primarie: Mapping[str, int] = {}
     primarie_occulte: tuple[str, ...] = ()
+
+
+class SchedaVista(BaseModel):
+    """Scheda del protagonista per la **UI del giocatore** (non per l'AI).
+
+    A differenza di `SchedaProiezione`, qui i numeri PALESI sono ammessi: il
+    giocatore vede i propri HP e le proprie stat — è l'AI che non deve vederli
+    (G §6.6). Le regole di visibilità restano quelle del registry, applicate a
+    monte dal motore: `primarie` = solo PALESI (valori effettivi), le
+    VALORE_NASCOSTO compaiono per nome in `primarie_occulte`, le
+    ESISTENZA_NEGATA (fortuna) non compaiono MAI (GR2-9).
+    Il costruttore vive lato composition root (`SessioneGioco.scheda()`).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    uuid: str
+    nome: str
+    vivo: bool
+    hp: int
+    hp_max: int
+    descrittori: tuple[str, ...] = ()
+    primarie: Mapping[str, int] = {}
+    primarie_occulte: tuple[str, ...] = ()
+    derivate: Mapping[str, int] = {}
+    livello: int = 1
+    tick_piano: int = 0

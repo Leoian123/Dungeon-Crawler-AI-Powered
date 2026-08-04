@@ -31,28 +31,27 @@ from pydantic import ValidationError
 
 from contracts import (
     AnomalyTriggered,
-    Archetipo,
     Durata,
     EncounterStarted,
     EntitaGenerata,
     Flavor,
-    Grado,
     Opzione,
     SchedaProiezione,
     TipoAzione,
     TurnoNarrazione,
 )
 
-from .calibrazione import (
-    geometria_da_archetipo,
-    primarie_da_archetipo,
-    resistenze_da_archetipo,
-)
+from .calibrazione import primarie_da_archetipo
 from .corredo import Corredo
+from .design import (
+    archetipo_attivo,
+    mob_del_cast,
+    profilo_con_override,
+    registry_archetipi_correnti,
+)
 from .modificatori import ResistenzaMod, Resistenze
 from .catalogo import (
     DURATA_BLOCCO_DEFAULT,
-    REGISTRY_ARCHETIPI,
     REGISTRY_BLOCCHI,
     Budget,
     prepara_contesto,
@@ -60,6 +59,8 @@ from .catalogo import (
 )
 from .combattimento import PianoIncontro, SpecNemico
 from .derivate import max_hp
+from .mob import EntitaMob, Repertorio
+from .mosse import MOSSE_DEFAULT
 from .prove import risolvi_prova
 from .scheda import Scheda
 from .statistiche import REGISTRY_STAT, Primarie, Visibilita, stat_eff
@@ -88,18 +89,9 @@ MENU_FISSO: tuple[Opzione, ...] = (
 
 
 # --- Componente dell'entità generata (materializzata nel World) ---------------
-
-@dataclass
-class EntitaMob:
-    """Dato puro dell'entità generata: i campi categoriali scelti dall'AI + flavor +
-    la profondità legata dal motore dopo il gate. Le statistiche stanno nel vettore
-    `Primarie` (derivate via `stat_eff`, GR2-3) — una sola strada-stat (§16.4), MAI qui."""
-
-    archetipo: Archetipo
-    grado: Grado
-    nome: str
-    descrizione: str
-    livello: int
+# `EntitaMob` vive in `mob.py` (modulo foglia: è persistente e il registry dei tag
+# non importa moduli coi sistemi); l'import sopra lo ri-esporta per i consumatori
+# storici (`from .narrazione import EntitaMob`).
 
 
 # --- Proiezione di sola lettura della scheda (G §6.6, G-13) -------------------
@@ -160,11 +152,15 @@ def costruisci_prompt(budget: Budget, proiezione: SchedaProiezione, voce: str) -
     """
     gradi = ", ".join(sorted(g.value for g in budget.gradi_ammessi))
     blocchi = ", ".join(sorted(b.value for b in budget.blocchi_ammessi))
+    # Fix F-10: anche gli ARCHETIPI raggiungono l'AI due volte (prompt soft + gate
+    # hard) — prima erano vincolati solo hard, con più fallback del necessario.
+    archetipi = ", ".join(sorted(budget.archetipi_ammessi))
     stato = ", ".join(proiezione.descrittori) if proiezione.descrittori else "ignoto"
     righe = [
         voce,
         f"[contesto] profondità del piano: {budget.livello}",
         f"[contesto] stato del protagonista (vista): {stato}",
+        f"[budget] archetipi ammessi: {archetipi}",
         f"[budget] gradi ammessi: {gradi}",
         f"[budget] blocchi ammessi: {blocchi}",
         "[budget] scegli archetipo/grado/blocchi DENTRO il budget; "
@@ -187,8 +183,9 @@ def valida_turno(
 
     1. **Schema** — il candidato ri-parsa nel modello Pydantic (garanzia
        backend-agnostica: un backend senza grammatica produrrebbe testo da parsare).
-    2. **Catalogo** — ogni `Archetipo`/`Blocco` scelto è un membro legale **e** ha un
-       binding nel registry (F-6): nessun nome accettabile ma non istanziabile.
+    2. **Catalogo** — ogni archetipo/`Blocco` scelto ha un binding nel registry
+       (F-6): per gli archetipi il registry è quello DELLA RUN (storici + asset
+       congelati nella stagione, D1) — nessun nome accettabile ma non istanziabile.
     3. **Budget** — rarità e insieme di blocchi cadono nel set ammissibile (F-10). È
        **obbligatorio e insostituibile**: la grammatica vincola il vocabolario, non i
        valori; il budget è un vincolo di valore → solo il gate lo garantisce.
@@ -205,8 +202,9 @@ def valida_turno(
 
     eg = cand.entita
 
-    # Strato 2: appartenenza al catalogo + binding nel registry.
-    if eg.archetipo not in REGISTRY_ARCHETIPI:
+    # Strato 2: appartenenza al catalogo + binding nel registry (per gli archetipi:
+    # il registry congelato della run — F-6 diventa runtime, D1).
+    if eg.archetipo not in registry_archetipi_correnti():
         return None
     for blocco in eg.blocchi:
         if blocco not in REGISTRY_BLOCCHI:
@@ -217,6 +215,18 @@ def valida_turno(
         return None
     if not set(eg.blocchi) <= budget.blocchi_ammessi:
         return None
+    if eg.archetipo not in budget.archetipi_ammessi:
+        return None  # il design del piano vincola anche gli archetipi
+
+    # Strato 4 (D5): il `riferimento` è un RECLUTAMENTO dal cast del piano corrente
+    # — un nome fuori cast è un rifiuto (fallback F-13), mai contenuto arbitrario.
+    # Senza un piano attivo (harness, save legacy) il vincolo non esiste: il
+    # riferimento resta un'annotazione inerte (la materializzazione lo ignora).
+    if eg.riferimento is not None:
+        from .design import design_piano_corrente
+
+        if design_piano_corrente() is not None and mob_del_cast(eg.riferimento) is None:
+            return None
 
     # Clamp d'ingresso al combattimento (C3): la durata è ricondotta a TURNO.
     if ingresso_combattimento and cand.durata != Durata.TURNO:
@@ -370,17 +380,35 @@ async def esegui_turno_narrazione(
 def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
     """Istanzia l'entità validata nel World con le stat **derivate dal motore** (F-6).
 
-    Le primarie escono dalla formula-madre `(archetipo, grado, livello) → Primarie`
-    (`calibrazione.primarie_da_archetipo`): **stesso vettore** del protagonista e dei nemici,
-    letto via `stat_eff` — una sola strada-stat (§16.4). I blocchi scelti diventano
-    componenti-status (la chimera è una somma di componenti, FNC §5.5), col **rango copiato
-    dalla rarità** (G §4.3). Il `livello` (profondità) è legato qui, dopo il gate — l'AI non
-    lo ha emesso (G-17).
+    Le primarie escono dalla formula-madre `(profilo, grado, livello) → Primarie`:
+    **stesso vettore** del protagonista e dei nemici, letto via `stat_eff` — una sola
+    strada-stat (§16.4). Il PROFILO viene dal registry archetipi DELLA RUN (storici di
+    calibrazione + asset congelati nella stagione — D1): l'entità è composta da dati,
+    mai da rami per-archetipo. I blocchi scelti diventano componenti-status (la chimera
+    è una somma di componenti, FNC §5.5), col **rango copiato dalla rarità** (G §4.3).
+    Il `livello` (profondità) è legato qui, dopo il gate — l'AI non lo ha emesso (G-17).
     """
-    primarie = Primarie(valori=primarie_da_archetipo(entita.archetipo, entita.grado, livello))
+    profilo = registry_archetipi_correnti()[entita.archetipo]  # post-gate: sempre presente
+    # RECLUTAMENTO (D5): col `riferimento` si materializza QUEL mob del cast — il suo
+    # override di profilo vince campo-per-campo, le sue mosse vincono sul repertorio
+    # d'archetipo. Tutto dato → dato, mai un ramo per-mob nel codice.
+    reclutato = mob_del_cast(entita.riferimento) if entita.riferimento else None
+    if reclutato is not None:
+        profilo = profilo_con_override(profilo, reclutato.override)
+    primarie = Primarie(
+        valori=primarie_da_archetipo(entita.archetipo, entita.grado, livello, profilo=profilo)
+    )
     rango = rango_grado(entita.grado)
 
-    armatura, taglia, arma = geometria_da_archetipo(entita.archetipo)
+    # Repertorio: mosse del mob reclutato → dell'archetipo-asset → default del motore.
+    attivo = archetipo_attivo(entita.archetipo)
+    if reclutato is not None and reclutato.mosse:
+        mosse = tuple(reclutato.mosse)
+    elif attivo is not None and attivo.mosse:
+        mosse = tuple(attivo.mosse)
+    else:
+        mosse = MOSSE_DEFAULT
+
     componenti: list[object] = [
         EntitaMob(
             archetipo=entita.archetipo,
@@ -390,18 +418,24 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
             livello=livello,
         ),
         primarie,
-        Corredo(armatura=armatura, taglia=taglia, arma=arma),  # seam gear per-entità
+        # Seam gear per-entità: le chiavi vengono dal profilo (dato), mai da lookup
+        # per-archetipo nel codice.
+        Corredo(armatura=profilo.armatura, taglia=profilo.taglia, arma=profilo.arma),
+        # Le mosse che il mob porta (dato nel componente; il system le esegue).
+        Repertorio(mosse=mosse),
     ]
-    resistenze = resistenze_da_archetipo(entita.archetipo)
+    resistenze = {t: v for t, v in profilo.resistenze.items() if v != 0}
     if resistenze:  # assenza = identità DT-6: nessun Resistenze se il profilo è neutro
-        fonte = f"archetipo:{entita.archetipo.value}"  # tag di dominio stabile (mai id esper)
+        fonte = f"archetipo:{entita.archetipo}"  # tag di dominio stabile (mai id esper)
         componenti.append(Resistenze(voci=[
             ResistenzaMod(contro=tipo, valore=valore, fonte=fonte)
             for tipo, valore in resistenze.items()
         ]))
     for blocco in entita.blocchi:
         cls = REGISTRY_BLOCCHI[blocco]
-        componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT))
+        # INNATO: capacità del mob (lo slime È velenoso), non afflizione — non
+        # scade, non danneggia il portatore; agisce sul colpo o come passiva.
+        componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT, innato=True))
 
     return esper.create_entity(*componenti)
 
