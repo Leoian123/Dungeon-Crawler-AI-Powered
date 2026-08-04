@@ -66,7 +66,18 @@ from .turno import azzera_turno_attivo, segna_turno_attivo
 
 @dataclass
 class Nemico:
-    """Marker di un combattente nemico (entità EFFIMERA: distrutta su CombatResolved)."""
+    """Marker di un combattente nemico, con il suo **ciclo di vita** (FNC §6.3).
+
+    `arruolato=False` (default) → nemico SPAWNATO all'ingaggio: entità interamente
+    effimera, distrutta su `CombatResolved`. `arruolato=True` → mob di scena **già
+    vivo nel World** (rivelato dalla narrazione, legato alla stanza da
+    `EntitaMob.stanza`): su `CombatResolved` è effimero solo il *ruolo* di nemico —
+    se sopravvive allo scontro (fuga, FNC §4) l'entità RESTA in scena e si limita a
+    perdere i componenti di combattimento. Distruggerla anche da viva renderebbe la
+    fuga migliore della vittoria (stanza svuotata a costo zero) e consumerebbe il
+    cast del piano."""
+
+    arruolato: bool = False
 
 
 @dataclass
@@ -211,7 +222,7 @@ def spawn_nemico(*, destrezza: int, punti_vita: int) -> int:
     chiave = stato.prossima_chiave
     stato.prossima_chiave += 1
     return esper.create_entity(
-        Nemico(),
+        Nemico(arruolato=False),  # nato per lo scontro: muore con lo scontro
         Combattente(destrezza=destrezza, chiave_ordine=chiave),
         ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
         Primarie(valori=primarie_da_scalari(destrezza=destrezza, punti_vita=punti_vita)),
@@ -226,21 +237,41 @@ def arruola_entita(entita: int) -> int:
     (destrezza dal fold — GR2-3), `ActionPoint`, `PuntiVita` (pool = `max_hp` derivato
     dalla SUA Costituzione). Le sue `Primarie`/`Corredo`/`Resistenze` restano: le
     derivate del risolutore leggono il profilo calibrato vero. Su `CombatResolved`
-    l'entità segue il ciclo di vita effimero (eliminata come ogni `Nemico`)."""
+    l'entità NON viene distrutta se è ancora viva: `Nemico(arruolato=True)` la marca
+    come mob di scena, e lo smontaggio la congeda invece di eliminarla (FNC §4: la
+    fuga interrompe lo scontro, non cancella il nemico dalla stanza).
+
+    Le **ferite restano**: un mob già ferito (scontro interrotto da una fuga) viene
+    riarruolato col suo `PuntiVita`, non col pool pieno — altrimenti fuggire sarebbe
+    il modo gratuito di rigenerare il nemico."""
     st = stato_combattimento()
     if st is None:
         raise RuntimeError("arruola_entita richiede uno StatoCombattimento attivo")
     _ent_stato, stato = st
     chiave = stato.prossima_chiave
     stato.prossima_chiave += 1
-    hp = max_hp(entita)
-    esper.add_component(entita, Nemico())
+    esper.add_component(entita, Nemico(arruolato=True))
     esper.add_component(
         entita, Combattente(destrezza=stat_eff(entita, StatId.DESTREZZA), chiave_ordine=chiave)
     )
     esper.add_component(entita, ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP))
-    esper.add_component(entita, PuntiVita(attuali=hp, massimi=hp))
+    if esper.try_component(entita, PuntiVita) is None:
+        hp = max_hp(entita)
+        esper.add_component(entita, PuntiVita(attuali=hp, massimi=hp))
     return entita
+
+
+def _congeda(entita: int) -> None:
+    """Toglie a un mob ARRUOLATO sopravvissuto i soli componenti di combattimento:
+    smette di essere un nemico ingaggiato, resta l'entità di scena.
+
+    `PuntiVita` NON viene tolto di proposito — è la ferita che il mob si porta dietro
+    fino al prossimo ingaggio (`arruola_entita` lo riusa). `ActionPoint` sì: è
+    persistente (registry dei tag), e un mob fuori scontro non deve portarne uno nel
+    save."""
+    for componente in (Nemico, Combattente, ActionPoint):
+        if esper.has_component(entita, componente):
+            esper.remove_component(entita, componente)
 
 
 def _nemici_vivi() -> list[int]:
@@ -648,8 +679,15 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
         stato.ordine = calcola_iniziativa(combattenti)
 
     def _smonta(_evento: CombatResolved) -> None:
-        for ent, _ in list(esper.get_component(Nemico)):
-            esper.delete_entity(ent, immediate=True)
+        # Il ciclo di vita dipende da COME il nemico è entrato in scontro (FNC §6.3):
+        # lo spawnato è nato per lo scontro e muore con lo scontro; l'arruolato è il
+        # mob della stanza — se è ancora vivo (fuga, FNC §4) viene CONGEDATO, non
+        # distrutto, e resta in scena col suo legame `EntitaMob.stanza`.
+        for ent, nemico in list(esper.get_component(Nemico)):
+            if nemico.arruolato and _e_vivo(ent):
+                _congeda(ent)
+            else:
+                esper.delete_entity(ent, immediate=True)
         azzera_turno_attivo()
         for ent, _ in list(esper.get_component(StatoCombattimento)):
             esper.delete_entity(ent, immediate=True)
