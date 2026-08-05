@@ -19,6 +19,7 @@ Dipendenze: solo stdlib + Pydantic (F-2).
 from __future__ import annotations
 
 from collections.abc import Mapping
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
@@ -48,6 +49,85 @@ class SchedaProiezione(BaseModel):
     primarie_occulte: tuple[str, ...] = ()
 
 
+# --- La scheda del giocatore: skill, equipaggiamento, progressione ---------------
+#
+# ⚠️ FORMA, non contenuto. Questi DTO dichiarano il CONTRATTO della scheda: cosa un
+# host può mostrare e cosa il motore si impegna a dire. Alcuni campi oggi sono
+# popolati (le skill vengono dal `Repertorio` + catalogo mosse), altri sono
+# DELIBERATAMENTE VUOTI perché il sistema che li riempirà non esiste ancora
+# (inventario, oggetti, esperienza). Il contratto esiste lo stesso: quando arriverà
+# il contenuto si riempie un campo, non si riscrive un'interfaccia — e la UI che li
+# legge oggi (mostrando "nessuno") non cambierà una riga.
+
+
+class SlotEquip(str, Enum):
+    """Gli slot di equipaggiamento: vocabolario CHIUSO (come ogni cosa con
+    conseguenza meccanica, F-4).
+
+    Corrispondono uno-a-uno alle leve di geometria che il motore già usa per le
+    derivate (`Corredo`: armatura → mobilità, arma → accuratezza). Il vocabolario
+    è fissato ORA perché è ciò che rende additivo il resto: quando esisteranno gli
+    oggetti, entreranno in slot già dichiarati."""
+
+    ARMA = "arma"
+    ARMATURA = "armatura"
+
+
+class EquipVista(BaseModel):
+    """Uno slot di equipaggiamento come lo vede il giocatore.
+
+    Oggi il motore NON ha oggetti: espone la **categoria di geometria** attiva
+    (quella che muove davvero i numeri — `veste`, `naturale`…) e lascia `nome`
+    vuoto, che significa "slot vuoto, valgono i default". Quando arriverà
+    l'inventario, `nome` porterà l'oggetto e `categoria` resterà la sua
+    geometria: nessun campo nuovo, nessuna migrazione della UI."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    slot: SlotEquip
+    nome: str = ""        # "" = slot vuoto (nessun oggetto equipaggiato)
+    categoria: str = ""   # la chiave di geometria §11 che muove le derivate
+    descrizione: str = ""
+
+
+class SkillVista(BaseModel):
+    """Una skill/mossa come la vede il giocatore: cosa costa, se è pronta, perché no.
+
+    `pronta` è la sintesi che la UI usa per abilitare il bottone; `costo_mana`,
+    `cd_totale` e `cd_residuo` sono il DETTAGLIO che le fa dire *perché*. Il motore
+    resta l'autorità: `pronta` è una fotografia, non un permesso."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    chiave: str
+    etichetta: str
+    descrizione: str = ""
+    costo_mana: int = 0
+    cd_totale: int = 0
+    cd_residuo: int = 0
+    pronta: bool = True
+
+
+class ProgressioneVista(BaseModel):
+    """L'avanzamento del personaggio DENTRO la run.
+
+    ⚠️ CONTRATTO VUOTO PER ORA. Non esiste esperienza, non esiste crescita: i campi
+    sono a zero e la UI mostrerà una barra ferma. Esiste comunque perché la domanda
+    "quanto sono avanzato" è già parte della scheda, e perché il giorno in cui il
+    motore comincerà a contare qualcosa non dovrà negoziare un contratto nuovo con
+    ogni host già scritto.
+
+    NB: `livello_piano` è la PROFONDITÀ (quanti piani sotto), non un livello di
+    personaggio — la distinzione va tenuta ferma qui, dove un host la legge."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    livello_piano: int = 1
+    esperienza: int = 0            # sempre 0 finché non esiste una fonte di XP
+    esperienza_al_prossimo: int = 0  # 0 = nessuna soglia definita
+    punti_da_spendere: int = 0     # 0 = nessuna scelta di crescita pendente
+
+
 class SchedaVista(BaseModel):
     """Scheda del protagonista per la **UI del giocatore** (non per l'AI).
 
@@ -73,3 +153,11 @@ class SchedaVista(BaseModel):
     derivate: Mapping[str, int] = {}
     livello: int = 1
     tick_piano: int = 0
+
+    # --- Risorse, skill, equipaggiamento, progressione (tutti con default: un
+    # host che non li legge continua a funzionare, e i costruttori esistenti pure).
+    mana: int = 0
+    mana_max: int = 0
+    skills: tuple[SkillVista, ...] = ()
+    equip: tuple[EquipVista, ...] = ()
+    progressione: ProgressioneVista = ProgressioneVista()

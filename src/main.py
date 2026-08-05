@@ -47,7 +47,11 @@ from contracts import (
     PianoAsset,
     PianoRisolto,
     ProfiloArchetipoDati,
+    EquipVista,
+    ProgressioneVista,
     SchedaVista,
+    SkillVista,
+    SlotEquip,
     Stagione,
     StagioneRisolta,
     TipoDanno,
@@ -115,7 +119,10 @@ from motore import (
     prossimo_attivo_e_protagonista,
     CATALOGO_MOSSE,
     cooldown_residuo,
+    assicura_mana,
     etichetta_mossa,
+    geometria_di,
+    max_mana,
     mossa_pagabile,
     mosse_di,
     richiedi_fuga,
@@ -545,6 +552,41 @@ def affini(
         classifica.append((-sovrapposizione, -jaccard, slug, vista))
     classifica.sort()
     return [vista for *_resto, vista in classifica[:k]]
+
+
+def _skills_di(entita: int) -> tuple[SkillVista, ...]:
+    """Le skill dell'entità per la scheda: repertorio (dato) × catalogo (numeri).
+
+    Fuori scontro `Ricariche` non esiste → `cd_residuo=0` per costruzione: mai un
+    valore stantio. `pronta` riflette comunque il MANA, che è posseduto e persiste:
+    in narrazione la scheda può dire "non pronta" — ed è l'informazione che spinge
+    a riposare."""
+    voci = []
+    for chiave in mosse_di(entita):
+        mossa = CATALOGO_MOSSE.get(chiave)
+        if mossa is None:
+            continue  # chiave fuori catalogo (dato incompleto): non si inventa nulla
+        voci.append(SkillVista(
+            chiave=chiave,
+            etichetta=etichetta_mossa(chiave),
+            costo_mana=mossa.costo_mana,
+            cd_totale=mossa.cooldown,
+            cd_residuo=cooldown_residuo(entita, chiave),
+            pronta=mossa_pagabile(entita, chiave),
+        ))
+    return tuple(voci)
+
+
+def _equip_di(entita: int) -> tuple[EquipVista, ...]:
+    """Gli slot di equipaggiamento. OGGI SEMPRE VUOTI di oggetti: il motore non ne
+    ha: si espone la GEOMETRIA attiva (`Corredo`, o i default §11), che è ciò che
+    muove davvero le derivate. Il giorno in cui esisteranno gli oggetti, `nome` si
+    riempie e questa funzione resta della stessa forma."""
+    armatura, _taglia, arma = geometria_di(entita)
+    return (
+        EquipVista(slot=SlotEquip.ARMA, categoria=arma),
+        EquipVista(slot=SlotEquip.ARMATURA, categoria=armatura),
+    )
 
 
 def _etichetta_mossa_ricca(entita: int, chiave: str) -> str:
@@ -1011,6 +1053,11 @@ class SessioneGioco:
             },
             livello=livello_corrente(),
             tick_piano=tempo_piano_corrente(),
+            mana=assicura_mana(pent).attuale,
+            mana_max=max_mana(pent),
+            skills=_skills_di(pent),
+            equip=_equip_di(pent),
+            progressione=ProgressioneVista(livello_piano=livello_corrente()),
         )
 
     def esci(self) -> str:

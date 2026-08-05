@@ -65,7 +65,14 @@ from .contenuti import (
     StagioneRisolta,
 )
 from .hub import CrawlerVista
-from .proiezione import SchedaProiezione, SchedaVista
+from .proiezione import (
+    EquipVista,
+    ProgressioneVista,
+    SchedaProiezione,
+    SchedaVista,
+    SkillVista,
+    SlotEquip,
+)
 from .vista import (
     FattiScontro,
     MessaggioGM,
@@ -123,6 +130,10 @@ __all__ = [
     # proiezione scheda (sola lettura) + scheda per la UI + hub
     "SchedaProiezione",
     "SchedaVista",
+    "SkillVista",
+    "EquipVista",
+    "SlotEquip",
+    "ProgressioneVista",
     "CrawlerVista",
     # contenuti dello show (asset riusabili + forme risolte)
     "AssetVista",

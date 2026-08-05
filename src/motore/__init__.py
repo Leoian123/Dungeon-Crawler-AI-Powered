@@ -101,6 +101,7 @@ from .statistiche import (
 from .derivate import (
     max_hp,
     max_mana,
+    geometria_di,
     attacco,
     iniziativa,
     atk_eff,
@@ -400,6 +401,7 @@ __all__ = [
     "applica_resistenza",
     "rimuovi_resistenza_per_fonte",
     "max_hp",
+    "geometria_di",
     "attacco",
     "iniziativa",
     "atk_eff",

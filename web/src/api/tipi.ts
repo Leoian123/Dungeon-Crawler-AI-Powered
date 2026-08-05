@@ -87,6 +87,37 @@ export interface RispostaCrawlers {
   attiva: { uuid: string; nome: string } | null;
 }
 
+/** Una skill/mossa: cosa costa, se è pronta e perché no. */
+export interface SkillVista {
+  chiave: string;
+  etichetta: string;
+  descrizione: string;
+  costo_mana: number;
+  cd_totale: number;
+  cd_residuo: number;
+  pronta: boolean;
+}
+
+/** Uno slot di equipaggiamento. `nome` vuoto = slot vuoto (nessun oggetto: il
+ *  motore non ne ha ancora); `categoria` è la geometria che muove le derivate. */
+export interface EquipVista {
+  slot: "arma" | "armatura";
+  nome: string;
+  categoria: string;
+  descrizione: string;
+}
+
+/** L'avanzamento dentro la run. CONTRATTO VUOTO per ora: nessuna fonte di XP
+ *  esiste, i campi restano a zero — la forma c'è perché il giorno che arriverà
+ *  il contenuto la UI non cambi. `livello_piano` è la PROFONDITÀ, non un livello
+ *  di personaggio. */
+export interface ProgressioneVista {
+  livello_piano: number;
+  esperienza: number;
+  esperienza_al_prossimo: number;
+  punti_da_spendere: number;
+}
+
 export interface SchedaVista {
   uuid: string;
   nome: string;
@@ -99,6 +130,11 @@ export interface SchedaVista {
   derivate: Record<string, number>;
   livello: number;
   tick_piano: number;
+  mana: number;
+  mana_max: number;
+  skills: SkillVista[];
+  equip: EquipVista[];
+  progressione: ProgressioneVista;
 }
 
 export type GmScelta = "fake" | "live";

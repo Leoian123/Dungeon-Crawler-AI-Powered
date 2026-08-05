@@ -8,6 +8,8 @@
   --color-pietra: #1c1917;
   --color-muschio: #4ade80;
   --color-sangue: #f87171;
+  /* Il mana: azzurro-arcano, distinto dal verde-vita e dal rosso-ferita. */
+  --color-sigillo: #60a5fa;
 }
 
 body {
