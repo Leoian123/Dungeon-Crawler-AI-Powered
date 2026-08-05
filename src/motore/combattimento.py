@@ -49,7 +49,7 @@ from .calibrazione import (
 from .derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
 from .mob import EntitaMob, Repertorio
 from .modificatori import Resistenze
-from .mosse import MOSSE_DEFAULT, azione_da_mossa
+from .mosse import CATALOGO_MOSSE, MOSSE_DEFAULT, azione_da_mossa
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
 from .prove import risolvi_prova
 from .scheda import ActionPoint, Protagonista, Scheda, protagonista
@@ -140,6 +140,7 @@ class StatoCombattimento:
     turni_scontro: int = 0         # turni-combattente risolti (contatore cieco dell'escalation, §8)
     crollo: int = 0                # danno inevitabile corrente dell'escalation (cresce oltre la soglia)
     fuga_richiesta: bool = False   # il prossimo turno del protagonista tenta la FUGA (FNC §4)
+    mossa_richiesta: str | None = None  # la mossa SCELTA dal giocatore per il suo prossimo turno
 
 
 # --- Iniziativa (G-3): destrezza desc, tiebreak su chiave stabile seeded -------
@@ -332,6 +333,28 @@ def richiedi_fuga() -> None:
     st = stato_combattimento()
     if st is not None:
         st[1].fuga_richiesta = True
+
+
+def mosse_di(entita: int) -> tuple[str, ...]:
+    """Le mosse che l'entità PORTA (dal `Repertorio`; assente/vuoto → `MOSSE_DEFAULT`).
+    È la fonte unica per il menu dell'host e per la validazione della scelta."""
+    rep = esper.try_component(entita, Repertorio)
+    return tuple(rep.mosse) if rep is not None and rep.mosse else MOSSE_DEFAULT
+
+
+def richiedi_mossa(chiave: str) -> bool:
+    """Il PROSSIMO turno del protagonista userà la mossa `chiave` (la scelta del
+    giocatore, da menu CHIUSO — il gemello di `richiedi_fuga`). Valida catalogo e
+    Repertorio: una chiave estranea è rifiutata (`False`) e non tocca lo stato —
+    il motore dispone, l'host propone."""
+    st = stato_combattimento()
+    if st is None or chiave not in CATALOGO_MOSSE:
+        return False
+    pent, _marker, _scheda = protagonista()
+    if chiave not in mosse_di(pent):
+        return False
+    st[1].mossa_richiesta = chiave
+    return True
 
 
 def prossimo_attivo_e_protagonista() -> bool:
@@ -565,13 +588,19 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
     def _scegli_azione(self, attivo: int, stato: StatoCombattimento) -> Azione | None:
         """Sceglie una mossa dal `Repertorio` dell'entità (DATO nel componente; assente
         → `MOSSE_DEFAULT`) e la traduce in `Azione` via il catalogo (`mosse.py`): il
-        system esegue, il dato decide cosa esiste. Per il protagonista il bersaglio è il
-        primo nemico vivo e la mossa l'attacco base; per il nemico la scelta è del
-        **motore**, seeded (`decidi_azione_nemico`), mai l'LLM (G-4)."""
-        rep = esper.try_component(attivo, Repertorio)
-        mosse = tuple(rep.mosse) if rep is not None and rep.mosse else MOSSE_DEFAULT
+        system esegue, il dato decide cosa esiste. Per il protagonista la mossa è la
+        SCELTA del giocatore (`mossa_richiesta`, consumata qui; assente o estranea al
+        repertorio → attacco base) e il bersaglio il primo nemico vivo; per il nemico
+        la scelta è del **motore**, seeded (`decidi_azione_nemico`), mai l'LLM (G-4)."""
+        mosse = mosse_di(attivo)
         mossa = "attacco"
         if esper.has_component(attivo, Protagonista):
+            # Consumo one-shot della scelta (il gemello di `fuga_richiesta`): la
+            # cintura `in mosse` regge anche se lo stato è mutato dopo il click.
+            if stato.mossa_richiesta is not None:
+                if stato.mossa_richiesta in mosse:
+                    mossa = stato.mossa_richiesta
+                stato.mossa_richiesta = None
             bersagli = _nemici_vivi()
             bersaglio = bersagli[0] if bersagli else None
         else:

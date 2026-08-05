@@ -113,7 +113,10 @@ from motore import (
     lint_registry,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
+    etichetta_mossa,
+    mosse_di,
     richiedi_fuga,
+    richiedi_mossa,
     prepara_riepilogo,
     proietta_scheda,
     protagonista,
@@ -126,12 +129,9 @@ from motore import (
 )
 from provider import FakeProvider
 
-# Menu di combattimento (MVP). Il menu di NARRAZIONE non è più cablato qui: lo compone
-# il MOTORE dalla scena (`componi_opzioni_scena` sulla mappa) — la mappa dispone.
-_MENU_COMBATTIMENTO = (
-    OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzione.COMBATTI),
-    OpzioneVista(indice=1, etichetta="Fuggi", tipo=TipoAzione.SCAPPA),
-)
+# Il menu di combattimento NON è più una costante: lo compone `IstanzaCombattimento`
+# dal `Repertorio` del protagonista (una voce per mossa + "Fuggi" ultima). Il menu di
+# NARRAZIONE lo compone il MOTORE dalla scena (`componi_opzioni_scena`) — la mappa dispone.
 
 # --- Radici dei percorsi: INSTALLAZIONE (read-only) vs DATI UTENTE (scrivibili) --
 #
@@ -551,7 +551,10 @@ class IstanzaCombattimento:
     Nasce all'ingaggio, pilota il loop deterministico (un `tick` per azione), ascolta
     il bus e **raccoglie i fatti** dello scontro; alla chiusura i `FattiScontro`
     rientrano nel fascicolo del primo turno GM successivo (risolvi prima, narra dopo).
-    Le interazioni sono un seam: oggi "Attacca", domani mosse/fuga.
+
+    Il MENU è dinamico: una voce per mossa del `Repertorio` del protagonista (il
+    binding indice→chiave vive qui, come `_scena` per la narrazione — il contratto
+    `OpzioneVista` non porta chiavi di mossa) + "Fuggi" SEMPRE ULTIMA.
     """
 
     def __init__(self, bus, *, nemico: str = "") -> None:
@@ -574,20 +577,34 @@ class IstanzaCombattimento:
     def _su_morte(self, _evento: MortePersonaggio) -> None:
         self._conclusa = True  # permadeath: lo scontro non si chiude, la run sì
 
+    def _mosse(self) -> tuple[str, ...]:
+        """Le chiavi del menu, nell'ordine del Repertorio (la fonte è il motore)."""
+        return mosse_di(protagonista()[0])
+
     @property
     def opzioni(self) -> tuple[OpzioneVista, ...]:
-        return _MENU_COMBATTIMENTO
+        mosse = self._mosse()
+        voci = [
+            OpzioneVista(indice=i, etichetta=etichetta_mossa(chiave), tipo=TipoAzione.COMBATTI)
+            for i, chiave in enumerate(mosse)
+        ]
+        voci.append(OpzioneVista(indice=len(mosse), etichetta="Fuggi", tipo=TipoAzione.SCAPPA))
+        return tuple(voci)
 
     def agisci(self, indice: int) -> None:
         """Un comando del giocatore = il SUO turno + le risposte dei nemici, in un
         colpo solo (feel: il click non "esegue il turno del mob" in silenzio).
-        `indice=1` (Fuggi) marca il turno come tentativo di disimpegno (FNC §4):
-        la prova la tira il MOTORE dentro il suo sistema-turno."""
-        if self._conclusa or not (0 <= indice < len(self.opzioni)):
+        L'ULTIMA voce (Fuggi) marca il turno come tentativo di disimpegno (FNC §4);
+        le altre chiedono la mossa scelta: prova e risoluzione le tira il MOTORE
+        dentro il suo sistema-turno."""
+        mosse = self._mosse()
+        if self._conclusa or not (0 <= indice <= len(mosse)):
             return
-        if indice == 1:
+        if indice == len(mosse):
             richiedi_fuga()
-        tick()  # il turno del protagonista (attacco, o tentativo di fuga)
+        elif not richiedi_mossa(mosse[indice]):
+            return  # scelta rifiutata dal motore: nessun turno speso
+        tick()  # il turno del protagonista (mossa scelta, o tentativo di fuga)
         self._turni += 1
         # Il giro dei nemici, fino a tornare al protagonista (guardia difensiva).
         guardia = 0
@@ -1043,16 +1060,19 @@ class SessioneGioco:
     def _agisci_combattimento(self, indice: int) -> None:
         if self._istanza is not None:
             self._istanza.agisci(indice)  # l'istanza deterministica possiede lo scontro
-        elif 0 <= indice < len(_MENU_COMBATTIMENTO):
+        elif indice >= 0:
             tick()  # difesa: scontro aperto fuori dal port (test/harness)
 
     def _sincronizza_scena(self) -> None:
-        """Riallinea il menu alla verità del motore: in combattimento il menu di
-        combattimento; altrimenti la SCENA composta dalla mappa. Scena vuota = stanza
-        mai narrata ⇒ menu vuoto ⇒ l'host chiede un turno di narrazione."""
+        """Riallinea il menu alla verità del motore: in combattimento il menu
+        dell'istanza (dinamico, dal Repertorio); altrimenti la SCENA composta dalla
+        mappa. Scena vuota = stanza mai narrata ⇒ menu vuoto ⇒ l'host chiede un
+        turno di narrazione."""
         if in_combattimento():
             self._scena = ()
-            self._opzioni = _MENU_COMBATTIMENTO
+            # UNA sola strada per il menu di combattimento: la property dell'istanza
+            # (prima qui viveva una costante parallela — riunificate).
+            self._opzioni = self._istanza.opzioni if self._istanza is not None else ()
             return
         self._scena = componi_opzioni_scena()
         self._opzioni = tuple(

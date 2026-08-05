@@ -58,7 +58,7 @@ def test_ttk_per_profilo(run_pulita, tmp_path, archetipo: str, grado: Grado) -> 
         snap = sessione.avanza()
         guardia = 0
         while snap.fase == "combattimento" and guardia < 20:
-            sessione.coda.accoda(PlayerChoseOption(0))  # Attacca (= un round intero)
+            sessione.coda.accoda(PlayerChoseOption(_indice(snap, "Attacca")))  # un round
             snap = sessione.avanza()
             guardia += 1
         miei = [c for c in colpi_giocatore if c.attaccante == ""]
@@ -88,7 +88,8 @@ def test_giro_falsa_idra_giocabile_con_tattica(run_pulita, tmp_path) -> None:
             assert guardia < 40, f"stanza {stanza}: scontro senza fine"
             guardia += 1
             if snap.fase == "combattimento":
-                scelta = 0 if sessione.scheda().hp > 12 else 1  # Attacca | Fuggi
+                # Menu dinamico: mai cablare gli indici (Fuggi non è più il secondo).
+                scelta = _indice(snap, "Attacca" if sessione.scheda().hp > 12 else "Fuggi")
             else:
                 scelta = _indice(snap, "Combatti") if sessione.scheda().hp > 12 else _indice(
                     snap, "Scappi"

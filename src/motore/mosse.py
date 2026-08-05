@@ -25,11 +25,15 @@ from .calibrazione import MOLT_ATTACCO_PESANTE
 @dataclass(frozen=True)
 class Mossa:
     """Una voce del catalogo: composizione di primitivi + costo. Gli `Effetto` sono
-    già liberi da sorgente/bersaglio (li lega `azione_da_mossa` nel giro)."""
+    già liberi da sorgente/bersaglio (li lega `azione_da_mossa` nel giro).
+
+    `etichetta` è il nome DIEGETICO per il menu del giocatore: contenuto, non un
+    numero (niente §11). Vuota → la deriva `etichetta_mossa` dalla chiave."""
 
     chiave: str
     effetti: tuple[Effetto, ...]
     costo_ap: int = 1
+    etichetta: str = ""
 
 
 # Le due mosse storiche dell'MVP. Il danno base è TIPATO (MISCHIA): attiva il layer
@@ -37,24 +41,34 @@ class Mossa:
 CATALOGO_MOSSE: dict[str, Mossa] = {
     m.chiave: m
     for m in (
-        Mossa("attacco", (Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.MISCHIA),)),
+        Mossa("attacco", (Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.MISCHIA),),
+              etichetta="Attacca"),
         Mossa("attacco_pesante", (
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.MISCHIA,
                   moltiplicatore=MOLT_ATTACCO_PESANTE),
-        )),
+        ), etichetta="Colpo pesante"),
         # Primitivi componibili dimostrati (G-23): mosse che colpiscono E applicano
         # un blocco. Non sono nel repertorio di default: le porta chi le dichiara
         # nei dati (archetipo-asset o mob-asset).
         Mossa("morso_velenoso", (
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.VELENO),
             ApplicaStatus(blocco=Blocco.VELENO),
-        )),
+        ), etichetta="Morso velenoso"),
         Mossa("sputo_infuocato", (
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.FUOCO),
             ApplicaStatus(blocco=Blocco.BRUCIA),
-        )),
+        ), etichetta="Sputo infuocato"),
     )
 }
+
+
+def etichetta_mossa(chiave: str) -> str:
+    """Il nome diegetico della mossa per il menu ("" o chiave ignota → derivata
+    dalla chiave: mai un buco nel menu per un dato incompleto)."""
+    mossa = CATALOGO_MOSSE.get(chiave)
+    if mossa is not None and mossa.etichetta:
+        return mossa.etichetta
+    return chiave.replace("_", " ").capitalize()
 
 # Il repertorio di chi non dichiara nulla: il comportamento storico, ora come dato.
 MOSSE_DEFAULT: tuple[str, ...] = ("attacco", "attacco_pesante")

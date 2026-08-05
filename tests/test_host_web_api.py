@@ -156,7 +156,10 @@ def test_combattimento_end_to_end(host) -> None:
         "/api/partita/opzioni", json={"indice": indice, "versione": corpo["versione"]}
     ).json()
     assert corpo["fase"] == "combattimento"
-    assert [o["etichetta"] for o in corpo["snapshot"]["opzioni"]] == ["Attacca", "Fuggi"]
+    # Menu dinamico dal Repertorio: mosse + Fuggi SEMPRE ULTIMA.
+    etichette = [o["etichetta"] for o in corpo["snapshot"]["opzioni"]]
+    assert etichette == ["Attacca", "Colpo pesante", "Fuggi"]
+    assert etichette[-1] == "Fuggi"
     guardia = 0
     while corpo["fase"] == "combattimento" and not corpo["morto"] and guardia < 100:
         indice = _indice_opzione(corpo["snapshot"], "Attacca")

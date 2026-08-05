@@ -24,7 +24,13 @@ import esper
 from contracts import StatId
 
 from .calibrazione import AP_MAX_MVP, HP_DEFAULT, PRIMARIE_BASE_CARL
+from .mob import Repertorio
 from .statistiche import Primarie
+
+# Le mosse di PARTENZA del protagonista (chiavi del catalogo chiuso `mosse.py`).
+# È una scelta di CONTENUTO (diventerà dato/asset più avanti); il componente
+# `Repertorio` è persistente: il repertorio cresce con la run e viaggia nel save.
+MOSSE_INIZIALI_PROTAGONISTA: tuple[str, ...] = ("attacco", "attacco_pesante")
 
 # HP iniziale di default: §11 in `calibrazione.py` (editabile dalla console admin).
 _HP_DEFAULT = HP_DEFAULT
@@ -83,6 +89,9 @@ def crea_protagonista(
         # AP posseduto e persistente: il Combattente effimero del combattimento non lo porta
         # (single-owner, guida §6.1). Sopravvive a CombatResolved; il loop lo rinfresca.
         ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
+        # Le mosse che il giocatore SCEGLIE in combattimento (menu ← questo dato).
+        # Save legacy senza il componente: `_scegli_azione` ripiega su MOSSE_DEFAULT.
+        Repertorio(mosse=MOSSE_INIZIALI_PROTAGONISTA),
     )
 
 

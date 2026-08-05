@@ -143,13 +143,22 @@ from .combattimento import (
     SistemaDeathCheck,
     SistemaCrollo,
     collega_combattimento,
+    mosse_di,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
     richiedi_fuga,
+    richiedi_mossa,
 )
 from .mutazione import OndataRinforzi, PianoRinforzi, SistemaRinforzi
 from .mob import Repertorio
-from .mosse import CATALOGO_MOSSE, MOSSE_DEFAULT, Mossa, azione_da_mossa, mosse_note
+from .mosse import (
+    CATALOGO_MOSSE,
+    MOSSE_DEFAULT,
+    Mossa,
+    azione_da_mossa,
+    etichetta_mossa,
+    mosse_note,
+)
 from .catalogo import (
     REGISTRY_BLOCCHI,
     REGISTRY_ARCHETIPI,
@@ -439,6 +448,9 @@ __all__ = [
     "nemici_in_scontro",
     "prossimo_attivo_e_protagonista",
     "richiedi_fuga",
+    "richiedi_mossa",
+    "mosse_di",
+    "etichetta_mossa",
     # mutazione intra-fase
     "OndataRinforzi",
     "Repertorio",
