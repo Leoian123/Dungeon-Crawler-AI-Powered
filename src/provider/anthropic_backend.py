@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from contracts import TCandidato
 
+from .consumo import ConsumoProvider
+
 # Pin dei modelli (PLK: il provider possiede il pin). Aggiornarli è deliberato.
 # Il FORTE serve la chiamata gating (il turno); il VELOCE gli stadi ancillari
 # non-gating (ideazione/limatura/distillazione): la latenza si taglia dove
@@ -58,11 +60,19 @@ class AnthropicBackend:
     """Provider reale. Una chiamata strutturata per invocazione (provider sottile, G §9.2)."""
 
     def __init__(
-        self, *, modello: str = MODELLO_DEFAULT, max_tokens: int = 2048, timeout: float = 30.0
+        self,
+        *,
+        modello: str = MODELLO_DEFAULT,
+        max_tokens: int = 2048,
+        timeout: float = 30.0,
+        consumo: ConsumoProvider | None = None,
     ) -> None:
         self.modello = modello
         self.max_tokens = max_tokens
         self.timeout = timeout
+        # Il tally della spesa: l'`usage` di ogni risposta non si butta più via.
+        # `consumo` condiviso fra più backend = totale per-run senza aggregatori.
+        self.consumo = consumo if consumo is not None else ConsumoProvider()
         self._client = None  # creato pigramente (lazy): nessun SDK finché non si chiama
 
     def _client_async(self):
@@ -105,10 +115,15 @@ class AnthropicBackend:
         except Exception:
             # Trasporto: rete / timeout / rate-limit / 5xx → None. Il motore ripiega
             # (retry per schema, poi fallback atomico) — non è compito del provider.
+            self.consumo.errori_trasporto += 1
             return None
+
+        # La spesa si conta QUI, prima di ogni esito: anche un refusal si paga.
+        self.consumo.registra_risposta(getattr(risposta, "usage", None))
 
         # Refusal o troncatura (max_tokens): generazione fallita → None (PLK §6).
         if getattr(risposta, "stop_reason", None) in _STOP_FALLITI:
+            self.consumo.generazioni_fallite += 1
             return None
 
         candidato = getattr(risposta, "parsed_output", None)

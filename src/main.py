@@ -22,8 +22,10 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import sys
 import tempfile
 import time
+import weakref
 from pathlib import Path
 from typing import Callable
 from uuid import uuid4
@@ -79,6 +81,7 @@ from motore import (
     MemoriaTurni,
     OpzioneScena,
     SpecNemico,
+    CaricamentoFallito,
     acc_eff,
     atk_eff,
     attacco,
@@ -130,12 +133,41 @@ _MENU_COMBATTIMENTO = (
     OpzioneVista(indice=1, etichetta="Fuggi", tipo=TipoAzione.SCAPPA),
 )
 
+# --- Radici dei percorsi: INSTALLAZIONE (read-only) vs DATI UTENTE (scrivibili) --
+#
+# Le variabili DCC_* restano l'override esplicito (deploy/container: contenuti
+# montati read-only, salvataggi su volume). I DEFAULT sono consapevoli del
+# congelamento (PyInstaller): in un eseguibile `__file__` vive nel bundle e "la
+# radice del repo" non esiste — e in onefile il bundle (`_MEIPASS`) è una cartella
+# TEMPORANEA che sparisce all'uscita, quindi i dati utente non possono mai stare lì.
+
+def _radice_installazione() -> Path:
+    """Radice dei dati d'INSTALLAZIONE (la libreria `contenuti/` ufficiale, read-only).
+    Processo normale → radice del repo; congelato → il bundle (`_MEIPASS`; onedir:
+    la cartella dell'eseguibile)."""
+    if getattr(sys, "frozen", False):
+        bundle = getattr(sys, "_MEIPASS", "")
+        return Path(bundle) if bundle else Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+def _radice_dati_utente() -> Path:
+    """Radice dei dati UTENTE (salvataggi, contenuti locali dell'authoring):
+    SCRIVIBILE e durevole, quindi mai dentro il bundle. Congelato → accanto
+    all'eseguibile; processo normale → radice del repo."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
 # La cartella dei crawler salvati (slot = crawler, H §1). I doc non fissano il
-# percorso: default = `salvataggi/` alla radice del repo (gitignored), override
-# con la variabile d'ambiente DCC_SAVE_DIR. L'elenco è uno scan delle intestazioni
-# (H §5), mai un registro.
-_RADICE_REPO = Path(__file__).resolve().parent.parent
-DIRECTORY_SALVATAGGI = Path(os.environ.get("DCC_SAVE_DIR") or _RADICE_REPO / "salvataggi")
+# percorso: default = `salvataggi/` nella radice dei dati utente (gitignored),
+# override con DCC_SAVE_DIR. L'elenco è uno scan delle intestazioni (H §5),
+# mai un registro.
+_RADICE_REPO = _radice_installazione()
+DIRECTORY_SALVATAGGI = Path(
+    os.environ.get("DCC_SAVE_DIR") or _radice_dati_utente() / "salvataggi"
+)
 
 # --- La LIBRERIA dei contenuti dello show (stagioni/piani/mob) -------------------
 #
@@ -147,7 +179,7 @@ DIRECTORY_SALVATAGGI = Path(os.environ.get("DCC_SAVE_DIR") or _RADICE_REPO / "sa
 # libreria: consuma la stagione RISOLTA e congelata nel World alla creazione.
 DIRECTORY_CONTENUTI = Path(os.environ.get("DCC_CONTENUTI_DIR") or _RADICE_REPO / "contenuti")
 DIRECTORY_CONTENUTI_LOCALI = Path(
-    os.environ.get("DCC_CONTENUTI_LOCALI_DIR") or _RADICE_REPO / "contenuti_locali"
+    os.environ.get("DCC_CONTENUTI_LOCALI_DIR") or _radice_dati_utente() / "contenuti_locali"
 )
 STAGIONE_DEFAULT = "stagione-1"
 
@@ -614,6 +646,45 @@ def _ripristina_rng(rng: random.Random, dati: list) -> None:
         pass
 
 
+# --- Una sola run per processo: la collisione diventa RUMOROSA -------------------
+#
+# Il run-World ha un nome FISSO (`NOME_RUN`): due sessioni aperte nello stesso
+# processo condividerebbero IN SILENZIO lo stesso mondo — la seconda smonta e
+# ricrea "run" sotto i piedi della prima, che da lì in poi legge la scheda
+# dell'altra e ne SALVA il file sotto il proprio percorso (riprodotto, audit
+# fondamenta 2026-08). Il registro rende la violazione un errore: aprire una
+# sessione INVALIDA la precedente ancora aperta, e ogni porta della sessione
+# invalidata solleva invece di operare sul mondo altrui. (Weakref: il registro
+# non tiene in vita una sessione abbandonata.)
+_SESSIONE_ATTIVA: "weakref.ref[SessioneGioco] | None" = None
+
+
+def _invalida_sessione_precedente(nuova: "SessioneGioco | None" = None) -> None:
+    """Da chiamare PRIMA di toccare il run-World (`nuova_partita`/`carica` lo
+    smontano incondizionatamente): anche se l'ingresso poi FALLISCE, il mondo
+    della precedente non c'è più — deve saperlo subito, non scoprirlo con un
+    errore criptico dei check singleton su un World vuoto."""
+    precedente = _SESSIONE_ATTIVA() if _SESSIONE_ATTIVA is not None else None
+    if precedente is not None and precedente is not nuova and not precedente._chiusa:
+        precedente._invalidata = (
+            "un'altra sessione ha preso il run-World di questo processo "
+            "(una sola run per processo): chiudi con esci()/chiudi_terminale() "
+            "prima di aprirne un'altra"
+        )
+
+
+def _registra_sessione_attiva(sessione: "SessioneGioco") -> None:
+    global _SESSIONE_ATTIVA
+    _invalida_sessione_precedente(sessione)
+    _SESSIONE_ATTIVA = weakref.ref(sessione)
+
+
+def _rilascia_sessione_attiva(sessione: "SessioneGioco") -> None:
+    global _SESSIONE_ATTIVA
+    if _SESSIONE_ATTIVA is not None and _SESSIONE_ATTIVA() is sessione:
+        _SESSIONE_ATTIVA = None
+
+
 class SessioneGioco:
     """La porta motore↔host per la v1: narrazione async, intenti sul turno, snapshot.
 
@@ -641,6 +712,7 @@ class SessioneGioco:
         # pipeline la chiama a ogni stadio; l'host la imposta, il motore non sa di UI.
         self.on_avanzamento = None
         self._chiusa = False  # run conclusa (esci/terminale): le porte si spengono
+        self._invalidata: str | None = None  # run-World preso da un'altra sessione
         self._opzioni: tuple[OpzioneVista, ...] = ()
         self._scena: tuple[OpzioneScena, ...] = ()  # binding indice→azione di scena
         self._istanza: IstanzaCombattimento | None = None
@@ -664,10 +736,12 @@ class SessioneGioco:
         sessione = cls(provider, directory=directory, seed=seed)
         sessione.uuid = uuid4().hex[:8]
         sessione.etichetta = nome
+        _invalida_sessione_precedente()  # l'ingresso in run smonta il World corrente
         sessione.guscio.nuova_partita(
             uuid=sessione.uuid, destrezza=10, hp=30, seed=seed,
             n_stanze=n_stanze, stagione=stagione,
         )
+        _registra_sessione_attiva(sessione)  # il run-World è suo
         sessione.coda = sessione.guscio.coda
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
         sessione.archivio = Archivio(master_seed=master_seed(), model_id=MODEL_ID_DEFAULT)
@@ -682,9 +756,21 @@ class SessioneGioco:
         H-12). L'Archivio di sessione RIPARTE dal sidecar: la cache firma→turno
         resta intatta (stanze già narrate RILETTE, la storia non si riscrive) e la
         memoria GM si RIDERIVA (la chat non si salva mai — H §11)."""
-        sessione = cls(provider, directory=directory, seed=seed)
-        if not sessione.guscio.carica(uuid):
+        # Sonda della BUSTA prima ANCORA di costruire il Guscio: il solo boot
+        # parcheggia il contesto nel default, spostandolo sotto i piedi di una
+        # sessione eventualmente aperta. Un save illeggibile a questo strato non
+        # deve costare NULLA a nessuno (H-12: menu intatto E mondo intatto).
+        try:
+            carica_da_disco(directory, uuid)
+        except CaricamentoFallito:
             return None
+        sessione = cls(provider, directory=directory, seed=seed)
+        # Da qui l'ingresso smonta il run-World corrente: la precedente va
+        # invalidata anche se il PAYLOAD poi tradisce (il suo mondo è perduto).
+        _invalida_sessione_precedente()
+        if not sessione.guscio.carica(uuid):
+            return None  # payload tradito: World smontato e contesto già al default
+        _registra_sessione_attiva(sessione)  # il run-World è suo
         # Lo stream RNG di sessione riparte da dov'era (il seam `rng_state` del
         # save, prima scritto-e-mai-riletto): rilettura del corpo già validato.
         try:
@@ -734,6 +820,9 @@ class SessioneGioco:
             bus=self.bus,
             esito_scontro=self._fatti_scontro,
             avanzamento=self.on_avanzamento,
+            # Barriera: durante gli await del provider un'altra sessione può aver
+            # preso il run-World — il ricontrollo scatta PRIMA della scrittura.
+            guardia_scrittura=self._guardia_aperta,
         )
         if not esito.da_cache:  # un turno riletto non consuma i fatti: li narrerà il prossimo
             self._fatti_scontro = None
@@ -751,6 +840,7 @@ class SessioneGioco:
     def riepiloga_azione(self, testo: str, tipo: TipoAzione = TipoAzione.ALTRO) -> RiepilogoAzione:
         """La finestra di conferma EDITABILE: 'Stai per…, corretto? Ti prenderà …'.
         Deterministica (calcolatore del tempo + seam skill), zero LLM."""
+        self._guardia_aperta()  # legge il World: una sessione invalidata leggerebbe l'altrui
         return prepara_riepilogo(testo, tipo, self.memoria)
 
     async def esegui_azione(self, riepilogo: RiepilogoAzione) -> SnapshotVista:
@@ -769,6 +859,7 @@ class SessioneGioco:
             azione=riepilogo.testo_proposto,
             esito_scontro=self._fatti_scontro,
             avanzamento=self.on_avanzamento,
+            guardia_scrittura=self._guardia_aperta,  # come in prossima_narrazione
         )
         if not esito.da_cache:
             self._fatti_scontro = None
@@ -831,6 +922,10 @@ class SessioneGioco:
     # --- Ciclo di vita della run (hub): scheda, thread, uscita, terminale -------
 
     def _guardia_aperta(self) -> None:
+        if self._invalidata:
+            # Prima della guardia questa sessione avrebbe operato IN SILENZIO sul
+            # mondo dell'altra (letto la sua scheda, salvato il suo file).
+            raise RuntimeError(f"sessione invalidata: {self._invalidata}")
         if self._chiusa:
             raise RuntimeError("sessione chiusa: la run è già stata conclusa")
 
@@ -893,6 +988,7 @@ class SessioneGioco:
             rng_state=_serializza_rng(self.rng),
         )
         self._chiusa = True
+        _rilascia_sessione_attiva(self)
         return "Partita salvata: puoi riprenderla dall'hub."
 
     def chiudi_terminale(self) -> str:
@@ -902,6 +998,7 @@ class SessioneGioco:
         self._guardia_aperta()
         self.guscio.concludi()
         self._chiusa = True
+        _rilascia_sessione_attiva(self)
         return "Run conclusa: lo slot è stato ritirato."
 
     # --- Interpretazione delle scelte (sulla verità del motore, non su un modo) -

@@ -519,6 +519,7 @@ async def esegui_turno_gm(
     esito_scontro: FattiScontro | None = None,
     ingresso_combattimento: bool = False,
     avanzamento: Avanzamento | None = None,
+    guardia_scrittura: Callable[[], None] | None = None,
 ) -> EsitoTurnoGM:
     """UN turno GM completo: ideazione → composizione (gating+prova+limatura) →
     scrittura. Una sola unità `await` cancellabile: se cade prima della scrittura,
@@ -528,7 +529,14 @@ async def esegui_turno_gm(
     prova ≤1 + limatura ≤1); scrittura ≤1 (distillazione memoria). Cache-hit: zero.
     Latenza: limatura e distillazione partono IN PARALLELO (un solo round-trip);
     `avanzamento(etichetta, frazione)` racconta all'host a che punto siamo.
-    """
+
+    `guardia_scrittura` è la BARRIERA prima dello stadio di scrittura: chiamata
+    dopo l'ultimo `await` e prima di mutare il World. Durante la sospensione sul
+    provider il contesto può essere cambiato sotto i piedi della coroutine (una
+    seconda sessione ha preso il run-World): il chiamante passa qui il proprio
+    ricontrollo — se solleva, il turno cade SENZA scrivere (F-11 resta vero).
+    Con "async sì, thread no", tra la barriera e le scritture non c'è alcun
+    `await`: la finestra è chiusa per costruzione, non per fortuna."""
     if in_combattimento():
         raise RuntimeError("la pipeline GM vive solo in NARRAZIONE: lo scontro è "
                            "un'istanza a parte (deterministica)")
@@ -599,6 +607,8 @@ async def esegui_turno_gm(
         prosa = limata
 
     # --- Stadio 3: SCRITTURA (deterministica; la distillazione è già arrivata) --
+    if guardia_scrittura is not None:
+        guardia_scrittura()  # barriera: ultimo await passato, il World si tocca ORA
     _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
     if reveal:  # materializza SOLO al reveal: il mob appartiene alla stanza
         ent = materializza_turno(risultato, bus)
