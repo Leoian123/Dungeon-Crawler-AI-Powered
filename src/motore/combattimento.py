@@ -599,8 +599,17 @@ class SistemaDeathCheck(SistemaSempreAttivo):
 
     def run(self, dt: int) -> None:
         trovati = esper.get_components(Protagonista, Scheda)
-        if len(trovati) != 1:
-            return
+        if len(trovati) > 1:
+            # Invariante mono-protagonista VIOLATO: con N protagonisti questo check
+            # non sa chi arbitrare e prima RESTITUIVA in silenzio — la permadeath
+            # (linea rossa G-11) si spegneva senza dirlo. Meglio esplodere subito:
+            # chi introdurrà il party dovrà passare di qui DI PROPOSITO.
+            raise RuntimeError(
+                f"death-check: protagonista singleton atteso, trovati {len(trovati)} — "
+                "con più protagonisti la permadeath non può arbitrare (G-11)"
+            )
+        if not trovati:
+            return  # mondo in allestimento (harness): nessuno da arbitrare
         _ent, (_marker, scheda) = trovati[0]
         if scheda.vivo and scheda.punti_vita <= 0:
             scheda.vivo = False

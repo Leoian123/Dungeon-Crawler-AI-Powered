@@ -13,6 +13,7 @@ stessa interfaccia. Il meccanismo nativo di output strutturato vive qui, MAI in
 """
 
 from .composito import ProviderPerSchema
+from .consumo import ConsumoProvider
 from .anthropic_backend import (
     MODELLO_DEFAULT,
     MODELLO_VELOCE,
@@ -27,6 +28,7 @@ __all__ = [
     "FakeProvider",
     "FALLISCI",
     "AnthropicBackend",
+    "ConsumoProvider",
     "MODELLO_DEFAULT",
     "MODELLO_VELOCE",
     "NOME_VAR_CHIAVE",

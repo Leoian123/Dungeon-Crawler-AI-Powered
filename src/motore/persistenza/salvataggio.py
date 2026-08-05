@@ -140,20 +140,31 @@ def _verifica_coerenza(intestazione: Intestazione, corpo: Corpo) -> None:
 
     - profondità ≥ 1;
     - ogni tag di componente ha un binding nel registry (H-3);
-    - `FaseCorrente`, se presente, porta un valore di fase legale.
+    - `FaseCorrente`, se presente, porta un valore di fase legale;
+    - ESATTAMENTE un protagonista: l'invariante mono-PG che il motore impone a
+      runtime (death-check, `protagonista()`) va rifiutato QUI, al load — un save
+      manomesso con N protagonisti altrimenti passerebbe la validazione e
+      esploderebbe al primo tick, tradendo H-12 (valida-e-degrada, mai crash).
     """
     if intestazione.profondita < 1:
         raise CaricamentoFallito(f"profondità impossibile: {intestazione.profondita}")
+    protagonisti = 0
     for ent in corpo.entita:
         for comp in ent.componenti:
             try:
                 tipo_di(comp.tag)
             except KeyError as e:
                 raise CaricamentoFallito(str(e)) from e
+            if comp.tag == "protagonista":
+                protagonisti += 1
             if comp.tag == "fase_corrente":
                 valore = comp.dati.get("fase")
                 if valore not in {f.value for f in Fase}:
                     raise CaricamentoFallito(f"fase illegale: {valore!r}")
+    if protagonisti != 1:
+        raise CaricamentoFallito(
+            f"protagonista singleton atteso nel save: trovati {protagonisti}"
+        )
 
 
 def carica_da_disco(directory: Path, uuid: str) -> Stato:
@@ -219,14 +230,24 @@ def entra_run_nuova() -> None:
 
 def carica_crawler(directory: Path, uuid: str) -> bool:
     """Confine guscio→run, **caricamento** (ACV 3b): valida **prima** di toccare il
-    World; su fallimento ritorna `False` senza mutare `current_world` (H-12/E-4). Solo
-    se valido: `"run"` fresco → `applica_stato` (deserializzazione al confine, E-5)."""
+    World; su fallimento ritorna `False` e il contesto resta (o torna) al default —
+    mai un World parziale come contesto attivo (H-12/E-4). Solo se valido: `"run"`
+    fresco → `applica_stato` (deserializzazione al confine, E-5)."""
     try:
         stato = carica_da_disco(directory, uuid)
     except CaricamentoFallito:
         return False  # current_world INTATTO: nessuno switch è avvenuto
     _entra_run_pulito()
-    applica_stato(stato)
+    try:
+        applica_stato(stato)
+    except Exception:
+        # La validazione di carico guarda la BUSTA; la ricostruzione dei componenti
+        # (`tipo(**dati)`) avviene QUI e può tradirla — un campo rinominato senza
+        # migrazione passa i tre strati e poi esplode a metà applicazione. Il World
+        # parziale non deve sopravvivere né restare il contesto attivo (audit
+        # fondamenta 2026-08): teardown e si torna al menu, save intatto su disco.
+        teardown_run()
+        return False
     return True
 
 

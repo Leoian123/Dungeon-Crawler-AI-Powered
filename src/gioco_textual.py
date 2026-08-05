@@ -214,6 +214,7 @@ def _scegli_provider(argv: list[str]) -> tuple[object | None, str]:
     """
     from provider import (
         AnthropicBackend,
+        ConsumoProvider,
         MODELLO_DEFAULT,
         MODELLO_VELOCE,
         ProviderPerSchema,
@@ -242,11 +243,16 @@ def _scegli_provider(argv: list[str]) -> tuple[object | None, str]:
     # ancillari non-gating (ideazione/limatura/distillazione) vanno sul VELOCE.
     from contracts import TurnoNarrazione
 
-    forte = AnthropicBackend()
+    # UN tally per la sessione, condiviso dai due backend: il consumo (token,
+    # chiamate, errori) è per-run, non per-modello — l'usage non si butta più via.
+    consumo = ConsumoProvider()
+    forte = AnthropicBackend(consumo=consumo)
     # Corsia veloce: output brevi per contratto (ideazione/limatura/distillazione),
     # quindi max_tokens stretto (fallisce presto invece di generare a vuoto) e
     # timeout corto — gli stadi non-gating degradano, non bloccano.
-    veloce = AnthropicBackend(modello=MODELLO_VELOCE, max_tokens=512, timeout=15.0)
+    veloce = AnthropicBackend(
+        modello=MODELLO_VELOCE, max_tokens=512, timeout=15.0, consumo=consumo
+    )
     provider = ProviderPerSchema({TurnoNarrazione: forte}, predefinito=veloce)
     return provider, f"GM live — {MODELLO_DEFAULT} (turni) + {MODELLO_VELOCE} (rifiniture)"
 
