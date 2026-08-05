@@ -130,7 +130,7 @@ def test_il_menu_riflette_il_repertorio(run_pulita, tmp_path) -> None:
     )
     snap = _apri_scontro(sessione)
     attese = [etichetta_mossa(m) for m in MOSSE_INIZIALI_PROTAGONISTA] + ["Fuggi"]
-    assert [o.etichetta for o in snap.opzioni] == attese
+    assert [o.etichetta.split(" —")[0] for o in snap.opzioni] == attese
     # Indici contigui e coerenti con la posizione: il binding è posizionale.
     assert [o.indice for o in snap.opzioni] == list(range(len(attese)))
 
@@ -148,7 +148,7 @@ def test_una_mossa_in_piu_allunga_il_menu_senza_spostare_fuggi(
     esper.add_component(pent, Repertorio(mosse=rep.mosse + ("morso_velenoso",)))
 
     snap = _apri_scontro(sessione)
-    etichette = [o.etichetta for o in snap.opzioni]
+    etichette = [o.etichetta.split(" —")[0] for o in snap.opzioni]
     assert "Morso velenoso" in etichette
     assert etichette[-1] == "Fuggi", "Fuggi deve restare l'ultima voce"
 

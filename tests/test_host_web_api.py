@@ -38,7 +38,7 @@ def _narra(client: TestClient, versione: int) -> dict:
 
 def _indice_opzione(snapshot: dict, etichetta: str) -> int:
     for opzione in snapshot["opzioni"]:
-        if opzione["etichetta"] == etichetta:
+        if opzione["etichetta"].split(" —")[0] == etichetta:
             return opzione["indice"]
     raise AssertionError(f"opzione {etichetta!r} assente: {snapshot['opzioni']}")
 
@@ -92,7 +92,7 @@ def test_prima_narrazione_produce_il_post_del_forum(host) -> None:
     assert "Slime" in messaggio["prosa"]  # il copione del FakeProvider
     assert messaggio["dove"] and messaggio["come"]  # contestualizzazione obbligata
     assert isinstance(messaggio["tempo"]["tick_correnti"], int)
-    etichette = [o["etichetta"] for o in corpo["snapshot"]["opzioni"]]
+    etichette = [o["etichetta"].split(" —")[0] for o in corpo["snapshot"]["opzioni"]]
     assert "Combatti" in etichette
     # Il thread ricostruisce il forum al reload pagina.
     thread = client.get("/api/partita/thread").json()
@@ -157,8 +157,8 @@ def test_combattimento_end_to_end(host) -> None:
     ).json()
     assert corpo["fase"] == "combattimento"
     # Menu dinamico dal Repertorio: mosse + Fuggi SEMPRE ULTIMA.
-    etichette = [o["etichetta"] for o in corpo["snapshot"]["opzioni"]]
-    assert etichette == ["Attacca", "Colpo pesante", "Fuggi"]
+    etichette = [o["etichetta"].split(" —")[0] for o in corpo["snapshot"]["opzioni"]]
+    assert etichette == ["Attacca", "Colpo pesante", "Dardo arcano", "Fuggi"]
     assert etichette[-1] == "Fuggi"
     guardia = 0
     while corpo["fase"] == "combattimento" and not corpo["morto"] and guardia < 100:

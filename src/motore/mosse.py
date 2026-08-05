@@ -19,7 +19,12 @@ from dataclasses import dataclass
 from contracts import Blocco, TipoDanno
 
 from .azione import ApplicaStatus, Azione, Danno, Effetto, QuantitaDa
-from .calibrazione import MOLT_ATTACCO_PESANTE
+from .calibrazione import (
+    COOLDOWN_MOSSA,
+    COSTO_MANA_MOSSA,
+    MOLT_ATTACCO_PESANTE,
+    MOLT_DARDO_ARCANO,
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +39,8 @@ class Mossa:
     effetti: tuple[Effetto, ...]
     costo_ap: int = 1
     etichetta: str = ""
+    costo_mana: int = 0   # §11: la risorsa che limita le mosse forti
+    cooldown: int = 0     # §11: turni di ricarica (N=2 blocca un proprio turno; N=1 è nullo)
 
 
 # Le due mosse storiche dell'MVP. Il danno base è TIPATO (MISCHIA): attiva il layer
@@ -46,18 +53,27 @@ CATALOGO_MOSSE: dict[str, Mossa] = {
         Mossa("attacco_pesante", (
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.MISCHIA,
                   moltiplicatore=MOLT_ATTACCO_PESANTE),
-        ), etichetta="Colpo pesante"),
+        ), etichetta="Colpo pesante",
+            costo_mana=COSTO_MANA_MOSSA["attacco_pesante"],
+            cooldown=COOLDOWN_MOSSA["attacco_pesante"]),
         # Primitivi componibili dimostrati (G-23): mosse che colpiscono E applicano
         # un blocco. Non sono nel repertorio di default: le porta chi le dichiara
         # nei dati (archetipo-asset o mob-asset).
         Mossa("morso_velenoso", (
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.VELENO),
             ApplicaStatus(blocco=Blocco.VELENO),
-        ), etichetta="Morso velenoso"),
+        ), etichetta="Morso velenoso", cooldown=COOLDOWN_MOSSA["morso_velenoso"]),
         Mossa("sputo_infuocato", (
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.FUOCO),
             ApplicaStatus(blocco=Blocco.BRUCIA),
-        ), etichetta="Sputo infuocato"),
+        ), etichetta="Sputo infuocato", cooldown=COOLDOWN_MOSSA["sputo_infuocato"]),
+        # L'INCANTESIMO del protagonista: nessuna ricarica, il limite è la risorsa.
+        # Danno FUOCO e non un tipo nuovo — `TipoDanno` è un vocabolario chiuso e
+        # il fuoco incrocia le resistenze già calibrate degli archetipi.
+        Mossa("dardo_arcano", (
+            Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.FUOCO,
+                  moltiplicatore=MOLT_DARDO_ARCANO),
+        ), etichetta="Dardo arcano", costo_mana=COSTO_MANA_MOSSA["dardo_arcano"]),
     )
 }
 
@@ -87,6 +103,6 @@ def azione_da_mossa(chiave: str, *, sorgente: int, bersaglio: int | None) -> Azi
         sorgente=sorgente,
         bersaglio=bersaglio,
         effetti=list(mossa.effetti),
-        costo={"AP": mossa.costo_ap},
+        costo={"AP": mossa.costo_ap, "MANA": mossa.costo_mana},
         mossa=chiave,
     )

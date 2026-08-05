@@ -113,7 +113,10 @@ from motore import (
     lint_registry,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
+    CATALOGO_MOSSE,
+    cooldown_residuo,
     etichetta_mossa,
+    mossa_pagabile,
     mosse_di,
     richiedi_fuga,
     richiedi_mossa,
@@ -544,6 +547,18 @@ def affini(
     return [vista for *_resto, vista in classifica[:k]]
 
 
+def _etichetta_mossa_ricca(entita: int, chiave: str) -> str:
+    """L'etichetta di menu che DICE il costo: "Dardo arcano — 3 mana", e in ricarica
+    "Colpo pesante — ricarica (1)". Composizione di presentazione: vive nel port,
+    non nel motore (che possiede i numeri, non le frasi)."""
+    base = etichetta_mossa(chiave)
+    residuo = cooldown_residuo(entita, chiave)
+    if residuo > 0:
+        return f"{base} — ricarica ({residuo})"
+    costo = CATALOGO_MOSSE[chiave].costo_mana if chiave in CATALOGO_MOSSE else 0
+    return f"{base} — {costo} mana" if costo else base
+
+
 class IstanzaCombattimento:
     """L'istanza SEPARATA del combattimento: il modello deterministico con le SUE
     interazioni (FNC §5.2 — la pipeline GM qui non gira mai, G-4).
@@ -583,12 +598,17 @@ class IstanzaCombattimento:
 
     @property
     def opzioni(self) -> tuple[OpzioneVista, ...]:
-        mosse = self._mosse()
-        voci = [
-            OpzioneVista(indice=i, etichetta=etichetta_mossa(chiave), tipo=TipoAzione.COMBATTI)
-            for i, chiave in enumerate(mosse)
-        ]
-        voci.append(OpzioneVista(indice=len(mosse), etichetta="Fuggi", tipo=TipoAzione.SCAPPA))
+        pent = protagonista()[0]
+        voci = []
+        for i, chiave in enumerate(self._mosse()):
+            pagabile = mossa_pagabile(pent, chiave)
+            voci.append(OpzioneVista(
+                indice=i,
+                etichetta=_etichetta_mossa_ricca(pent, chiave),
+                tipo=TipoAzione.COMBATTI,
+                abilitata=pagabile,
+            ))
+        voci.append(OpzioneVista(indice=len(voci), etichetta="Fuggi", tipo=TipoAzione.SCAPPA))
         return tuple(voci)
 
     def agisci(self, indice: int) -> None:

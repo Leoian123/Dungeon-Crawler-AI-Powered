@@ -45,6 +45,12 @@ def max_hp(entita: int) -> int:
     return round(cal.HP_BASE + cal.K_HP * stat_eff(entita, StatId.COSTITUZIONE))
 
 
+def max_mana(entita: int) -> int:
+    """Massimo mana derivato da Intelligenza: `MANA_BASE + K_MANA·Int` (§11).
+    Stessa dottrina di `max_hp`: il massimo non è depositato, deriva."""
+    return round(cal.MANA_BASE + cal.K_MANA * stat_eff(entita, StatId.INTELLIGENZA))
+
+
 def attacco(entita: int) -> int:
     """Attacco/danno base derivato da Forza (mischia MVP, §5). Vedi `atk_eff` (check 2)."""
     return stat_eff(entita, StatId.FORZA)

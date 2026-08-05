@@ -149,7 +149,11 @@ def test_fuga_dal_combattimento(run_pulita, tmp_path) -> None:
     try:
         snap = _apri_scontro(sessione)
         # Menu DINAMICO dal Repertorio: le mosse iniziali + Fuggi SEMPRE ULTIMA.
-        assert [o.etichetta for o in snap.opzioni] == ["Attacca", "Colpo pesante", "Fuggi"]
+        # Le etichette portano il COSTO ("Dardo arcano — 3 mana"): si confronta il
+        # nome-base, il costo è presentazione.
+        assert [o.etichetta.split(" —")[0] for o in snap.opzioni] == [
+            "Attacca", "Colpo pesante", "Dardo arcano", "Fuggi",
+        ]
         assert snap.opzioni[-1].etichetta == "Fuggi"
         guardia = 0
         while snap.fase == "combattimento" and guardia < 10:
@@ -166,7 +170,10 @@ def test_fuga_dal_combattimento(run_pulita, tmp_path) -> None:
 
 def _indice(snap, etichetta: str) -> int:
     """L'indice dell'opzione con questa etichetta (il menu è dinamico: mai cablare)."""
-    return next(o.indice for o in snap.opzioni if o.etichetta == etichetta)
+    return next(
+        o.indice for o in snap.opzioni
+        if o.etichetta == etichetta or o.etichetta.startswith(etichetta + " —")
+    )
 
 
 def _fuggi_finche_riesce(sessione, snap, guardia_max: int = 10):

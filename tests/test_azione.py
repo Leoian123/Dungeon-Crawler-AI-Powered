@@ -80,18 +80,44 @@ def test_GR2_13_effetti_iterati_come_lista(mondo_isolato: str) -> None:
     assert esper.component_for_entity(nem, PuntiVita).attuali < hp0
 
 
-# --- GR2-14: nessun corpo del motore-skill (Mana/cooldown/SistemaSkill) ---------
+# --- GR2-14 EMENDATO (2026-08): il motore-skill è ACCESO, ma resta senza SISTEMA --
+#
+# GR2-14 vietava «Mana, cooldown, SistemaSkill» perché erano corpo ANTICIPATO: nel
+# Gruppo 2 non c'era ancora una ragione di gioco per averli. La decisione di prodotto
+# (Mossa 2, 2026-08) li rende necessari: senza una risorsa, `attacco_pesante` è
+# strettamente dominante e la scelta della mossa non è una scelta.
+#
+# Ciò che il divieto proteggeva DAVVERO resta in piedi, e questo test lo custodisce:
+# niente `SistemaSkill` separato. Mana e cooldown sono DATI (un componente posseduto,
+# un componente effimero) letti dal risolutore che già c'era — nessun secondo motore
+# accanto a `SistemaTurnoCombattimento`.
 
-def test_GR2_14_nessun_corpo_skill() -> None:
+def test_GR2_14_nessun_sistema_skill_separato() -> None:
     # Statico sui NOMI di classe (non su docstring/commenti: "skill" può comparire nella
-    # prosa che spiega *cosa non si fa*). Nessuna classe Mana/cooldown/SistemaSkill.
+    # prosa che spiega *cosa non si fa*).
     classi: set[str] = set()
     for f in _MOTORE.rglob("*.py"):
         for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             if isinstance(n, ast.ClassDef):
                 classi.add(n.name)
-    vietati = {c for c in classi if "Skill" in c or c == "Mana" or "Cooldown" in c}
-    assert vietati == set(), f"corpo skill anticipato vietato (GR2-14): {vietati}"
+    vietati = {c for c in classi if "Skill" in c}
+    assert vietati == set(), f"nessun motore-skill separato: {vietati}"
+    # I due dati dell'economia esistono e sono esattamente due (nessuna proliferazione).
+    assert "Mana" in classi and "Ricariche" in classi
+
+
+def test_GR2_14_il_costo_lo_spende_il_risolutore_che_gia_esisteva() -> None:
+    """L'unico punto che scala le risorse resta `_risolvi_azione`: mana e AP si
+    pagano nella STESSA giuntura (GR2-13), non in un sistema a parte."""
+    sorgente = (_MOTORE / "combattimento.py").read_text(encoding="utf-8")
+    corpo = sorgente.split("def _risolvi_azione")[1].split("\n    def ")[0]
+    assert 'costo.get("MANA"' in corpo, "il mana non si spende dove si spende l'AP"
+    # E nessun altro punto del motore scrive `Mana.attuale` (single-owner).
+    scrittori = [
+        f.name for f in _MOTORE.rglob("*.py")
+        if re.search(r"\.attuale\s*-=", f.read_text(encoding="utf-8"))
+    ]
+    assert scrittori == ["combattimento.py"], f"la spesa del mana è sparsa: {scrittori}"
 
 
 # --- GR2-17: `Azione` è interna al motore — non DTO, non attraversa la membrana --

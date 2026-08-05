@@ -31,7 +31,7 @@ def test_gioca_un_incontro_dalla_ui() -> None:
             await pilot.click("#opz-0")
             await pilot.pause()
             assert app.fase_corrente == "combattimento"
-            assert len(app.query(Button)) == 3
+            assert len(app.query(Button)) == 4
 
             # 3) Attacca finché lo scontro non si chiude (ritorno a narrazione) o permadeath.
             for _ in range(40):

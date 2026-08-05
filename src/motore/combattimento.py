@@ -52,7 +52,7 @@ from .modificatori import Resistenze
 from .mosse import CATALOGO_MOSSE, MOSSE_DEFAULT, azione_da_mossa
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
 from .prove import risolvi_prova
-from .scheda import ActionPoint, Protagonista, Scheda, protagonista
+from .scheda import ActionPoint, Mana, Protagonista, Scheda, assicura_mana, protagonista
 from .statistiche import Primarie, stat_eff
 from .status import TRASMISSIBILI, Stordito, afflizione, afflizione_da, applica_status
 from .turno import azzera_turno_attivo, segna_turno_attivo
@@ -86,6 +86,18 @@ class PuntiVita:
 
     attuali: int
     massimi: int
+
+
+@dataclass
+class Ricariche:
+    """Cooldown per chiave di mossa, **effimero per-scontro** (come `Combattente`).
+
+    Fuori dallo scontro non esiste: i cd si azzerano da soli alla chiusura e non
+    entrano MAI nel save (non è nel registry dei tag). Un solo proprietario in
+    scrittura: `SistemaTurnoCombattimento` — lo decrementa a inizio turno del
+    possessore e lo arma quando la mossa viene risolta."""
+
+    per_mossa: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -222,13 +234,16 @@ def spawn_nemico(*, destrezza: int, punti_vita: int) -> int:
     _ent_stato, stato = st
     chiave = stato.prossima_chiave
     stato.prossima_chiave += 1
-    return esper.create_entity(
+    ent = esper.create_entity(
         Nemico(arruolato=False),  # nato per lo scontro: muore con lo scontro
         Combattente(destrezza=destrezza, chiave_ordine=chiave),
         ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
+        Ricariche(),
         Primarie(valori=primarie_da_scalari(destrezza=destrezza, punti_vita=punti_vita)),
         PuntiVita(attuali=punti_vita, massimi=punti_vita),
     )
+    assicura_mana(ent)  # dopo le Primarie: il massimo deriva dall'Intelligenza
+    return ent
 
 
 def arruola_entita(entita: int) -> int:
@@ -256,6 +271,8 @@ def arruola_entita(entita: int) -> int:
         entita, Combattente(destrezza=stat_eff(entita, StatId.DESTREZZA), chiave_ordine=chiave)
     )
     esper.add_component(entita, ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP))
+    esper.add_component(entita, Ricariche())
+    assicura_mana(entita)  # anche i mob pagano le mosse forti (Int bassa → poche volte)
     if esper.try_component(entita, PuntiVita) is None:
         hp = max_hp(entita)
         esper.add_component(entita, PuntiVita(attuali=hp, massimi=hp))
@@ -267,10 +284,10 @@ def _congeda(entita: int) -> None:
     smette di essere un nemico ingaggiato, resta l'entità di scena.
 
     `PuntiVita` NON viene tolto di proposito — è la ferita che il mob si porta dietro
-    fino al prossimo ingaggio (`arruola_entita` lo riusa). `ActionPoint` sì: è
-    persistente (registry dei tag), e un mob fuori scontro non deve portarne uno nel
-    save."""
-    for componente in (Nemico, Combattente, ActionPoint):
+    fino al prossimo ingaggio (`arruola_entita` lo riusa). `ActionPoint` e `Mana` sì:
+    sono persistenti (registry dei tag), e un mob fuori scontro non deve portarli nel
+    save. `Ricariche` è effimero: i cooldown non sopravvivono allo scontro."""
+    for componente in (Nemico, Combattente, ActionPoint, Mana, Ricariche):
         if esper.has_component(entita, componente):
             esper.remove_component(entita, componente)
 
@@ -342,6 +359,31 @@ def mosse_di(entita: int) -> tuple[str, ...]:
     return tuple(rep.mosse) if rep is not None and rep.mosse else MOSSE_DEFAULT
 
 
+def cooldown_residuo(entita: int, chiave: str) -> int:
+    """Turni che mancano alla ricarica della mossa (0 = pronta). Senza `Ricariche`
+    (fuori scontro) è sempre 0: il componente è effimero per costruzione."""
+    ric = esper.try_component(entita, Ricariche)
+    return ric.per_mossa.get(chiave, 0) if ric is not None else 0
+
+
+def mossa_pagabile(entita: int, chiave: str) -> bool:
+    """La mossa è nel catalogo, non è in ricarica e c'è mana per pagarla.
+
+    È la stessa domanda che si fanno il menu (per disabilitare) e il risolutore
+    (per rifiutare): una sola definizione, mai due che divergono."""
+    mossa = CATALOGO_MOSSE.get(chiave)
+    if mossa is None:
+        return False
+    if cooldown_residuo(entita, chiave) > 0:
+        return False
+    if mossa.costo_mana > 0:
+        mana = esper.try_component(entita, Mana)
+        # Chi non ha il pool non lancia: assente ≠ illimitato.
+        if mana is None or mana.attuale < mossa.costo_mana:
+            return False
+    return True
+
+
 def richiedi_mossa(chiave: str) -> bool:
     """Il PROSSIMO turno del protagonista userà la mossa `chiave` (la scelta del
     giocatore, da menu CHIUSO — il gemello di `richiedi_fuga`). Valida catalogo e
@@ -351,7 +393,7 @@ def richiedi_mossa(chiave: str) -> bool:
     if st is None or chiave not in CATALOGO_MOSSE:
         return False
     pent, _marker, _scheda = protagonista()
-    if chiave not in mosse_di(pent):
+    if chiave not in mosse_di(pent) or not mossa_pagabile(pent, chiave):
         return False
     st[1].mossa_richiesta = chiave
     return True
@@ -490,6 +532,11 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         # Marca l'entità attiva: i sistemi-status (sempre-attivo) ticcano solo lei (G-24).
         segna_turno_attivo(attivo)
 
+        # Le RICARICHE scendono a inizio del proprio turno — PRIMA dello stordito:
+        # i cooldown recuperano anche mentre si è storditi (si perde il turno, non
+        # anche la ricarica). Un solo proprietario in scrittura: questo sistema.
+        self._scala_ricariche(attivo)
+
         # STORDITO (afflizione, non capacità): il turno è consumato senza agire.
         # Il decorso dello status resta di `SistemaStordito` (sempre-attivo, G-5).
         stordito = esper.try_component(attivo, Stordito)
@@ -522,6 +569,15 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         if not _nemici_vivi():
             self.bus.pubblica(CombatResolved(entita=attivo, vittoria=True))
 
+    @staticmethod
+    def _scala_ricariche(entita: int) -> None:
+        """Un turno di ricarica in meno per ogni mossa in cooldown (le chiavi a zero
+        escono dal dict: pronta = assente)."""
+        ric = esper.try_component(entita, Ricariche)
+        if ric is None:
+            return
+        ric.per_mossa = {k: v - 1 for k, v in ric.per_mossa.items() if v - 1 > 0}
+
     def _risolvi_azione(self, attivo: int, stato: StatoCombattimento, ap_comp: ActionPoint) -> bool:
         """Esegue **una `Azione`** percorrendo le tre giunture (GR2-12/13): (1) selezione da
         un insieme (oggi di uno), (2) costo verificato PRIMA, (3) lista di `effetti` iterata.
@@ -530,9 +586,26 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         if azione is None:                                   # giuntura 1: insieme vuoto (niente bersaglio)
             return False
         costo = azione.costo.get("AP", 1)
-        if ap_comp.ap < costo:                               # giuntura 2: costo pagabile? (GR2-13)
+        costo_mana = azione.costo.get("MANA", 0)
+        mana = esper.try_component(attivo, Mana) if costo_mana else None
+        # giuntura 2: TUTTE le risorse verificate PRIMA di spenderne una (GR2-13) —
+        # mai un pagamento parziale.
+        if ap_comp.ap < costo:
+            return False
+        if costo_mana and (mana is None or mana.attuale < costo_mana):
             return False
         ap_comp.ap -= costo
+        if costo_mana and mana is not None:
+            mana.attuale -= costo_mana
+        # La mossa va in ricarica appena risolta (il decremento è a inizio turno:
+        # `cooldown=2` costa esattamente un proprio turno d'attesa).
+        ricarica = CATALOGO_MOSSE[azione.mossa].cooldown if azione.mossa in CATALOGO_MOSSE else 0
+        if ricarica > 0:
+            ric = esper.try_component(attivo, Ricariche)
+            if ric is None:
+                ric = Ricariche()
+                esper.add_component(attivo, ric)
+            ric.per_mossa[azione.mossa] = ricarica
         # `a_segno` lega i primitivi della STESSA azione: un `ApplicaStatus` dopo un
         # `Danno` vale solo se il colpo ha connesso (il morso che avvelena deve mordere);
         # in una mossa senza Danno si applica e basta (utility pura). Deterministico.
@@ -598,7 +671,10 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
             # Consumo one-shot della scelta (il gemello di `fuga_richiesta`): la
             # cintura `in mosse` regge anche se lo stato è mutato dopo il click.
             if stato.mossa_richiesta is not None:
-                if stato.mossa_richiesta in mosse:
+                # Cintura profonda: la scelta può essere invecchiata fra il click e
+                # la risoluzione (mana speso, cd armato) → degrada all'attacco base,
+                # che è sempre pagabile. Il turno non si perde.
+                if stato.mossa_richiesta in mosse and mossa_pagabile(attivo, stato.mossa_richiesta):
                     mossa = stato.mossa_richiesta
                 stato.mossa_richiesta = None
             bersagli = _nemici_vivi()
@@ -606,7 +682,10 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         else:
             pent, _marker, pscheda = protagonista()
             bersagli = [pent] if (pscheda.vivo and pscheda.punti_vita > 0) else []
-            decisione = decidi_azione_nemico(stato.rng, bersagli, mosse=mosse)
+            # Anche il motore sceglie solo fra le mosse PAGABILI: un nemico a secco
+            # ripiega sull'attacco base invece di sprecare il turno.
+            pagabili = tuple(m for m in mosse if mossa_pagabile(attivo, m)) or ("attacco",)
+            decisione = decidi_azione_nemico(stato.rng, bersagli, mosse=pagabili)
             if decisione is not None:
                 bersaglio, mossa = decisione  # la MOSSA scelta si usa, non si scarta
             else:
@@ -701,6 +780,10 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
             pent,
             Combattente(destrezza=stat_eff(pent, StatId.DESTREZZA), chiave_ordine=chiave_prot),
         )
+        # Ricariche fresche a ogni scontro (effimere: i cd non si portano dietro).
+        if not esper.has_component(pent, Ricariche):
+            esper.add_component(pent, Ricariche())
+        assicura_mana(pent)  # save legacy: il pool nasce pieno alla prima materializzazione
         # L'AP del protagonista è già su `ActionPoint` (persistente, da crea_protagonista):
         # il Combattente effimero non lo porta (single-owner, guida §6.1).
 
@@ -729,10 +812,13 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
         azzera_turno_attivo()
         for ent, _ in list(esper.get_component(StatoCombattimento)):
             esper.delete_entity(ent, immediate=True)
-        # Il protagonista persiste: perde solo il Combattente effimero.
+        # Il protagonista persiste: perde le sole effimere di scontro (il Combattente
+        # e le Ricariche — il Mana invece è posseduto e resta com'è: si recupera
+        # riposando, non chiudendo uno scontro).
         for pent, _ in list(esper.get_component(Protagonista)):
-            if esper.has_component(pent, Combattente):
-                esper.remove_component(pent, Combattente)
+            for componente in (Combattente, Ricariche):
+                if esper.has_component(pent, componente):
+                    esper.remove_component(pent, componente)
 
     coppie = [(EncounterStarted, _materializza), (CombatResolved, _smonta)]
     for tipo, handler in coppie:

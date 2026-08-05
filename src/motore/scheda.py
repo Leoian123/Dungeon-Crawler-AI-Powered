@@ -30,7 +30,7 @@ from .statistiche import Primarie
 # Le mosse di PARTENZA del protagonista (chiavi del catalogo chiuso `mosse.py`).
 # È una scelta di CONTENUTO (diventerà dato/asset più avanti); il componente
 # `Repertorio` è persistente: il repertorio cresce con la run e viaggia nel save.
-MOSSE_INIZIALI_PROTAGONISTA: tuple[str, ...] = ("attacco", "attacco_pesante")
+MOSSE_INIZIALI_PROTAGONISTA: tuple[str, ...] = ("attacco", "attacco_pesante", "dardo_arcano")
 
 # HP iniziale di default: §11 in `calibrazione.py` (editabile dalla console admin).
 _HP_DEFAULT = HP_DEFAULT
@@ -51,6 +51,29 @@ class Scheda:
 
     vivo: bool = True
     punti_vita: int = _HP_DEFAULT
+
+
+@dataclass
+class Mana:
+    """Risorsa-mana **posseduta per-entità**: la spesa delle mosse che costano (§11).
+
+    Come `Scheda.punti_vita`, deposita solo il CORRENTE: il massimo DERIVA da
+    Intelligenza (`derivate.max_mana`) — così un modificatore sulla stat si
+    propaga da solo, senza un secondo numero da tenere in sincrono."""
+
+    attuale: int
+
+
+def assicura_mana(entita: int) -> Mana:
+    """Il `Mana` dell'entità, montandolo PIENO se assente (save scritti prima che
+    il mana esistesse: migrazione lazy, nessun cambio di formato)."""
+    comp = esper.try_component(entita, Mana)
+    if comp is None:
+        from .derivate import max_mana  # locale: derivate importa scheda (ciclo)
+
+        comp = Mana(attuale=max_mana(entita))
+        esper.add_component(entita, comp)
+    return comp
 
 
 @dataclass
@@ -82,7 +105,7 @@ def crea_protagonista(
     valori = dict(PRIMARIE_BASE_CARL)
     valori[StatId.DESTREZZA] = destrezza
     valori[StatId.COSTITUZIONE] = punti_vita
-    return esper.create_entity(
+    ent = esper.create_entity(
         Protagonista(id_dominio=id_dominio),
         Primarie(valori=valori),
         Scheda(vivo=True, punti_vita=punti_vita),
@@ -93,6 +116,10 @@ def crea_protagonista(
         # Save legacy senza il componente: `_scegli_azione` ripiega su MOSSE_DEFAULT.
         Repertorio(mosse=MOSSE_INIZIALI_PROTAGONISTA),
     )
+    # Il mana nasce PIENO, e dopo l'entità: il massimo deriva dalle Primarie appena
+    # montate (`max_mana` legge Intelligenza via il fold).
+    assicura_mana(ent)
+    return ent
 
 
 def protagonista() -> tuple[int, Protagonista, Scheda]:

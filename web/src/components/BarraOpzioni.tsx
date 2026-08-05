@@ -21,9 +21,12 @@ export function BarraOpzioni({
   return (
     <div className="flex flex-wrap gap-2">
       {snapshot.opzioni.map((opzione) => (
+        // `abilitata === false` = mossa senza mana o in ricarica: la voce RESTA
+        // (gli indici non devono ballare fra snapshot), spenta. Il rifiuto vero
+        // lo fa comunque il motore.
         <button
           key={opzione.indice}
-          disabled={disabilitata}
+          disabled={disabilitata || opzione.abilitata === false}
           onClick={() => scelta.mutate({ indice: opzione.indice, versione })}
           className="rounded border border-torcia/60 bg-torcia/10 px-4 py-2 font-bold text-torcia transition hover:bg-torcia/25 disabled:cursor-not-allowed disabled:opacity-40"
         >

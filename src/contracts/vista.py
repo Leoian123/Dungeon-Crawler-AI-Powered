@@ -21,6 +21,11 @@ class OpzioneVista(BaseModel):
 
     Il giocatore la sceglie per **indice** (→ `PlayerChoseOption(indice)`, IC §2.3); il
     `tipo` è categoriale (mai testo grezzo). L'`etichetta` è flavour, da rendere a video.
+
+    `abilitata=False` = voce MOSTRATA ma non giocabile ora (una mossa senza mana o in
+    ricarica): l'host la disegna spenta invece di farla sparire — gli indici restano
+    stabili fra snapshot e il giocatore vede *perché* non può. È COSMESI: l'autorità
+    resta il motore, che rifiuta comunque la scelta non pagabile.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -28,6 +33,7 @@ class OpzioneVista(BaseModel):
     indice: int
     etichetta: str
     tipo: TipoAzione
+    abilitata: bool = True
 
 
 class SnapshotVista(BaseModel):

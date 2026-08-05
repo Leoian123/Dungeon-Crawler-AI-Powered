@@ -41,7 +41,10 @@ def _stagione_un_mob(archetipo: str, grado: Grado) -> StagioneRisolta:
 
 
 def _indice(snap, etichetta: str) -> int:
-    return next(o.indice for o in snap.opzioni if o.etichetta == etichetta)
+    return next(
+        o.indice for o in snap.opzioni
+        if o.etichetta == etichetta or o.etichetta.startswith(etichetta + " —")
+    )
 
 
 @pytest.mark.parametrize("archetipo", ["slime", "scheletro", "goblin"])

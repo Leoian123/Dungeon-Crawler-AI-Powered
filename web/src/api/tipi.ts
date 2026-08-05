@@ -9,6 +9,8 @@ export interface OpzioneVista {
   indice: number;
   etichetta: string;
   tipo: string;
+  /** false = voce mostrata ma non giocabile ora (mossa senza mana o in ricarica). */
+  abilitata?: boolean;
 }
 
 export interface SnapshotVista {

@@ -66,7 +66,15 @@ from .calibrazione import (
     primarie_da_archetipo,
     primarie_da_scalari,
 )
-from .scheda import ActionPoint, Protagonista, Scheda, crea_protagonista, protagonista
+from .scheda import (
+    ActionPoint,
+    Mana,
+    Protagonista,
+    Scheda,
+    assicura_mana,
+    crea_protagonista,
+    protagonista,
+)
 from .modificatori import (
     Modificatore,
     Modificatori,
@@ -92,6 +100,7 @@ from .statistiche import (
 )
 from .derivate import (
     max_hp,
+    max_mana,
     attacco,
     iniziativa,
     atk_eff,
@@ -144,6 +153,9 @@ from .combattimento import (
     SistemaCrollo,
     collega_combattimento,
     mosse_di,
+    Ricariche,
+    cooldown_residuo,
+    mossa_pagabile,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
     richiedi_fuga,
@@ -448,6 +460,12 @@ __all__ = [
     "nemici_in_scontro",
     "prossimo_attivo_e_protagonista",
     "richiedi_fuga",
+    "Ricariche",
+    "cooldown_residuo",
+    "mossa_pagabile",
+    "Mana",
+    "assicura_mana",
+    "max_mana",
     "richiedi_mossa",
     "mosse_di",
     "etichetta_mossa",

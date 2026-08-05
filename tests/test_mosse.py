@@ -31,7 +31,11 @@ from motore import (
     tick,
 )
 from motore.azione import ApplicaStatus, Danno
-from motore.calibrazione import DURATA_AFFLIZIONE, MOLT_ATTACCO_PESANTE
+from motore.calibrazione import (
+    COSTO_MANA_MOSSA,
+    DURATA_AFFLIZIONE,
+    MOLT_ATTACCO_PESANTE,
+)
 from motore.combattimento import mult_resistenza, risolvi_danno
 from motore.modificatori import ResistenzaMod, applica_resistenza
 from motore.persistenza.tag import e_persistente
@@ -53,7 +57,9 @@ def _mob(archetipo: str, grado: Grado, *, mosse: tuple[str, ...] | None = None) 
 
 def test_catalogo_traduce_chiave_in_azione() -> None:
     az = azione_da_mossa("attacco_pesante", sorgente=1, bersaglio=2)
-    assert az.mossa == "attacco_pesante" and az.costo == {"AP": 1}
+    assert az.mossa == "attacco_pesante"
+    # Il costo è multi-risorsa: AP + MANA (§11, il freno alla mossa dominante).
+    assert az.costo == {"AP": 1, "MANA": COSTO_MANA_MOSSA["attacco_pesante"]}
     (danno,) = az.effetti
     assert isinstance(danno, Danno)
     assert danno.tipo is TipoDanno.MISCHIA          # il danno base è TIPATO (DT-1 attivo)
