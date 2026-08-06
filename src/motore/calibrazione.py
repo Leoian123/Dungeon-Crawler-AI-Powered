@@ -65,6 +65,7 @@ CAT_TURNO = "Turno / Action Point"
 CAT_PROB = "Probabilità (anomalia, imboscata)"
 CAT_TEMPO = "Tempo (durate, durata-blocco)"
 CAT_STATUS = "Status — durate delle afflizioni"
+CAT_MOSSE = "Mosse — mana, cooldown, moltiplicatori"
 CAT_PROVE = "Prove — soglie delle classi"
 CAT_CARL = "Protagonista (Carl) — primarie base e HP"
 CAT_MAPPA = "Mappa / esplorazione"
@@ -195,9 +196,30 @@ _DEFS: tuple[Param, ...] = (
     Param("AP_MAX_MVP", 1, "Action Point per turno nell'MVP (i talenti post-MVP alzano il max o "
           "danno azioni bonus). Il loop è scritto AP-driven fin da subito.", CAT_TURNO,
           "intero ≥1", "int", "AP"),
-    Param("MOLT_ATTACCO_PESANTE", 1.5, "Moltiplicatore di danno della mossa 'attacco_pesante' "
-          "dei nemici (scelta seeded del motore): entra nel check 2 dentro l'unico round.",
-          CAT_TURNO, "1 – 3"),
+    Param("MOLT_ATTACCO_PESANTE", 1.5, "Moltiplicatore di danno della mossa 'attacco_pesante': "
+          "entra nel check 2 dentro l'unico round.", CAT_MOSSE, "1 – 3"),
+    # --- Economia delle mosse: mana e cooldown (il freno alla mossa dominante) ---
+    Param("MANA_BASE", 0, "Termine costante della curva max_mana = MANA_BASE + K_MANA·Int. "
+          "Il massimo NON è depositato: deriva (come max_hp da Costituzione).",
+          CAT_MOSSE, "intero ≥0", "int", "mana"),
+    Param("K_MANA", 1, "Mana per punto di Intelligenza. Con Int 10 → pool 10: regge ~3 dardi "
+          "o 5 colpi pesanti prima del riposo.", CAT_MOSSE, "0 – 3"),
+    Param("MOSSA.attacco_pesante.costo_mana", 2, "Mana speso dal colpo pesante: con il cooldown "
+          "è il freno che gli toglie la dominanza (prima: molt. 1.5 a costo zero).",
+          CAT_MOSSE, "intero ≥0", "int", "mana"),
+    Param("MOSSA.attacco_pesante.cooldown", 2, "Turni di ricarica del colpo pesante. Convenzione: "
+          "N=2 blocca esattamente un proprio turno (N=1 è di fatto nullo).",
+          CAT_MOSSE, "intero ≥0", "int", "turni"),
+    Param("MOSSA.morso_velenoso.cooldown", 3, "Ricarica del morso velenoso: il mob non "
+          "ri-avvelena a ogni turno.", CAT_MOSSE, "intero ≥0", "int", "turni"),
+    Param("MOSSA.sputo_infuocato.cooldown", 3, "Ricarica dello sputo infuocato.",
+          CAT_MOSSE, "intero ≥0", "int", "turni"),
+    Param("MOSSA.dardo_arcano.costo_mana", 3, "Mana del dardo arcano: l'incantesimo del "
+          "protagonista. Costa più del pesante e non ha ricarica — la risorsa È il limite.",
+          CAT_MOSSE, "intero ≥0", "int", "mana"),
+    Param("MOLT_DARDO_ARCANO", 1.2, "Moltiplicatore del dardo arcano. Danno di tipo FUOCO: "
+          "incrocia le resistenze già calibrate (nessun tipo nuovo nel vocabolario chiuso).",
+          CAT_MOSSE, "1 – 3"),
     Param("DANNO_BASE", 1, "Witness storico del floor positivo del danno (G-L1): ogni colpo a "
           "segno toglie ≥1 HP. Oggi il floor reale è nel check 2; conservato per quel contratto.",
           CAT_TURNO, "intero ≥1", "int", "HP"),
@@ -276,6 +298,11 @@ _DEFS: tuple[Param, ...] = (
           scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     Param("DURATA_AZIONE.scendi", "un_attimo", "Durata di default di SCENDI.", CAT_TEMPO,
           "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.riposa", "un_pochino", "Durata del RIPOSO: quanti tick di piano "
+          "costa fermarsi a recuperare. È la leva del rischio — il dado-evento gira a "
+          "ogni tick, quindi più lungo il riposo, più probabile l'imboscata.",
+          CAT_TEMPO, "una Durata", "scelta",
+          scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     Param("DURATA_AZIONE.altro", "un_pochino", "Durata di default dell'azione libera (ALTRO): "
           "la stima che il giocatore vede prima di confermare.", CAT_TEMPO, "una Durata",
           "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
@@ -443,6 +470,20 @@ CROLLO_INCREMENTO = valore("CROLLO_INCREMENTO")
 
 AP_MAX_MVP = valore("AP_MAX_MVP")
 MOLT_ATTACCO_PESANTE = valore("MOLT_ATTACCO_PESANTE")
+MOLT_DARDO_ARCANO = valore("MOLT_DARDO_ARCANO")
+MANA_BASE = valore("MANA_BASE")
+K_MANA = valore("K_MANA")
+# Costi e ricariche per chiave di mossa: il catalogo (`mosse.py`) li LEGGE, non li
+# possiede — così la console §11 li tara senza toccare il codice.
+COSTO_MANA_MOSSA: dict[str, int] = {
+    "attacco_pesante": valore("MOSSA.attacco_pesante.costo_mana"),
+    "dardo_arcano": valore("MOSSA.dardo_arcano.costo_mana"),
+}
+COOLDOWN_MOSSA: dict[str, int] = {
+    "attacco_pesante": valore("MOSSA.attacco_pesante.cooldown"),
+    "morso_velenoso": valore("MOSSA.morso_velenoso.cooldown"),
+    "sputo_infuocato": valore("MOSSA.sputo_infuocato.cooldown"),
+}
 DANNO_BASE = valore("DANNO_BASE")
 
 PROB_ANOMALIA = valore("PROB_ANOMALIA")

@@ -30,7 +30,7 @@ from ..fase import FaseCorrente
 from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
 from ..piano import ProfonditaPiano, TempoPiano
-from ..scheda import ActionPoint, Protagonista, Scheda
+from ..scheda import ActionPoint, Mana, Protagonista, Scheda
 from ..seme import SemeRun
 from ..statistiche import Primarie
 from ..status import STATUS_PERSISTENTI, nome_status
@@ -45,6 +45,10 @@ _TAG_PER_TIPO: dict[type, str] = {
     # AP: risorsa POSSEDUTA del protagonista (G §2.1, guida §6.1) — persistente
     # come la Scheda, non un'effimera di combattimento (quelle restano fuori).
     ActionPoint: "action_point",
+    # Mana: risorsa POSSEDUTA come l'AP e gli HP — si spende in scontro e si
+    # recupera riposando, quindi deve attraversare il save. Il MASSIMO non è qui:
+    # deriva da Intelligenza (`derivate.max_mana`).
+    Mana: "mana",
     # Gli STATUS persistenti sono DERIVATI dalla tabella unica (status.SPEC_STATUS):
     # il tag stabile è il nome-dato del tipo (oggi = i nomi storici, H-3 intatto) —
     # un nuovo status entra nel save con la sua riga di tabella, non qui.

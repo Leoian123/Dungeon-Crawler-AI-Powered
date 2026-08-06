@@ -47,7 +47,13 @@ from contracts import (
     PianoAsset,
     PianoRisolto,
     ProfiloArchetipoDati,
+    EquipVista,
+    ProgressioneVista,
+    RiposoConcluso,
     SchedaVista,
+    Terminale,
+    SkillVista,
+    SlotEquip,
     Stagione,
     StagioneRisolta,
     TipoDanno,
@@ -113,7 +119,16 @@ from motore import (
     lint_registry,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
+    CATALOGO_MOSSE,
+    cooldown_residuo,
+    assicura_mana,
+    etichetta_mossa,
+    geometria_di,
+    max_mana,
+    mossa_pagabile,
+    mosse_di,
     richiedi_fuga,
+    richiedi_mossa,
     prepara_riepilogo,
     proietta_scheda,
     protagonista,
@@ -126,12 +141,9 @@ from motore import (
 )
 from provider import FakeProvider
 
-# Menu di combattimento (MVP). Il menu di NARRAZIONE non è più cablato qui: lo compone
-# il MOTORE dalla scena (`componi_opzioni_scena` sulla mappa) — la mappa dispone.
-_MENU_COMBATTIMENTO = (
-    OpzioneVista(indice=0, etichetta="Attacca", tipo=TipoAzione.COMBATTI),
-    OpzioneVista(indice=1, etichetta="Fuggi", tipo=TipoAzione.SCAPPA),
-)
+# Il menu di combattimento NON è più una costante: lo compone `IstanzaCombattimento`
+# dal `Repertorio` del protagonista (una voce per mossa + "Fuggi" ultima). Il menu di
+# NARRAZIONE lo compone il MOTORE dalla scena (`componi_opzioni_scena`) — la mappa dispone.
 
 # --- Radici dei percorsi: INSTALLAZIONE (read-only) vs DATI UTENTE (scrivibili) --
 #
@@ -544,6 +556,53 @@ def affini(
     return [vista for *_resto, vista in classifica[:k]]
 
 
+def _skills_di(entita: int) -> tuple[SkillVista, ...]:
+    """Le skill dell'entità per la scheda: repertorio (dato) × catalogo (numeri).
+
+    Fuori scontro `Ricariche` non esiste → `cd_residuo=0` per costruzione: mai un
+    valore stantio. `pronta` riflette comunque il MANA, che è posseduto e persiste:
+    in narrazione la scheda può dire "non pronta" — ed è l'informazione che spinge
+    a riposare."""
+    voci = []
+    for chiave in mosse_di(entita):
+        mossa = CATALOGO_MOSSE.get(chiave)
+        if mossa is None:
+            continue  # chiave fuori catalogo (dato incompleto): non si inventa nulla
+        voci.append(SkillVista(
+            chiave=chiave,
+            etichetta=etichetta_mossa(chiave),
+            costo_mana=mossa.costo_mana,
+            cd_totale=mossa.cooldown,
+            cd_residuo=cooldown_residuo(entita, chiave),
+            pronta=mossa_pagabile(entita, chiave),
+        ))
+    return tuple(voci)
+
+
+def _equip_di(entita: int) -> tuple[EquipVista, ...]:
+    """Gli slot di equipaggiamento. OGGI SEMPRE VUOTI di oggetti: il motore non ne
+    ha: si espone la GEOMETRIA attiva (`Corredo`, o i default §11), che è ciò che
+    muove davvero le derivate. Il giorno in cui esisteranno gli oggetti, `nome` si
+    riempie e questa funzione resta della stessa forma."""
+    armatura, _taglia, arma = geometria_di(entita)
+    return (
+        EquipVista(slot=SlotEquip.ARMA, categoria=arma),
+        EquipVista(slot=SlotEquip.ARMATURA, categoria=armatura),
+    )
+
+
+def _etichetta_mossa_ricca(entita: int, chiave: str) -> str:
+    """L'etichetta di menu che DICE il costo: "Dardo arcano — 3 mana", e in ricarica
+    "Colpo pesante — ricarica (1)". Composizione di presentazione: vive nel port,
+    non nel motore (che possiede i numeri, non le frasi)."""
+    base = etichetta_mossa(chiave)
+    residuo = cooldown_residuo(entita, chiave)
+    if residuo > 0:
+        return f"{base} — ricarica ({residuo})"
+    costo = CATALOGO_MOSSE[chiave].costo_mana if chiave in CATALOGO_MOSSE else 0
+    return f"{base} — {costo} mana" if costo else base
+
+
 class IstanzaCombattimento:
     """L'istanza SEPARATA del combattimento: il modello deterministico con le SUE
     interazioni (FNC §5.2 — la pipeline GM qui non gira mai, G-4).
@@ -551,7 +610,10 @@ class IstanzaCombattimento:
     Nasce all'ingaggio, pilota il loop deterministico (un `tick` per azione), ascolta
     il bus e **raccoglie i fatti** dello scontro; alla chiusura i `FattiScontro`
     rientrano nel fascicolo del primo turno GM successivo (risolvi prima, narra dopo).
-    Le interazioni sono un seam: oggi "Attacca", domani mosse/fuga.
+
+    Il MENU è dinamico: una voce per mossa del `Repertorio` del protagonista (il
+    binding indice→chiave vive qui, come `_scena` per la narrazione — il contratto
+    `OpzioneVista` non porta chiavi di mossa) + "Fuggi" SEMPRE ULTIMA.
     """
 
     def __init__(self, bus, *, nemico: str = "") -> None:
@@ -574,20 +636,39 @@ class IstanzaCombattimento:
     def _su_morte(self, _evento: MortePersonaggio) -> None:
         self._conclusa = True  # permadeath: lo scontro non si chiude, la run sì
 
+    def _mosse(self) -> tuple[str, ...]:
+        """Le chiavi del menu, nell'ordine del Repertorio (la fonte è il motore)."""
+        return mosse_di(protagonista()[0])
+
     @property
     def opzioni(self) -> tuple[OpzioneVista, ...]:
-        return _MENU_COMBATTIMENTO
+        pent = protagonista()[0]
+        voci = []
+        for i, chiave in enumerate(self._mosse()):
+            pagabile = mossa_pagabile(pent, chiave)
+            voci.append(OpzioneVista(
+                indice=i,
+                etichetta=_etichetta_mossa_ricca(pent, chiave),
+                tipo=TipoAzione.COMBATTI,
+                abilitata=pagabile,
+            ))
+        voci.append(OpzioneVista(indice=len(voci), etichetta="Fuggi", tipo=TipoAzione.SCAPPA))
+        return tuple(voci)
 
     def agisci(self, indice: int) -> None:
         """Un comando del giocatore = il SUO turno + le risposte dei nemici, in un
         colpo solo (feel: il click non "esegue il turno del mob" in silenzio).
-        `indice=1` (Fuggi) marca il turno come tentativo di disimpegno (FNC §4):
-        la prova la tira il MOTORE dentro il suo sistema-turno."""
-        if self._conclusa or not (0 <= indice < len(self.opzioni)):
+        L'ULTIMA voce (Fuggi) marca il turno come tentativo di disimpegno (FNC §4);
+        le altre chiedono la mossa scelta: prova e risoluzione le tira il MOTORE
+        dentro il suo sistema-turno."""
+        mosse = self._mosse()
+        if self._conclusa or not (0 <= indice <= len(mosse)):
             return
-        if indice == 1:
+        if indice == len(mosse):
             richiedi_fuga()
-        tick()  # il turno del protagonista (attacco, o tentativo di fuga)
+        elif not richiedi_mossa(mosse[indice]):
+            return  # scelta rifiutata dal motore: nessun turno speso
+        tick()  # il turno del protagonista (mossa scelta, o tentativo di fuga)
         self._turni += 1
         # Il giro dei nemici, fino a tornare al protagonista (guardia difensiva).
         guardia = 0
@@ -830,12 +911,7 @@ class SessioneGioco:
         if esito.risultato is not None:
             self._nome_mob = esito.risultato.turno.entita.nome
         self._sincronizza_scena()
-        return SnapshotVista(
-            prosa=esito.messaggio.prosa,
-            opzioni=self._opzioni,
-            stato=self._descrittori(),
-            fase="narrazione",
-        )
+        return self._snapshot_corrente(esito.messaggio.prosa)
 
     def riepiloga_azione(self, testo: str, tipo: TipoAzione = TipoAzione.ALTRO) -> RiepilogoAzione:
         """La finestra di conferma EDITABILE: 'Stai per…, corretto? Ti prenderà …'.
@@ -865,12 +941,7 @@ class SessioneGioco:
             self._fatti_scontro = None
         self.ultimo_messaggio = esito.messaggio
         self._sincronizza_scena()
-        return SnapshotVista(
-            prosa=esito.messaggio.prosa,
-            opzioni=self._opzioni,
-            stato=self._descrittori(),
-            fase="narrazione",
-        )
+        return self._snapshot_corrente(esito.messaggio.prosa)
 
     def avanza(self) -> SnapshotVista:
         """Il **turno del motore** per l'host (IC §7.1) — drenaggio UNIFICATO:
@@ -974,6 +1045,11 @@ class SessioneGioco:
             },
             livello=livello_corrente(),
             tick_piano=tempo_piano_corrente(),
+            mana=assicura_mana(pent).attuale,
+            mana_max=max_mana(pent),
+            skills=_skills_di(pent),
+            equip=_equip_di(pent),
+            progressione=ProgressioneVista(livello_piano=livello_corrente()),
         )
 
     def esci(self) -> str:
@@ -1043,16 +1119,19 @@ class SessioneGioco:
     def _agisci_combattimento(self, indice: int) -> None:
         if self._istanza is not None:
             self._istanza.agisci(indice)  # l'istanza deterministica possiede lo scontro
-        elif 0 <= indice < len(_MENU_COMBATTIMENTO):
+        elif indice >= 0:
             tick()  # difesa: scontro aperto fuori dal port (test/harness)
 
     def _sincronizza_scena(self) -> None:
-        """Riallinea il menu alla verità del motore: in combattimento il menu di
-        combattimento; altrimenti la SCENA composta dalla mappa. Scena vuota = stanza
-        mai narrata ⇒ menu vuoto ⇒ l'host chiede un turno di narrazione."""
+        """Riallinea il menu alla verità del motore: in combattimento il menu
+        dell'istanza (dinamico, dal Repertorio); altrimenti la SCENA composta dalla
+        mappa. Scena vuota = stanza mai narrata ⇒ menu vuoto ⇒ l'host chiede un
+        turno di narrazione."""
         if in_combattimento():
             self._scena = ()
-            self._opzioni = _MENU_COMBATTIMENTO
+            # UNA sola strada per il menu di combattimento: la property dell'istanza
+            # (prima qui viveva una costante parallela — riunificate).
+            self._opzioni = self._istanza.opzioni if self._istanza is not None else ()
             return
         self._scena = componi_opzioni_scena()
         self._opzioni = tuple(
@@ -1062,13 +1141,28 @@ class SessioneGioco:
 
     # --- Costruzione dello snapshot dal World corrente ------------------------
 
-    def _snapshot_corrente(self) -> SnapshotVista:
+    def _snapshot_corrente(self, prosa: str = "") -> SnapshotVista:
+        """L'UNICO costruttore di `SnapshotVista`. Tutti i produttori passano di
+        qui: un campo nuovo del contratto si aggiunge in un punto solo, e non
+        esiste una via per cui una porta risponda con dati diversi da un'altra
+        (era successo: due porte su tre ignoravano `terminale`/`profondita`)."""
         return SnapshotVista(
-            prosa="",  # la prosa di transizione arriva via eventi sul bus
+            # Vuota di default: la prosa di transizione arriva via eventi sul bus;
+            # i turni GM la passano (sono l'unico caso che ne ha una).
+            prosa=prosa,
             opzioni=self._opzioni,
             stato=self._descrittori(),
             fase="combattimento" if in_combattimento() else "narrazione",
+            terminale=self.terminale,
+            profondita=livello_corrente(),
         )
+
+    @property
+    def terminale(self) -> Terminale | None:
+        """Come è finita la run, `None` se è in corso. È la PORTA che prima non
+        c'era: gli host leggevano `guscio._terminale` (privato) o inseguivano gli
+        eventi sul bus per capire che la partita era chiusa."""
+        return self.guscio.terminale
 
     def _descrittori(self) -> tuple[str, ...]:
         pent, _marker, scheda = protagonista()
@@ -1132,6 +1226,21 @@ def _riga_effetto_status(e: object) -> str:
     return f"{chi_bene} {delta} HP."
 
 
+def _riga_riposo(e: object) -> str:
+    """Il riassunto del riposo: quanto è costato e quanto ha reso. Interrotto =
+    il recupero è parziale, e la cronaca lo dice invece di far sembrare che il
+    riposo sia semplicemente reso poco."""
+    tick = getattr(e, "tick_spesi", 0)
+    hp = getattr(e, "hp_recuperati", 0)
+    mana = getattr(e, "mana_recuperato", 0)
+    resa = ", ".join(
+        p for p in (f"+{hp} HP" if hp else "", f"+{mana} mana" if mana else "") if p
+    ) or "niente"
+    if getattr(e, "interrotto", False):
+        return f"Riposo INTERROTTO dopo {tick} tick: {resa}."
+    return f"Riposi ({tick} tick): {resa}."
+
+
 def _riga_turno_saltato(e: object) -> str:
     if getattr(e, "causa", "") == "fuga_fallita":
         return "Tenti la fuga: FALLITA. Il nemico ne approfitta."
@@ -1157,6 +1266,7 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (MortePersonaggio, lambda e: f"Sei morto: {getattr(e, 'causa', '')}."),
     (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
     (DiscesaPiano, lambda e: f"Scendi: piano {getattr(e, 'piano', '?')}."),
+    (RiposoConcluso, _riga_riposo),
 )
 
 

@@ -66,7 +66,15 @@ from .calibrazione import (
     primarie_da_archetipo,
     primarie_da_scalari,
 )
-from .scheda import ActionPoint, Protagonista, Scheda, crea_protagonista, protagonista
+from .scheda import (
+    ActionPoint,
+    Mana,
+    Protagonista,
+    Scheda,
+    assicura_mana,
+    crea_protagonista,
+    protagonista,
+)
 from .modificatori import (
     Modificatore,
     Modificatori,
@@ -92,6 +100,8 @@ from .statistiche import (
 )
 from .derivate import (
     max_hp,
+    max_mana,
+    geometria_di,
     attacco,
     iniziativa,
     atk_eff,
@@ -143,13 +153,25 @@ from .combattimento import (
     SistemaDeathCheck,
     SistemaCrollo,
     collega_combattimento,
+    mosse_di,
+    Ricariche,
+    cooldown_residuo,
+    mossa_pagabile,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
     richiedi_fuga,
+    richiedi_mossa,
 )
 from .mutazione import OndataRinforzi, PianoRinforzi, SistemaRinforzi
 from .mob import Repertorio
-from .mosse import CATALOGO_MOSSE, MOSSE_DEFAULT, Mossa, azione_da_mossa, mosse_note
+from .mosse import (
+    CATALOGO_MOSSE,
+    MOSSE_DEFAULT,
+    Mossa,
+    azione_da_mossa,
+    etichetta_mossa,
+    mosse_note,
+)
 from .catalogo import (
     REGISTRY_BLOCCHI,
     REGISTRY_ARCHETIPI,
@@ -379,6 +401,7 @@ __all__ = [
     "applica_resistenza",
     "rimuovi_resistenza_per_fonte",
     "max_hp",
+    "geometria_di",
     "attacco",
     "iniziativa",
     "atk_eff",
@@ -439,6 +462,15 @@ __all__ = [
     "nemici_in_scontro",
     "prossimo_attivo_e_protagonista",
     "richiedi_fuga",
+    "Ricariche",
+    "cooldown_residuo",
+    "mossa_pagabile",
+    "Mana",
+    "assicura_mana",
+    "max_mana",
+    "richiedi_mossa",
+    "mosse_di",
+    "etichetta_mossa",
     # mutazione intra-fase
     "OndataRinforzi",
     "Repertorio",

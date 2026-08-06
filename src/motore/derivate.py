@@ -28,14 +28,20 @@ from .scheda import Scheda
 from .statistiche import stat_eff
 
 
-def _geometria(entita: int) -> tuple[str, str, str]:
+def geometria_di(entita: int) -> tuple[str, str, str]:
     """Slot gear (armatura, taglia, arma) dell'entità: il suo `Corredo` se presente,
     altrimenti i **default globali** (`*_DEFAULT`). È l'apertura del seam gear: entità senza
-    `Corredo` (protagonista, nemici-da-scalari) restano ai valori odierni, bit-per-bit."""
+    `Corredo` (protagonista, nemici-da-scalari) restano ai valori odierni, bit-per-bit.
+
+    Pubblica perché è anche la fonte di `EquipVista`: la scheda mostra la geometria
+    ATTIVA (ciò che muove le derivate) senza che l'host debba leggere il World."""
     c = esper.try_component(entita, Corredo)
     if c is None:
         return cal.ARMATURA_DEFAULT, cal.TAGLIA_DEFAULT, cal.ARMA_DEFAULT
     return c.armatura, c.taglia, c.arma
+
+
+_geometria = geometria_di  # alias storico (call-site interni di questo modulo)
 
 
 def max_hp(entita: int) -> int:
@@ -43,6 +49,12 @@ def max_hp(entita: int) -> int:
 
     `round(...) → int`: l'HP è un intero anche con `K_HP` frazionario (leva di calibrazione)."""
     return round(cal.HP_BASE + cal.K_HP * stat_eff(entita, StatId.COSTITUZIONE))
+
+
+def max_mana(entita: int) -> int:
+    """Massimo mana derivato da Intelligenza: `MANA_BASE + K_MANA·Int` (§11).
+    Stessa dottrina di `max_hp`: il massimo non è depositato, deriva."""
+    return round(cal.MANA_BASE + cal.K_MANA * stat_eff(entita, StatId.INTELLIGENZA))
 
 
 def attacco(entita: int) -> int:

@@ -7,10 +7,12 @@
 > ed è **versionato** (a differenza di `docs/`, che è in `.gitignore`).
 >
 > **Aggiornalo** quando: chiudi una fase, crei/fondi un branch, o prendi una decisione che
-> diverge da `docs/`. Ultima revisione: **2026-08-04** — travaso del **sistema di gioco**
-> da `react-ecosystem` (vedi §2.1): contenuti come asset, tick degli status acceso, mosse
-> come catalogo-dato, TTK tarato, persistenza riparata. Il delta precedente (calibrazione
-> per-entità, console web, drenaggio unificato, Mappa) resta tracciato in **`README.md`**.
+> diverge da `docs/`. Ultima revisione: **2026-08-06** — **Mossa 2**: scelta della mossa,
+> economia mana/cooldown, e i contratti posati prima delle feature che romperebbero
+> l'MVP (vedi §2.3). Prima: le guardie delle fondamenta (§2.2) e il travaso del sistema
+> di gioco (§2.1 — contenuti come asset, tick degli status, TTK tarato, persistenza
+> riparata). Il delta più vecchio (calibrazione per-entità, console web, drenaggio
+> unificato, Mappa) resta tracciato in **`README.md`**.
 >
 > **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
 > `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive la
@@ -127,7 +129,73 @@ UI nel motore" regge per costruzione, non per disciplina.
    refactor): `libreria/`, `authoring/`, `sessione.py`.
 5. Gli **alias storici** dei sistemi-status (`SistemaVeleno`, …) sopravvivono accanto a
    `sistemi_status()`: cablarli insieme farebbe ticcare due volte lo stesso status.
-6. `SCHEMA_VERSION` è fermo a 1 benché l'insieme dei componenti persistenti sia cambiato.
+6. ~~`SCHEMA_VERSION` fermo a 1~~ — **chiarito** (§2.3): il numero non si alza per
+   esercizio, e il meccanismo di migrazione è ora *provato*. Si alzerà col primo
+   cambio di forma reale.
+
+---
+
+## 2.3 Mossa 2 — il loop di gioco: scelta, economia, contratti (2026-08-06)
+
+Il travaso successivo dal laboratorio. La valutazione di prodotto aveva misurato che
+il gioco non aveva un loop: combattere era puro costo (95% di morti giocando da
+dungeon crawler, contro 90% di vittorie fuggendo sempre), il combattimento era un
+bottone senza input, non esisteva progressione. Qui atterrano i primi due sblocchi
+e la superficie contrattuale che regge il resto.
+
+**IL GIOCATORE SCEGLIE LA MOSSA.** Il menu di combattimento non è più una costante:
+lo compone `IstanzaCombattimento` dal `Repertorio` del protagonista (una voce per
+mossa + "Fuggi" sempre ultima). Prima `_scegli_azione` risolveva il repertorio e lo
+SCARTAVA alla riga dopo con `mossa = "attacco"`. Il canale è il gemello esatto della
+fuga: `StatoCombattimento.mossa_richiesta` + `richiedi_mossa(chiave)`, che valida
+catalogo E repertorio E pagabilità. Il protagonista ora PORTA le sue mosse
+(`Repertorio` persistente): il repertorio crescerà con la run e viaggia nel save.
+
+**L'ECONOMIA DELLE MOSSE.** `Mana(attuale)` posseduto e persistente, col massimo
+DERIVATO da Intelligenza (`max_mana`, stessa dottrina di `max_hp`); `Ricariche`
+effimero per-scontro (mai nei save, si azzera da solo). `attacco_pesante` costa 2
+mana e 2 turni di ricarica: smette di essere strettamente dominante. Nuovo
+incantesimo `dardo_arcano` (3 mana, danno FUOCO — nessun tipo nuovo nel vocabolario
+chiuso). Il rifiuto ha DUE cinture e non spende mai il turno: la porta respinge il
+click non pagabile, e il risolutore degrada all'attacco base se lo stato è cambiato
+fra click e risoluzione. GR2-14 emendato: il divieto proteggeva dal *corpo
+anticipato*, non dalla feature — resta vietato un `SistemaSkill` separato, e un test
+verifica staticamente che nessun modulo fuori dal risolutore scriva `Mana.attuale`.
+
+**I CONTRATTI, PRIMA DELLE FEATURE CHE ROMPEREBBERO L'MVP.** Criterio dell'utente:
+«facciamo spazio prima di chiudere i bocconi, così evitiamo di dover rompere il
+pavimento per rifare le tubature».
+- `Terminale` passa da `guscio.macchina` a `contracts`; `SnapshotVista` porta
+  `terminale` e `profondita`. È ciò che permetterà di distinguere «sceso di un
+  piano» da «vinto» — prima l'unico accesso era `guscio._terminale`, un privato.
+- `SkillVista`, `EquipVista` + `SlotEquip` (enum chiuso), `ProgressioneVista`:
+  la scheda dichiara skill, equipaggiamento e progressione. **Alcuni sono vuoti di
+  proposito** — non esistono oggetti né esperienza — ma il contratto c'è: quando
+  arriverà il contenuto si riempie un campo, non si rinegozia un'interfaccia.
+- `TipoAzione.RIPOSA` + la foglia §11 obbligatoria (trappola: `DURATA_AZIONE` itera
+  tutto l'enum all'import); `RiposoConcluso` con la sua riga di cronaca.
+- **Un lucchetto nuovo per gli eventi**: ogni sottoclasse di `EventoDominio` deve
+  avere una riga in `_MAPPA_EVENTI`. Un evento dichiarato e non raccontato nasce
+  MUTO. Le azioni avevano già questa rete, gli eventi no.
+
+**Sul versionamento dei save** — la lezione più utile del ciclo. Un primo tentativo
+aveva alzato `SCHEMA_VERSION` a 2 con una migrazione che dava `livello` ai mob privi
+del campo: ma `livello` è obbligatorio senza default in `EntitaMob` dal primo
+commit, quindi il ramo era irraggiungibile. Il bump avrebbe timbrato a v2 ogni save
+esistente senza cambiarne un byte, **bruciando lo slot v1→v2** per la migrazione vera
+che un giorno servirà. Il numero è tornato a 1: **un bump è l'identità di un formato,
+non un esercizio**. Il meccanismo si prova per INIEZIONE (`migra` accetta già
+`migrazioni=`/`versione_corrente=`) — 8 lucchetti su ordine dei passi, cumulatività,
+rifiuto del futuro, buco nella catena, più `test_nessuna_migrazione_inerte` che vieta
+di ripetere l'errore.
+
+**Verifica:** **574 verdi + 2 skip** sul prodotto (611 sul laboratorio, la differenza
+sono i 37 test dell'host). `python -m main` gioca capo-a-fine. Il save reale scritto
+prima di questo ciclo si carica ancora, con gli HP preservati e il mana riparato lazy.
+
+**Cosa resta della Mossa 2** (sul laboratorio, poi qui): fuga con prova vera e colpo
+d'opportunità; secondo piano; riposo che costa tempo + imboscata; il playtest che
+misura se combattere ha smesso di essere una perdita.
 
 ---
 

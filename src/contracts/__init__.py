@@ -23,6 +23,7 @@ from .eventi import (
     AnomalyTriggered,
     DiscesaPiano,
     StatusApplicato,
+    RiposoConcluso,
     TurnoSaltato,
 )
 from .intenti import (
@@ -65,7 +66,14 @@ from .contenuti import (
     StagioneRisolta,
 )
 from .hub import CrawlerVista
-from .proiezione import SchedaProiezione, SchedaVista
+from .proiezione import (
+    EquipVista,
+    ProgressioneVista,
+    SchedaProiezione,
+    SchedaVista,
+    SkillVista,
+    SlotEquip,
+)
 from .vista import (
     FattiScontro,
     MessaggioGM,
@@ -75,6 +83,7 @@ from .vista import (
     SnapshotVista,
     StimaAzione,
     TempoVista,
+    Terminale,
 )
 from .provider import Provider, TCandidato
 
@@ -94,6 +103,7 @@ __all__ = [
     "DiscesaPiano",
     "StatusApplicato",
     "TurnoSaltato",
+    "RiposoConcluso",
     # intenti
     "Intento",
     "IntentoCombattimento",
@@ -123,6 +133,10 @@ __all__ = [
     # proiezione scheda (sola lettura) + scheda per la UI + hub
     "SchedaProiezione",
     "SchedaVista",
+    "SkillVista",
+    "EquipVista",
+    "SlotEquip",
+    "ProgressioneVista",
     "CrawlerVista",
     # contenuti dello show (asset riusabili + forme risolte)
     "AssetVista",
@@ -137,6 +151,7 @@ __all__ = [
     # snapshot di rendering per la vista
     "OpzioneVista",
     "SnapshotVista",
+    "Terminale",
     "MessaggioGM",
     "TempoVista",
     "ProvaVista",

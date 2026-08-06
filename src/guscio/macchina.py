@@ -32,7 +32,7 @@ import random
 from enum import Enum
 from pathlib import Path
 
-from contracts import BusEventi, DiscesaPiano, MortePersonaggio
+from contracts import BusEventi, DiscesaPiano, MortePersonaggio, Terminale
 from motore import (
     Fase,
     MODEL_ID_DEFAULT,
@@ -81,12 +81,9 @@ class StatoGuscio(Enum):
     IN_RUN = "in_run"
 
 
-class Terminale(Enum):
-    """I tre terminali run→guscio (E-8). Gli esiti vittoria/fuga NON sono qui."""
-
-    SCONFITTA = "sconfitta"               # 6a — death-check seeded → MortePersonaggio
-    PIANO_COMPLETATO = "piano_completato"  # 6b — DiscesaPiano (nell'MVP, un piano → vittoria)
-    USCITA_VOLONTARIA = "uscita_volontaria"  # 6c — intento del giocatore
+# `Terminale` vive in `contracts` (ri-esportato qui per i chiamanti storici): è la
+# domanda «come è finita la run», e un host deve poterla fare senza guardare dentro
+# il motore. Vedi contracts/vista.py.
 
 
 class Guscio:
@@ -105,6 +102,12 @@ class Guscio:
         self._terminale: Terminale | None = None
         self._coppie_in_run: list[tuple[type, object]] = []
         self._boot()
+
+    @property
+    def terminale(self) -> Terminale | None:
+        """Come è finita la run, `None` se è in corso. Lettura PUBBLICA: prima
+        l'unico accesso era l'attributo privato — e i test stessi lo leggevano."""
+        return self._terminale
 
     # --- BOOT → MENU ---------------------------------------------------------
 

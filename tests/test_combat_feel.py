@@ -148,10 +148,16 @@ def test_fuga_dal_combattimento(run_pulita, tmp_path) -> None:
     sessione.bus.registra(CombatResolved, risolti.append)
     try:
         snap = _apri_scontro(sessione)
-        assert [o.etichetta for o in snap.opzioni] == ["Attacca", "Fuggi"]
+        # Menu DINAMICO dal Repertorio: le mosse iniziali + Fuggi SEMPRE ULTIMA.
+        # Le etichette portano il COSTO ("Dardo arcano — 3 mana"): si confronta il
+        # nome-base, il costo è presentazione.
+        assert [o.etichetta.split(" —")[0] for o in snap.opzioni] == [
+            "Attacca", "Colpo pesante", "Dardo arcano", "Fuggi",
+        ]
+        assert snap.opzioni[-1].etichetta == "Fuggi"
         guardia = 0
         while snap.fase == "combattimento" and guardia < 10:
-            sessione.coda.accoda(PlayerChoseOption(1))  # Fuggi (riprova finché riesce)
+            sessione.coda.accoda(PlayerChoseOption(_indice(snap, "Fuggi")))
             snap = sessione.avanza()
             guardia += 1
         assert snap.fase == "narrazione"
@@ -162,11 +168,19 @@ def test_fuga_dal_combattimento(run_pulita, tmp_path) -> None:
         sessione.bus.deregistra(CombatResolved, risolti.append)
 
 
+def _indice(snap, etichetta: str) -> int:
+    """L'indice dell'opzione con questa etichetta (il menu è dinamico: mai cablare)."""
+    return next(
+        o.indice for o in snap.opzioni
+        if o.etichetta == etichetta or o.etichetta.startswith(etichetta + " —")
+    )
+
+
 def _fuggi_finche_riesce(sessione, snap, guardia_max: int = 10):
     """Ripete "Fuggi" finché la prova riesce (il motore tira, FNC §4)."""
     guardia = 0
     while snap.fase == "combattimento" and guardia < guardia_max:
-        sessione.coda.accoda(PlayerChoseOption(1))
+        sessione.coda.accoda(PlayerChoseOption(_indice(snap, "Fuggi")))
         snap = sessione.avanza()
         guardia += 1
     assert snap.fase == "narrazione", "la fuga non è mai riuscita in 10 tentativi"

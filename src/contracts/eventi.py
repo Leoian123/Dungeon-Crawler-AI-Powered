@@ -94,6 +94,21 @@ class TurnoSaltato(EventoDominio):
 
 
 @dataclass(frozen=True)
+class RiposoConcluso(EventoDominio):
+    """Un riposo è finito: quanto tempo è costato e quanto ha reso.
+
+    `interrotto=True` = il riposo è stato spezzato prima della fine (un'imboscata,
+    o la morte): i tick già spesi restano reali e il recupero è PARZIALE — è il
+    fatto, non una promessa. È un evento riassuntivo di proposito: il riposo dura
+    più tick e una riga per tick sarebbe rumore in cronaca."""
+
+    tick_spesi: int
+    hp_recuperati: int
+    mana_recuperato: int
+    interrotto: bool = False
+
+
+@dataclass(frozen=True)
 class MortePersonaggio(EventoDominio):
     """Terminale di run: permadeath (death-check seeded del motore), non sconfitta.
 
