@@ -298,6 +298,11 @@ _DEFS: tuple[Param, ...] = (
           scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     Param("DURATA_AZIONE.scendi", "un_attimo", "Durata di default di SCENDI.", CAT_TEMPO,
           "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.riposa", "un_pochino", "Durata del RIPOSO: quanti tick di piano "
+          "costa fermarsi a recuperare. È la leva del rischio — il dado-evento gira a "
+          "ogni tick, quindi più lungo il riposo, più probabile l'imboscata.",
+          CAT_TEMPO, "una Durata", "scelta",
+          scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     Param("DURATA_AZIONE.altro", "un_pochino", "Durata di default dell'azione libera (ALTRO): "
           "la stima che il giocatore vede prima di confermare.", CAT_TEMPO, "una Durata",
           "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),

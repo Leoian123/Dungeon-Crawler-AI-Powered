@@ -23,6 +23,7 @@ from .eventi import (
     AnomalyTriggered,
     DiscesaPiano,
     StatusApplicato,
+    RiposoConcluso,
     TurnoSaltato,
 )
 from .intenti import (
@@ -82,6 +83,7 @@ from .vista import (
     SnapshotVista,
     StimaAzione,
     TempoVista,
+    Terminale,
 )
 from .provider import Provider, TCandidato
 
@@ -101,6 +103,7 @@ __all__ = [
     "DiscesaPiano",
     "StatusApplicato",
     "TurnoSaltato",
+    "RiposoConcluso",
     # intenti
     "Intento",
     "IntentoCombattimento",
@@ -148,6 +151,7 @@ __all__ = [
     # snapshot di rendering per la vista
     "OpzioneVista",
     "SnapshotVista",
+    "Terminale",
     "MessaggioGM",
     "TempoVista",
     "ProvaVista",

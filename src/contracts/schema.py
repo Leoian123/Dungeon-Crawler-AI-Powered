@@ -128,6 +128,10 @@ class TipoAzione(str, Enum):
     SCAPPA = "scappa"
     SCENDI = "scendi"
     MUOVI = "muovi"
+    # `RIPOSA` è di scena come SCENDI/MUOVI: la compone il motore quando è VERA
+    # (stanza senza nemici e nessuno status che lo impedisca), mai l'AI dal testo.
+    # Costa tempo — e il tempo, scorrendo, può portare un'imboscata.
+    RIPOSA = "riposa"
     ALTRO = "altro"
 
 

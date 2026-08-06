@@ -9,8 +9,10 @@ Due artefatti separati (§2):
   - **Archivio** (`MetadatiArchivio` + `RecordArchivio`): il sidecar compresso, patrimonio.
 
 `schema_version` è presente **già a v1** (H-13): le migrazioni sono una catena di
-funzioni `v→v+1` applicate fino alla corrente. Nell'MVP nessuna migrazione esiste, ma
-il campo e il meccanismo ci sono — longevità a costo zero.
+funzioni `v→v+1` applicate fino alla corrente. Nessuna migrazione esiste ancora — il
+formato non è mai cambiato in modo che un save vecchio non sappia descriversi — ma il
+campo e il meccanismo ci sono, e il meccanismo è **provato** (per iniezione, senza
+spendere l'identità di una versione: vedi `tests/test_versione_save.py`).
 """
 
 from __future__ import annotations
@@ -20,6 +22,20 @@ from typing import Callable
 from pydantic import BaseModel, ConfigDict
 
 # Versione corrente dello schema di salvataggio. Migrazioni: v→v+1 (§9.2).
+#
+# ⚠️ IL NUMERO NON SI ALZA PER ESERCIZIO. Un bump è l'IDENTITÀ di un formato: alzarlo
+# senza una trasformazione reale timbra i save esistenti con la versione nuova senza
+# cambiarne un byte, e brucia irreversibilmente quello slot — la migrazione v→v+1 VERA,
+# quando servirà, non potrà più attraversare i file già timbrati. È esattamente il
+# pavimento che si voleva non rompere.
+#
+# Il meccanismo si esercita INIETTANDO la catena (`migra(..., migrazioni=...,
+# versione_corrente=...)`, vedi tests/test_versione_save.py): così è provato che
+# funziona senza spendere l'identità di una versione.
+#
+# Si alza quando — e solo quando — la forma dei dati persistiti cambia in modo che
+# un save vecchio non sappia più descriversi: allora si scrive la migrazione, la si
+# prova su un save reale della versione precedente, e si bumpa.
 SCHEMA_VERSION = 1
 
 _CHIUSO = ConfigDict(extra="forbid")
@@ -104,7 +120,11 @@ class VersioneIncompatibile(Exception):
 
 
 # Catena di migrazioni: indice = versione di partenza, valore = (intest, corpo)→(intest, corpo).
-# Vuota a v1; il *meccanismo* c'è da subito (H-13).
+# Vuota finché `SCHEMA_VERSION` è 1 — e deve restarlo: una voce qui senza un bump non
+# scatterebbe mai, un bump senza la voce corrispondente rifiuta i save vecchi (il test
+# `test_la_catena_copre_ogni_versione` è la rete). Il *meccanismo* c'è da subito (H-13)
+# ed è provato per iniezione (tests/test_versione_save.py): quando servirà la prima
+# migrazione vera, si saprà già che la catena funziona.
 _MIGRAZIONI: dict[int, Callable[[dict, dict], tuple[dict, dict]]] = {}
 
 

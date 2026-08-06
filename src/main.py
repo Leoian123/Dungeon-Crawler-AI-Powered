@@ -49,7 +49,9 @@ from contracts import (
     ProfiloArchetipoDati,
     EquipVista,
     ProgressioneVista,
+    RiposoConcluso,
     SchedaVista,
+    Terminale,
     SkillVista,
     SlotEquip,
     Stagione,
@@ -909,12 +911,7 @@ class SessioneGioco:
         if esito.risultato is not None:
             self._nome_mob = esito.risultato.turno.entita.nome
         self._sincronizza_scena()
-        return SnapshotVista(
-            prosa=esito.messaggio.prosa,
-            opzioni=self._opzioni,
-            stato=self._descrittori(),
-            fase="narrazione",
-        )
+        return self._snapshot_corrente(esito.messaggio.prosa)
 
     def riepiloga_azione(self, testo: str, tipo: TipoAzione = TipoAzione.ALTRO) -> RiepilogoAzione:
         """La finestra di conferma EDITABILE: 'Stai per…, corretto? Ti prenderà …'.
@@ -944,12 +941,7 @@ class SessioneGioco:
             self._fatti_scontro = None
         self.ultimo_messaggio = esito.messaggio
         self._sincronizza_scena()
-        return SnapshotVista(
-            prosa=esito.messaggio.prosa,
-            opzioni=self._opzioni,
-            stato=self._descrittori(),
-            fase="narrazione",
-        )
+        return self._snapshot_corrente(esito.messaggio.prosa)
 
     def avanza(self) -> SnapshotVista:
         """Il **turno del motore** per l'host (IC §7.1) — drenaggio UNIFICATO:
@@ -1149,13 +1141,28 @@ class SessioneGioco:
 
     # --- Costruzione dello snapshot dal World corrente ------------------------
 
-    def _snapshot_corrente(self) -> SnapshotVista:
+    def _snapshot_corrente(self, prosa: str = "") -> SnapshotVista:
+        """L'UNICO costruttore di `SnapshotVista`. Tutti i produttori passano di
+        qui: un campo nuovo del contratto si aggiunge in un punto solo, e non
+        esiste una via per cui una porta risponda con dati diversi da un'altra
+        (era successo: due porte su tre ignoravano `terminale`/`profondita`)."""
         return SnapshotVista(
-            prosa="",  # la prosa di transizione arriva via eventi sul bus
+            # Vuota di default: la prosa di transizione arriva via eventi sul bus;
+            # i turni GM la passano (sono l'unico caso che ne ha una).
+            prosa=prosa,
             opzioni=self._opzioni,
             stato=self._descrittori(),
             fase="combattimento" if in_combattimento() else "narrazione",
+            terminale=self.terminale,
+            profondita=livello_corrente(),
         )
+
+    @property
+    def terminale(self) -> Terminale | None:
+        """Come è finita la run, `None` se è in corso. È la PORTA che prima non
+        c'era: gli host leggevano `guscio._terminale` (privato) o inseguivano gli
+        eventi sul bus per capire che la partita era chiusa."""
+        return self.guscio.terminale
 
     def _descrittori(self) -> tuple[str, ...]:
         pent, _marker, scheda = protagonista()
@@ -1219,6 +1226,21 @@ def _riga_effetto_status(e: object) -> str:
     return f"{chi_bene} {delta} HP."
 
 
+def _riga_riposo(e: object) -> str:
+    """Il riassunto del riposo: quanto è costato e quanto ha reso. Interrotto =
+    il recupero è parziale, e la cronaca lo dice invece di far sembrare che il
+    riposo sia semplicemente reso poco."""
+    tick = getattr(e, "tick_spesi", 0)
+    hp = getattr(e, "hp_recuperati", 0)
+    mana = getattr(e, "mana_recuperato", 0)
+    resa = ", ".join(
+        p for p in (f"+{hp} HP" if hp else "", f"+{mana} mana" if mana else "") if p
+    ) or "niente"
+    if getattr(e, "interrotto", False):
+        return f"Riposo INTERROTTO dopo {tick} tick: {resa}."
+    return f"Riposi ({tick} tick): {resa}."
+
+
 def _riga_turno_saltato(e: object) -> str:
     if getattr(e, "causa", "") == "fuga_fallita":
         return "Tenti la fuga: FALLITA. Il nemico ne approfitta."
@@ -1244,6 +1266,7 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (MortePersonaggio, lambda e: f"Sei morto: {getattr(e, 'causa', '')}."),
     (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
     (DiscesaPiano, lambda e: f"Scendi: piano {getattr(e, 'piano', '?')}."),
+    (RiposoConcluso, _riga_riposo),
 )
 
 

@@ -13,11 +13,21 @@ export interface OpzioneVista {
   abilitata?: boolean;
 }
 
+/** Come una run è finita. `null` = in corso. */
+export type Terminale = "sconfitta" | "piano_completato" | "uscita_volontaria";
+
 export interface SnapshotVista {
   prosa: string;
   opzioni: OpzioneVista[];
   stato: string[];
   fase: Fase;
+  /** `null` finché la run è in corso. Distingue «sceso di un piano» (null, con
+   *  `profondita` cresciuta) da «ho vinto» ("piano_completato"). La comodità
+   *  `run_conclusa` non è un campo: è `terminale !== null` — un dato derivato
+   *  non si serializza, si calcola. */
+  terminale: Terminale | null;
+  /** Il piano in cui ci si trova ORA (sale a ogni discesa). */
+  profondita: number;
 }
 
 export interface TempoVista {

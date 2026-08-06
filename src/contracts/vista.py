@@ -11,9 +11,26 @@ dati semplici (IC §2.2). Dipendenze: solo stdlib + Pydantic (come tutto `contra
 
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel, ConfigDict
 
 from .schema import Durata, TipoAzione
+
+
+class Terminale(str, Enum):
+    """Come una run FINISCE (E-8). Vocabolario chiuso, e vive QUI perché è la
+    domanda che ogni host deve poter fare senza guardare dentro il motore.
+
+    Prima stava in `guscio.macchina` e l'unico modo di leggerlo era un attributo
+    privato: un host non poteva distinguere «sono sceso di un piano» da «ho vinto
+    la run» — distinzione che col multi-piano diventa la differenza fra continuare
+    e chiudere la partita. Gli esiti di un singolo SCONTRO (vittoria, fuga) non
+    sono qui: quelli sono `CombatResolved`."""
+
+    SCONFITTA = "sconfitta"                   # permadeath: death-check seeded (G-11)
+    PIANO_COMPLETATO = "piano_completato"     # l'ultima discesa: la run è vinta
+    USCITA_VOLONTARIA = "uscita_volontaria"   # salva-ed-esci: la run riprenderà
 
 
 class OpzioneVista(BaseModel):
@@ -42,8 +59,16 @@ class SnapshotVista(BaseModel):
     - `prosa`: testo della narrazione/flavour da appendere allo scroll;
     - `opzioni`: il menu discreto corrente (vuoto ⇒ "in attesa di un turno");
     - `stato`: descrittori diegetici per il pannello (es. `("ferito", "avvelenato")`);
-    - `fase`: `"narrazione" | "combattimento"` (per il titolo/contesto del pannello).
-    """
+    - `fase`: `"narrazione" | "combattimento"` (per il titolo/contesto del pannello);
+    - `terminale`: **come è finita la run**, `None` finché è in corso;
+    - `profondita`: a che piano si è ORA (sale con ogni discesa).
+
+    ⚠️ `terminale` è il campo che permette a un host di distinguere «sono sceso di
+    un piano» da «ho vinto». Prima non esisteva: dopo la morte lo snapshot serviva
+    ancora un menu giocabile, e l'unico modo di sapere che la run era finita era
+    leggere un attributo privato del guscio. Col multi-piano quella distinzione
+    diventa la differenza fra proseguire e chiudere la partita — per questo il
+    campo nasce PRIMA della feature che lo richiede."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -51,6 +76,13 @@ class SnapshotVista(BaseModel):
     opzioni: tuple[OpzioneVista, ...] = ()
     stato: tuple[str, ...] = ()
     fase: str = "narrazione"
+    terminale: Terminale | None = None
+    profondita: int = 1
+
+    @property
+    def run_conclusa(self) -> bool:
+        """La run è finita (in qualunque modo): l'host deve chiudere, non proseguire."""
+        return self.terminale is not None
 
 
 # --- Pipeline GM: il MESSAGGIO per turno verso l'host (input di rendering, C-4) ---
