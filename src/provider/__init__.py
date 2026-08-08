@@ -23,16 +23,21 @@ from .anthropic_backend import (
     sdk_disponibile,
 )
 from .fake import FALLISCI, FakeProvider
+from .root import CORSIE_DEFAULT, ProfiloCorsia, costruisci_backend_live, scegli_provider
 
 __all__ = [
     "FakeProvider",
     "FALLISCI",
     "AnthropicBackend",
     "ConsumoProvider",
+    "CORSIE_DEFAULT",
     "MODELLO_DEFAULT",
     "MODELLO_VELOCE",
     "NOME_VAR_CHIAVE",
+    "ProfiloCorsia",
     "ProviderPerSchema",
     "chiave_presente",
+    "costruisci_backend_live",
+    "scegli_provider",
     "sdk_disponibile",
 ]

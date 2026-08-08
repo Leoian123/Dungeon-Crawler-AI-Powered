@@ -1657,8 +1657,15 @@ def costruisci_sessione(
     congelata nella run. Offline (`provider=None`, default SICURO: mai rete
     implicita): il copione del FakeProvider e la scala del piano derivano dal
     piano 1 della stagione. Live: la scala è quella autorata (`stanze`) o la
-    calibrazione (`MAPPA_STANZE`); il backend si INIETTA esplicitamente."""
+    calibrazione (`MAPPA_STANZE`); il backend si INIETTA esplicitamente.
+    `provider="auto"`: selezione dal composition root (`provider.scegli_provider`,
+    live se chiave+SDK ci sono, altrimenti l'offline scriptato) — opt-in
+    ESPLICITO, il default resta offline."""
     directory = directory or Path(tempfile.mkdtemp(prefix="dcc-"))
+    if provider == "auto":
+        from provider import scegli_provider
+
+        provider, _etichetta = scegli_provider([])
     if isinstance(stagione, StagioneRisolta):
         risolta = stagione
     else:

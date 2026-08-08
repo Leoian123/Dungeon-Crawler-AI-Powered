@@ -322,62 +322,12 @@ def _costruisci_app(sessione):
 
 
 def _scegli_provider(argv: list[str]) -> tuple[object | None, str]:
-    """Seleziona il provider del GM. Ritorna `(provider, etichetta)`; `None` = fake.
+    """Delega al composition root del pacchetto provider (`provider.root`): la
+    politica fake/live, il cablaggio forte+veloce e il tally condiviso non sono
+    più affare dell'host TUI — questo alias sopravvive per compat coi chiamanti."""
+    from provider import scegli_provider
 
-    Politica (PLK §4 + best practice chiavi API):
-      - la chiave vive SOLO nell'ambiente (`ANTHROPIC_API_KEY`): qui se ne controlla
-        la PRESENZA, mai il valore — lo legge esclusivamente l'SDK;
-      - mai la chiave in argv/URL/log; nessun degrado silenzioso: se il live non è
-        possibile lo si DICE (niente fallback muto che maschera un errore di setup);
-      - `--fake` forza l'offline; `--live` esige il live (errore chiaro se manca
-        chiave o SDK); default: live se la chiave c'è, altrimenti offline.
-    """
-    from provider import (
-        AnthropicBackend,
-        ConsumoProvider,
-        MODELLO_DEFAULT,
-        MODELLO_VELOCE,
-        ProviderPerSchema,
-        chiave_presente,
-        sdk_disponibile,
-    )
-
-    if "--fake" in argv:
-        return None, "GM offline (contenuto scriptato)"
-    presente, sdk = chiave_presente(), sdk_disponibile()
-    if "--live" in argv:
-        if not presente:
-            raise SystemExit(
-                "[gioca] --live richiede ANTHROPIC_API_KEY nell'ambiente (o in .env: "
-                "copia .env.example → .env e compila). La chiave non va MAI in argv o nel repo."
-            )
-        if not sdk:
-            raise SystemExit(
-                "[gioca] --live richiede l'SDK: .venv\\Scripts\\pip install anthropic"
-            )
-    if not presente:
-        return None, "GM offline (nessuna ANTHROPIC_API_KEY: vedi .env.example)"
-    if not sdk:
-        return None, "GM offline (SDK anthropic non installato)"
-    # Latenza: il modello FORTE serve solo la chiamata gating (il turno); gli stadi
-    # ancillari non-gating (ideazione/limatura/distillazione) vanno sul VELOCE.
-    from contracts import TurnoNarrazione
-
-    # UN tally per la sessione, condiviso dai due backend: il consumo (token,
-    # chiamate, errori) è per-run, non per-modello — l'usage non si butta più via.
-    consumo = ConsumoProvider()
-    forte = AnthropicBackend(consumo=consumo)
-    # Corsia veloce: output brevi per contratto (ideazione/limatura/distillazione),
-    # quindi max_tokens stretto (fallisce presto invece di generare a vuoto) e
-    # timeout corto — gli stadi non-gating degradano, non bloccano.
-    veloce = AnthropicBackend(
-        modello=MODELLO_VELOCE, max_tokens=512, timeout=15.0, consumo=consumo
-    )
-    provider = ProviderPerSchema({TurnoNarrazione: forte}, predefinito=veloce)
-    # Il tally viaggia col provider: l'host lo mostra a fine sessione (e può
-    # leggerlo quando un turno degrada) senza cambiare la firma di questa funzione.
-    provider.consumo = consumo
-    return provider, f"GM live — {MODELLO_DEFAULT} (turni) + {MODELLO_VELOCE} (rifiniture)"
+    return scegli_provider(argv)
 
 
 def _scegli_sessione(argv: list[str], provider, directory=None):
