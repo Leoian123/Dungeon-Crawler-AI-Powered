@@ -37,8 +37,12 @@ class ProfiloCorsia:
 # max_tokens stretto (fallisce presto invece di generare a vuoto) e timeout corto
 # — gli stadi non-gating degradano, non bloccano.
 CORSIE_DEFAULT: dict[str, ProfiloCorsia] = {
-    "forte": ProfiloCorsia(modello=MODELLO_DEFAULT, max_tokens=2048, timeout=30.0),
-    "veloce": ProfiloCorsia(modello=MODELLO_VELOCE, max_tokens=512, timeout=15.0),
+    # 4096: la prosa cinematografica dei momenti chiave (250-400 parole) + il JSON
+    # dell'entità con margine; il retry di troncatura del backend copre le code.
+    "forte": ProfiloCorsia(modello=MODELLO_DEFAULT, max_tokens=4096, timeout=30.0),
+    # 1024: la limatura ora PRESERVA la lunghezza della bozza (stadio di qualità),
+    # quindi deve poter riscrivere anche una bozza lunga senza troncare.
+    "veloce": ProfiloCorsia(modello=MODELLO_VELOCE, max_tokens=1024, timeout=15.0),
 }
 
 

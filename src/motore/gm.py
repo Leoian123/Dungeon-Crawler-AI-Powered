@@ -104,6 +104,71 @@ from .tempo import fast_forward, passa_turno, puo_downtime, puo_passare_turno
 
 # --- Prefisso statico del GM (byte-identico a ogni turno: prompt caching, H §13) --
 
+# Guida di STILE cinematografica: statica, byte-identica per la run, DENTRO il
+# prefisso di sistema. Il suo peso è deliberato (Fase 4, review 2026-08-08): porta
+# il prefisso della corsia FORTE sopra la soglia minima di cache di Opus (1024
+# token) — la guida si paga UNA volta a inizio run e poi viaggia in cache sulla
+# chiamata che pesa di più. Sotto la soglia il marker era un no-op e ogni turno
+# ripagava il prefisso pieno.
+STILE_CINEMA = "\n".join([
+    "[stile] La tua prosa è una regia: ogni scena si APRE con un'inquadratura — "
+    "prima il luogo (luce, aria, suono di fondo), poi il movimento dentro il luogo, "
+    "poi la creatura o il dettaglio che cattura l'occhio. Mai un elenco: una camera.",
+    "[stile] Scrivi coi sensi, non con gli aggettivi: il freddo che sale dalle "
+    "grate, l'odore di grasso bruciato, il rumore che smette quando il giocatore "
+    "entra. Un dettaglio concreto vale tre 'inquietante'.",
+    "[stile] Il tono è Dungeon Crawler Carl: dark-comico, ironia asciutta sopra "
+    "un fondo sinceramente crudele. Il dungeon è uno SHOW: c'è sempre un pubblico "
+    "invisibile, e il Sistema è lo showrunner sadico che vuole share, non pietà.",
+    "[stile] L'umorismo nasce dal contrasto, mai dalla parodia: la burocrazia "
+    "assurda dentro l'orrore, il dettaglio domestico nel posto sbagliato, la "
+    "cortesia glaciale del Sistema. Niente battute che strizzano l'occhio al "
+    "giocatore: il mondo fa sul serio anche quando è ridicolo.",
+    "[stile] Mostra, non dichiarare: mai 'è pericoloso', 'fa paura', 'è strano'. "
+    "Fai vedere COSA lo rende pericoloso e lascia il giudizio al giocatore.",
+    "[stile] Le creature hanno un corpo e un'abitudine: come si muovono, che "
+    "verso fanno, cosa stavano facendo un attimo prima che la porta si aprisse. "
+    "Un mob memorabile ha UN tratto che il giocatore rivedrà negli incubi, non "
+    "dieci descrizioni generiche.",
+    "[stile] Il ritmo si controlla con la lunghezza delle frasi: frasi larghe per "
+    "l'atmosfera, frasi corte quando qualcosa si muove. L'ultima frase di una "
+    "scena carica la molla: un dettaglio che promette conseguenze, mai un riassunto.",
+    "[stile] Varia gli attacchi di paragrafo e i verbi: se due frasi consecutive "
+    "iniziano allo stesso modo, riscrivile. Bandisci i cliché da dungeon generico "
+    "(torce tremolanti, aria pesante, silenzio di tomba) salvo rovesciarli.",
+    "[stile] Il passato del piano affiora dai resti, mai da spiegoni: un cartello "
+    "corretto a mano, una fila di sedie fissate al soffitto, un premio impolverato. "
+    "Chi c'era prima ha lasciato tracce; il lore si annusa, non si recita.",
+    "[stile] I MOMENTI CHIAVE — il primo ingresso in una stanza, l'apertura e la "
+    "chiusura di uno scontro — meritano respiro cinematografico: 250-400 parole, "
+    "scena piena. I turni di routine (un'azione, un passaggio) restano asciutti: "
+    "poche frasi dense, l'azione contestualizzata, avanti.",
+    "[stile] La voce del Sistema, quando serve, è UNA riga: annuncio da speaker, "
+    "entusiasmo da televendita, gelo da ufficio reclami. Non narra: presenta.",
+    "[stile] Lo stato del protagonista si racconta dal corpo, mai dalla scheda: "
+    "ferito è il fiato corto e la mano che non stringe, avvelenato è il sapore di "
+    "monete vecchie in bocca. I descrittori della proiezione sono fatti da "
+    "mettere in scena, non etichette da ripetere.",
+    "[stile] La continuità è memoria viva: se il fascicolo ricorda un incontro, "
+    "una ferita, una promessa, la scena ne porta il segno senza riassumerlo — un "
+    "richiamo obliquo vale più di un 'come ricorderai'.",
+    "[stile] Le aperture di scontro sono trailer: la minaccia entra in scena con "
+    "un gesto che ne mostra il carattere (come attacca, cosa ignora, cosa la "
+    "diverte). Le chiusure sono conseguenze: cosa resta sul pavimento, cosa è "
+    "cambiato nella stanza, cosa il pubblico ha applaudito.",
+    "[stile] Quando l'azione del giocatore è goffa, il mondo la punisce con "
+    "eleganza: la beffa sta nei fatti, mai nell'insulto. Quando è brillante, il "
+    "mondo se ne accorge: anche il dungeon sa riconoscere lo spettacolo.",
+    "[stile] I nomi propri pesano: un mob col nome guadagnato (dal suo tratto, "
+    "dal suo mestiere di prima) vale dieci 'creatura oscura'. Battezza con "
+    "criterio da showrunner: il pubblico deve poterlo scandire.",
+    "[stile] Ruota i sensi tra le scene: se l'ultima stanza era suono, questa è "
+    "odore o superficie. La varietà sensoriale è ciò che rende il piano un LUOGO "
+    "e non un corridoio di testi.",
+    "[stile] Chiudi sempre sul mondo, mai sul giocatore: l'ultima immagine "
+    "appartiene alla scena (ciò che resta, ciò che osserva, ciò che aspetta).",
+])
+
 PREFISSO_GM = "\n".join([
     "[gm] Sei il Game Master del dungeon: voce ironica, dark-comica (stile Dungeon Crawler Carl).",
     "[contratto] Non emettere MAI numeri di gioco: niente HP, danni, soglie, minuti, percentuali.",
@@ -119,6 +184,9 @@ PREFISSO_GM = "\n".join([
     "[contratto] Classifica in `beneficio` il vantaggio che l'azione RECLAMA "
     "(vocabolario chiuso); il costo in tempo lo decide il motore, non negoziarlo.",
     "[contratto] Rispondi SOLO nella forma strutturata richiesta in coda.",
+    # La guida di stile è PARTE del prefisso statico: stessa cache, stessa
+    # byte-identità (vedi STILE_CINEMA sopra per il perché del suo peso).
+    STILE_CINEMA,
 ])
 
 # Prefisso CORTO per gli stadi di rifinitura (limatura/distillazione): riscrivere
@@ -183,13 +251,24 @@ _ISTRUZIONE_IDEAZIONE = (
     "l'idea orienta la narrazione, non la decide."
 )
 
-_ISTRUZIONE_COMPOSIZIONE = (
+# Istruzioni di composizione PER MOMENTO (Fase 4): il reveal è un momento chiave
+# — scena piena, cinematografica; il turno-azione resta asciutto. La selezione è
+# del MOTORE (flag `reveal`), mai dell'AI.
+_ISTRUZIONE_COMPOSIZIONE_REVEAL = (
+    "[istruzione] Metti in scena la stanza: questa è un'APERTURA — 250-400 parole, "
+    "regia piena secondo la guida di stile (inquadratura → movimento → creatura). "
+    "Scegli archetipo/grado/blocchi DENTRO il budget; dai alla creatura un corpo, "
+    "un'abitudine e un tratto memorabile; dichiara la durata (vocabolario chiuso). "
+    "Nessun preambolo, nessun riassunto in coda."
+)
+
+_ISTRUZIONE_COMPOSIZIONE_AZIONE = (
     "[istruzione] Narra il turno: la prosa DEVE contestualizzare l'azione del giocatore "
     "in un dove e un come; scegli archetipo/grado/blocchi DENTRO il budget; "
     "dichiara la durata (vocabolario chiuso) e il beneficio che l'azione "
     "reclama (nessuno|recupero|lavoro|addestramento|svolta — 'svolta' per ogni pretesa "
     "di avanzamento permanente). Coerente con l'idea sopra, se presente. Prosa "
-    "ASCIUTTA: 3-5 frasi, niente preamboli."
+    "ASCIUTTA: poche frasi dense, niente preamboli."
 )
 
 
@@ -569,8 +648,11 @@ def _prompt_limatura(
         f"[bozza] {bozza}",
         f"[dati] dove: {_dove(f)}; come: {_come(f)}; tempo: {etichetta}; "
         f"stato: {stato}; prova: {riga_prova}",
-        "[istruzione] Rifondi bozza e dati in UN testo gradevole e compatto (max ~80 "
-        "parole): i dati vanno sfoltiti e integrati nella prosa, non elencati. Non "
+        # Stadio di QUALITÀ, non di taglio (Fase 4): la lunghezza la decide la
+        # bozza (che l'istruzione di composizione ha già calibrato per momento).
+        "[istruzione] Rifondi bozza e dati in UN testo scorrevole, MANTENENDO la "
+        "lunghezza e il registro della bozza: i dati vanno sfoltiti e integrati "
+        "nella prosa, non elencati. Cura ritmo e immagini (guida di stile). Non "
         "aggiungere fatti nuovi, nessun numero.",
     ])
 
@@ -756,7 +838,7 @@ async def esegui_turno_gm(
     voce = "\n".join(x for x in [
         sezione_fascicolo(fascicolo),
         _sezione_ideazione(idea),
-        _ISTRUZIONE_COMPOSIZIONE,
+        _ISTRUZIONE_COMPOSIZIONE_REVEAL if reveal else _ISTRUZIONE_COMPOSIZIONE_AZIONE,
     ] if x)
     risultato = await procura_turno(
         engine.provider_di(Corsia.FORTE), budget, fascicolo.proiezione, voce=voce,

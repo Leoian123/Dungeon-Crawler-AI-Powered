@@ -99,6 +99,22 @@ def test_conteggio_e_ordine_chiamate(mondo_isolato) -> None:
     assert esito.messaggio.prosa == "limata" and not esito.da_cache
 
 
+def test_prefisso_forte_sopra_soglia_cache() -> None:
+    """Fase 4 (review 2026-08-08): il prefisso della corsia FORTE supera
+    DELIBERATAMENTE la soglia minima di cache di Opus (1024 token) grazie alla
+    guida di stile statica — la cache si attiva sulla chiamata che pesa di più.
+    Approssimazione prudente: ~3.5 caratteri/token per l'italiano ⇒ 4300 char
+    garantiscono >1024 token con margine."""
+    from motore.gm import STILE_CINEMA, prefisso_gm
+
+    assert len(PREFISSO_GM) >= 4300, (
+        f"prefisso FORTE sotto soglia di cache: {len(PREFISSO_GM)} char"
+    )
+    assert STILE_CINEMA in PREFISSO_GM  # la guida vive NEL prefisso statico
+    # Byte-identità: stessa run (stessi input) ⇒ stesso prefisso, sempre.
+    assert prefisso_gm(None, None) == prefisso_gm(None, None) == PREFISSO_GM
+
+
 def test_prefisso_rifinitura_snello() -> None:
     """Il prefisso delle rifiniture non trasporta il contratto di gioco né il
     design della run: riscrivere una bozza non li richiede (dieta token)."""
