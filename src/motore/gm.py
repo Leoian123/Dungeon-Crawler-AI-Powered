@@ -87,10 +87,9 @@ from .mappa import (
     stanza_visitata,
     uscite,
 )
+from .master import Corsia, MasterEngine
 from .narrazione import (
     RisultatoTurno,
-    _chiama_con_policy,
-    genera_prosa,
     materializza_turno,
     procura_turno,
     proietta_scheda,
@@ -530,20 +529,14 @@ def spendi_tempo(bus, durata: Durata, *, ingresso_combattimento: bool = False) -
 
 # --- Stadio 1: ideazione (consultiva, ≤1 chiamata, 0 retry) ---------------------
 
-async def ideazione(
-    provider, fascicolo: Fascicolo, budget: Budget, *, sistema: str = PREFISSO_GM
-) -> Ideazione | None:
-    """La chiamata di brainstorming: legge il fascicolo, propone l'IDEA. `None` =
-    degrado silenzioso (si compone senza).
-
-    Il prompt NON imbarca il budget (dieta token 2026-08): l'ideazione non sceglie
-    archetipi/gradi/blocchi — il budget soft appartiene alla gating, l'hard al gate.
-    `budget` resta nella firma: è il contesto che stadi futuri potranno pesare."""
-    prompt = "\n".join([
+def _prompt_ideazione(fascicolo: Fascicolo) -> str:
+    """Il prompt di brainstorming: fascicolo + istruzione, SENZA budget (dieta
+    token 2026-08): l'ideazione non sceglie archetipi/gradi/blocchi — il budget
+    soft appartiene alla gating, l'hard al gate."""
+    return "\n".join([
         sezione_fascicolo(fascicolo),
         _ISTRUZIONE_IDEAZIONE,
     ])
-    return await _chiama_con_policy(provider, prompt, Ideazione, sistema)
 
 
 # --- Prompt degli stadi ancillari ----------------------------------------------
@@ -694,6 +687,11 @@ async def esegui_turno_gm(
         raise RuntimeError("la pipeline GM vive solo in NARRAZIONE: lo scontro è "
                            "un'istanza a parte (deterministica)")
 
+    # Il canale unico delle chiamate: un provider nudo (fake, copione, composto)
+    # viene AVVOLTO — i chiamanti storici non cambiano; un MasterEngine iniettato
+    # dal composition root passa com'è (corsie vere, tally per rotta).
+    engine = provider if isinstance(provider, MasterEngine) else MasterEngine.avvolgi(provider)
+
     fascicolo = componi_fascicolo(memoria, azione=azione, esito_scontro=esito_scontro)
     # Il reveal dipende dallo STATO DELLA STANZA (mai narrata → va materializzata),
     # anche con fatti di scontro pendenti: sono il fascicolo del turno, non la sua
@@ -747,9 +745,13 @@ async def esegui_turno_gm(
     idea = None
     if azione:
         _nota(avanzamento, "Il GM riflette sulla scena…", 0.1)
-        idea = await ideazione(provider, fascicolo, budget, sistema=sistema)
+        idea = await engine.genera("gm.ideazione", _prompt_ideazione(fascicolo),
+                                   sistema=sistema)
 
-    # --- Stadio 2: composizione — LA chiamata gating (gate+fallback invariati) --
+    # --- Stadio 2: composizione — LA chiamata gating (gate+fallback invariati).
+    # `procura_turno` possiede prompt+gate+retry di dominio: riceve il provider
+    # della corsia FORTE, non l'engine (la rotta `gm.gating` dichiara lo stesso
+    # retry: lucchetto di sincronia in test_master_engine).
     _nota(avanzamento, "Il GM scrive il turno…", 0.35)
     voce = "\n".join(x for x in [
         sezione_fascicolo(fascicolo),
@@ -757,7 +759,7 @@ async def esegui_turno_gm(
         _ISTRUZIONE_COMPOSIZIONE,
     ] if x)
     risultato = await procura_turno(
-        provider, budget, fascicolo.proiezione, voce=voce,
+        engine.provider_di(Corsia.FORTE), budget, fascicolo.proiezione, voce=voce,
         ingresso_combattimento=ingresso_combattimento, sistema=sistema,
     )
     # Gate anti-arbitraggio (deterministico, zero chiamate): la durata proposta
@@ -778,9 +780,7 @@ async def esegui_turno_gm(
     prova_vista: ProvaVista | None = None
     if azione and idea is not None and idea.intenzione is IntenzioneScena.PROVA:
         _nota(avanzamento, "Il GM inquadra la prova…", 0.7)
-        inq = await _chiama_con_policy(
-            provider, _prompt_prova(fascicolo), InquadramentoProva, sistema
-        )
+        inq = await engine.genera("gm.prova", _prompt_prova(fascicolo), sistema=sistema)
         if inq is None:  # degrado deterministico: la prova resta, l'inquadramento no
             inq = InquadramentoProva(classe=ClasseProva.BRONZO, stat=StatId.DESTREZZA)
         pent, _m, _s = protagonista()
@@ -799,12 +799,15 @@ async def esegui_turno_gm(
     prosa = risultato.turno.prosa
     # Le rifiniture viaggiano col prefisso CORTO: niente lore/cast per riscrivere
     # una bozza (il prefisso pieno resta su gating/ideazione/prova, dov'è cache).
-    limata, riga_memoria = await asyncio.gather(
-        genera_prosa(provider, _prompt_limatura(prosa, fascicolo, etichetta, prova_vista),
-                     sistema=PREFISSO_RIFINITURA),
-        genera_prosa(provider, _prompt_distilla(prosa, fascicolo),
-                     sistema=PREFISSO_RIFINITURA),
+    limata_f, memoria_f = await asyncio.gather(
+        engine.genera("gm.limatura",
+                      _prompt_limatura(prosa, fascicolo, etichetta, prova_vista),
+                      sistema=PREFISSO_RIFINITURA),
+        engine.genera("gm.distilla", _prompt_distilla(prosa, fascicolo),
+                      sistema=PREFISSO_RIFINITURA),
     )
+    limata = limata_f.testo if limata_f is not None else None
+    riga_memoria = memoria_f.testo if memoria_f is not None else None
     if limata:
         prosa = limata
     if tributo.tariffa:

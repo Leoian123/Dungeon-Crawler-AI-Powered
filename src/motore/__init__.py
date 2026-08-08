@@ -279,6 +279,7 @@ from .piano import (
     piano_completabile,
     valida_piano,
 )
+from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
 from .seme import SemeRun, crea_seme, master_seed
 from .tempo import (
     TempoNonAvanzabile,
@@ -655,6 +656,12 @@ __all__ = [
     # pipeline GM (G §9.2: fan-out sotto il socket, una sola gating per turno)
     "PREFISSO_GM",
     "PREFISSO_RIFINITURA",
+    "ConsumoRotta",
+    "Corsia",
+    "MasterEngine",
+    "ROTTE",
+    "Rotta",
+    "registra_rotta",
     "TIPO_RECORD_GM",
     "EsitoTurnoGM",
     "Fascicolo",
