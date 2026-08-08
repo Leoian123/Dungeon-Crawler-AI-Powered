@@ -90,6 +90,7 @@ from motore import (
     MasterEngine,
     MemoriaSuArchivio,
     PREFISSO_RIFINITURA,
+    nome_nemico_incontro,
     ProfiloArchetipo,
     mosse_note,
     MemoriaTurni,
@@ -874,6 +875,10 @@ class SessioneGioco:
         self._fatti_scontro: FattiScontro | None = None  # handoff scontro→GM
         self._fatti_epitaffio: FattiScontro | None = None  # fatti della morte (Fase 5)
         self._nome_mob = ""
+        self._imboscata_in_corso = False  # lo scontro aperto è un'imboscata (Sit.5)
+        # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
+        # (il dado-evento del tempo) deve comunque avere la sua istanza.
+        self.bus.registra(EncounterStarted, self._su_incontro_esterno)
 
     @classmethod
     def nuova(
@@ -1036,13 +1041,24 @@ class SessioneGioco:
         self._sincronizza_scena()
         return self._snapshot_corrente(esito.messaggio.prosa)
 
+    def _su_incontro_esterno(self, evento) -> None:
+        """Sit.5: l'imboscata del dado-evento apre l'istanza di combattimento al
+        volo. Gli ingaggi ordinari non passano di qui (l'istanza la crea
+        `_agisci_narrazione` PRIMA di pubblicare l'evento)."""
+        if self._istanza is not None or not getattr(evento, "imboscata", False):
+            return
+        self._imboscata_in_corso = True
+        self._istanza = IstanzaCombattimento(
+            self.bus, nemico=nome_nemico_incontro(evento.entita)
+        )
+
     def _engine(self) -> MasterEngine:
         """Il canale unico delle chiamate AI, sul provider CORRENTE (che può
         cambiare dopo il load: il copione offline si deriva dal save)."""
         prov = self.provider
         return prov if isinstance(prov, MasterEngine) else MasterEngine.avvolgi(prov)
 
-    async def prosa_apertura_scontro(self, *, imboscata: bool = False) -> str | None:
+    async def prosa_apertura_scontro(self, *, imboscata: bool | None = None) -> str | None:
         """Sit.1 (Fase 5): il trailer d'apertura dello scontro — rotta
         `scontro.apertura`, non-gating, corsia veloce.
 
@@ -1053,6 +1069,8 @@ class SessioneGioco:
         self._guardia_aperta()
         if self._istanza is None:
             return None
+        if imboscata is None:
+            imboscata = self._imboscata_in_corso  # il flag lo sa la sessione (Sit.5)
         nemico = self._istanza.nemico or self._nome_mob or "il nemico"
         innesco = ("l'agguato è scattato: nessuno ha scelto questo scontro"
                    if imboscata else "il crawler ha scelto di combattere")
@@ -1112,6 +1130,7 @@ class SessioneGioco:
             self._fatti_scontro = self._istanza.fatti()
             self._istanza.chiudi()
             self._istanza = None
+            self._imboscata_in_corso = False
             if self._fatti_scontro is not None and self._fatti_scontro.vittoria:
                 self._deposita_bottino()
             if (self._fatti_scontro is not None
@@ -1531,7 +1550,9 @@ def _riga_terminale(terminale: Terminale) -> str:
 
 
 _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
-    (EncounterStarted, lambda _e: "Lo scontro ha inizio."),
+    (EncounterStarted, lambda e: (
+        "⚠ Imboscata! Qualcosa ti è piombato addosso mentre il tempo scorreva."
+        if getattr(e, "imboscata", False) else "Lo scontro ha inizio.")),
     (ColpoInferto, _riga_colpo),
     (StatusApplicato, _riga_status_applicato),
     (EffettoStatus, _riga_effetto_status),

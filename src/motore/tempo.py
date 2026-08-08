@@ -166,7 +166,7 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
     #    scontro è a monte (callback del chiamante, G §5.1), J ne emette solo il confine.
     if esito.imboscata and componi_imboscata is not None:
         enc = componi_imboscata()
-        bus.pubblica(EncounterStarted(entita=enc))
+        bus.pubblica(EncounterStarted(entita=enc, imboscata=True))
         return RisultatoTick(morte=False, imboscata=True)
     return RisultatoTick(morte=False, imboscata=False)
 

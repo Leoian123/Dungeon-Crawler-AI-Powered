@@ -33,7 +33,12 @@ from motore import (
     riposa,
     tempo_piano_corrente,
 )
+from motore import tempo as tempo_mod
 from motore.calibrazione import RIPOSO_HP_PER_TICK, RIPOSO_MANA_PER_TICK
+
+# Questi test provano il RECUPERO, non il dado-evento: dal 2026-08 il seam
+# dell'imboscata è CUCITO (Sit.5, test_incontri) e un agguato a metà riposo
+# renderebbe flaky gli assert sul recupero pieno — qui il dado si spegne.
 
 
 def _arma(seed: int = 7) -> int:
@@ -49,7 +54,8 @@ def _arma(seed: int = 7) -> int:
 
 # --- Il centro: recupero clampato, tempo speso, evento pubblicato ---------------
 
-def test_riposa_recupera_spende_tempo_e_pubblica(mondo_isolato: str) -> None:
+def test_riposa_recupera_spende_tempo_e_pubblica(mondo_isolato: str, monkeypatch) -> None:
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 0.0)
     pent = _arma()
     _p, _m, scheda = protagonista()
     scheda.punti_vita = 10
@@ -95,7 +101,8 @@ def test_riposa_rifiuta_il_downtime_vietato(mondo_isolato: str) -> None:
 
 # --- Via porte: l'opzione è vera solo quando lecita, e NON ingaggia -------------
 
-def test_riposa_in_scena_recupera_e_non_apre_uno_scontro(run_pulita, tmp_path) -> None:
+def test_riposa_in_scena_recupera_e_non_apre_uno_scontro(run_pulita, tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 0.0)
     sessione = costruisci_sessione(nome="Riposo", seed=1, directory=tmp_path)
     cronaca = CronacaBus(sessione.bus)
     try:
@@ -125,9 +132,10 @@ def test_riposa_in_scena_recupera_e_non_apre_uno_scontro(run_pulita, tmp_path) -
         cronaca.chiudi()
 
 
-def test_lopzione_riposa_ha_il_suo_tipo_chiuso(run_pulita, tmp_path) -> None:
+def test_lopzione_riposa_ha_il_suo_tipo_chiuso(run_pulita, tmp_path, monkeypatch) -> None:
     """Il menu non è testo: l'opzione viaggia col TIPO `RIPOSA` (enum chiuso),
     così ogni host la riconosce senza confrontare stringhe."""
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 0.0)
     sessione = costruisci_sessione(nome="Tipo", seed=1, directory=tmp_path)
     snap = asyncio.run(sessione.prossima_narrazione())
     etichette = {o.etichetta: o.indice for o in snap.opzioni}

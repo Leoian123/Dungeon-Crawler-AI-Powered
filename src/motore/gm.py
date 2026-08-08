@@ -605,13 +605,19 @@ def spendi_tempo(bus, durata: Durata, *, ingresso_combattimento: bool = False) -
     `TURNO` → `passa_turno` (1 tick); durate maggiori → `fast_forward` se il downtime
     è lecito, altrimenti degrada a un singolo `passa_turno`; su ingresso in
     combattimento non spende nulla (il tempo lo brucia il loop di combattimento,
-    cadenza per-turno-dell'entità). Imboscata: seam non collegato (componi=None)."""
+    cadenza per-turno-dell'entità). Il dado-evento è CUCITO (Sit.5): un'imboscata
+    interrompe la spesa — i tick già spesi restano reali, la fase è già flippata."""
+    from .incontri import componi_imboscata_scena  # import pigro: evita il ciclo gm↔incontri
+
+    # Con un bus vero il dado-evento può comporre l'agguato; senza bus (harness)
+    # il seam resta scollegato: un incontro senza evento è un World incoerente.
+    componi = componi_imboscata_scena if bus is not None else None
     if ingresso_combattimento or in_combattimento():
         return 0
     if durata is not Durata.TURNO and puo_downtime():
-        return fast_forward(bus, durata).tick_eseguiti
+        return fast_forward(bus, durata, componi_imboscata=componi).tick_eseguiti
     if puo_passare_turno():
-        passa_turno(bus)
+        passa_turno(bus, componi_imboscata=componi)
         return 1
     return 0
 

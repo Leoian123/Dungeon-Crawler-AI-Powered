@@ -31,9 +31,11 @@ class EncounterStarted(EventoDominio):
 
     La `TurnoNarrazione` che lo emette è clampata a `durata == TURNO` dal gate del
     motore (F §2, C3): F vincola il dato, il gate lo impone — non questo evento.
-    """
+    `imboscata=True` = l'incontro l'ha innescato il dado-evento del tempo (J §8),
+    non una scelta del giocatore: la cronaca e l'apertura lo dicono."""
 
     entita: Entita
+    imboscata: bool = False
 
 
 @dataclass(frozen=True)

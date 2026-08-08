@@ -39,7 +39,15 @@ def riposa(bus) -> RiposoConcluso | None:
     solo i tick reali (atomicità di `fast_forward`)."""
     if not puo_downtime():
         return None
-    esito = fast_forward(bus, DURATA_AZIONE[TipoAzione.RIPOSA])
+    from .incontri import componi_imboscata_scena  # pigro: riposo è un modulo foglia
+
+    # Il seam è cucito SOLO con un bus vero: senza bus (harness) un incontro
+    # composto non avrebbe l'evento di transizione — meglio nessun agguato che
+    # un World incoerente.
+    esito = fast_forward(
+        bus, DURATA_AZIONE[TipoAzione.RIPOSA],
+        componi_imboscata=componi_imboscata_scena if bus is not None else None,
+    )
     tick = esito.tick_eseguiti
 
     pent, _marker, scheda = protagonista()
@@ -56,6 +64,7 @@ def riposa(bus) -> RiposoConcluso | None:
 
     evento = RiposoConcluso(
         tick_spesi=tick, hp_recuperati=hp_recuperati, mana_recuperato=mana_recuperato,
+        interrotto=esito.interrotto_da is not None,
     )
     if bus is not None:
         bus.pubblica(evento)
