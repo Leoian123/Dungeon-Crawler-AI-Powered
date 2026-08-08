@@ -90,7 +90,6 @@ from .mappa import (
 from .narrazione import (
     RisultatoTurno,
     _chiama_con_policy,
-    costruisci_prompt,
     genera_prosa,
     materializza_turno,
     procura_turno,
@@ -524,10 +523,13 @@ async def ideazione(
     provider, fascicolo: Fascicolo, budget: Budget, *, sistema: str = PREFISSO_GM
 ) -> Ideazione | None:
     """La chiamata di brainstorming: legge il fascicolo, propone l'IDEA. `None` =
-    degrado silenzioso (si compone senza)."""
+    degrado silenzioso (si compone senza).
+
+    Il prompt NON imbarca il budget (dieta token 2026-08): l'ideazione non sceglie
+    archetipi/gradi/blocchi — il budget soft appartiene alla gating, l'hard al gate.
+    `budget` resta nella firma: è il contesto che stadi futuri potranno pesare."""
     prompt = "\n".join([
         sezione_fascicolo(fascicolo),
-        costruisci_prompt(budget, fascicolo.proiezione, voce="").strip(),
         _ISTRUZIONE_IDEAZIONE,
     ])
     return await _chiama_con_policy(provider, prompt, Ideazione, sistema)
@@ -536,14 +538,18 @@ async def ideazione(
 # --- Prompt degli stadi ancillari ----------------------------------------------
 
 def _prompt_prova(fascicolo: Fascicolo) -> str:
+    """Prompt MINIMO (dieta token 2026-08): per selezionare classe e stat bastano
+    l'azione contestualizzata e lo stato del protagonista — il fascicolo intero
+    (mappa, memoria, esito-scontro) era zavorra su una chiamata da due enum."""
     ancore = "; ".join(
         f"{c.value} ({', '.join(ANCORE_CLASSE.get(c, ()))})" for c in ClasseProva
     )
+    stato = ", ".join(fascicolo.proiezione.descrittori) or "ignoto"
     return "\n".join([
-        sezione_fascicolo(fascicolo),
-        f'[istruzione] Il giocatore tenta: "{fascicolo.azione}". Inquadra la prova: '
-        f"scegli la classe di difficoltà ({ancore}) e la stat impegnata. "
-        "Non risolvere: il tiro spetta al motore.",
+        f'[fascicolo/azione] il giocatore, {_dove(fascicolo)}, tenta: "{fascicolo.azione}"',
+        f"[fascicolo/scheda] stato: {stato}",
+        f"[istruzione] Inquadra la prova: scegli la classe di difficoltà ({ancore}) "
+        "e la stat impegnata. Non risolvere: il tiro spetta al motore.",
     ])
 
 
