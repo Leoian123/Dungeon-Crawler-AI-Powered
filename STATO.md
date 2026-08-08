@@ -10,8 +10,8 @@
 > **Come si aggiorna.** Quando un punto si chiude, si **integra** nella sezione a cui
 > appartiene (e sparisce dal registro del debito); non si appende una voce di diario.
 > Quando emerge un difetto o una decisione da prendere, entra nel registro §4.2 con la
-> sua priorità. Ultima revisione: **2026-08-07** — suite **755 verdi + 3 skip**,
-> `python -m main` gioca capo-a-fine, due piani pubblicati.
+> sua priorità. Ultima revisione: **2026-08-08** (branch `narrative-system`) — suite
+> **831 verdi + 3 skip**, `python -m main` gioca capo-a-fine, due piani pubblicati.
 >
 > **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
 > `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive
@@ -66,13 +66,50 @@ termina) verificato sull'intera matrice archetipi × 6 gradi, **G-L2** (ogni pia
 completabile) su ogni piano realmente pubblicato. Quello che segue è lo stato per
 sistema: cosa regge, con quale lucchetto, e cosa è dichiaratamente spento.
 
-### 2.1 Contratto AI↔motore e pipeline GM
+### 2.1 Contratto AI↔motore, Master-Engine e pipeline GM
+
+**Il Master-Engine è il canale unico delle chiamate AI** (`motore/master/`): ogni
+percorso è una **Rotta dichiarata** nel registro (schema, corsia astratta
+FORTE/VELOCE, retry, phase-gate per chiamata, flag gating) e il dispatcher la esegue
+con tally per rotta (chiamate/degradi). Un percorso nuovo = una riga di registro + un
+costruttore di prompt (+ gate/fallback propri se tocca stato), mai una pipeline
+nuova. Il binding corsia→modello è del composition root (`provider/root.py`,
+iniettato: il motore non importa mai `provider` — lint AST); `MasterEngine.avvolgi`
+tiene compatibile qualunque provider nudo. Rotte attive: le 5 della pipeline GM +
+`scontro.apertura`/`scontro.resoconto`/`scontro.epitaffio`.
 
 **Il turno di narrazione è una coroutine a stadi** (`motore/gm.py`, `esegui_turno_gm`):
-ideazione (consultiva, ≤1, degrado silenzioso) → composizione (**una sola chiamata
-gating**, 1 retry max) → inquadramento-prova ≤1 → limatura + distillazione-memoria in
-parallelo. Un'unità `await` cancellabile: se cade prima della scrittura, nessuno stato è
-mutato; la `guardia_scrittura` protegge dal cambio di World sotto la coroutine sospesa.
+ideazione (consultiva, ≤1, **solo sui turni-azione** — al reveal non gira: dieta
+token 2026-08) → composizione (**una sola chiamata gating**, 1 retry max, istruzione
+**per momento**: reveal cinematografico 250-400 parole / azione asciutta) →
+inquadramento-prova ≤1 → limatura (stadio di QUALITÀ: preserva lunghezza e registro)
++ distillazione-memoria in parallelo. Il turno **post-scontro senza azione** è il
+ramo RESOCONTO: una sola chiamata `Flavor` che veste i FATTI deterministici
+(`FattiScontro` + momenti salienti raccolti dal bus), zero tick spesi, fallback a
+template — niente più entità generate e mai materializzate. Un'unità `await`
+cancellabile: se cade prima della scrittura, nessuno stato è mutato; la
+`guardia_scrittura` protegge dal cambio di World sotto la coroutine sospesa.
+
+**Lo scontro è narrato ai bordi** (Sit.1/Probl.3): `prosa_apertura_scontro` (trailer
+non bloccante: la riga deterministica esce subito, la prosa arriva quando arriva) e
+`epitaffio` (permadeath, dai fatti, senza Archivio) sono porte async della sessione;
+la TUI le cabla in `_agisci`.
+
+**Memoria narrativa** (porta, decisione 2026-08-08 "porta ora, vettoriale dopo"):
+`contracts/memoria.py` (`DocumentoMemoria` + Protocol `MemoriaNarrativa`, recupero
+deterministico per contratto) con `MemoriaSuArchivio` sul sidecar esistente
+(persistenza gratis, ricostruzione al load). Alimenta `[fascicolo/memoria-lunga]`
+(≤3 voci, solo se rilevanti alla query = azione/nemico). Produttori: il resoconto
+di scontro (EVENTO), il mob memorabile ORO+/anomalia (PERSONAGGIO, con
+`aspetto`/`tratto` — i campi solo-testo dell'identità cinematografica, Sit.2).
+
+**Il sistema degli incontri è cucito** (Sit.5): `motore/incontri.py` compone
+l'imboscata dal cast del piano con RNG isolato `master_seed:imboscata:tick`
+(replay-safe, lo stream di sessione non si muove); `spendi_tempo` e `riposa`
+passano il compositore, `RiposoConcluso.interrotto` è valorizzato,
+`EncounterStarted.imboscata` distingue la cronaca e la sessione apre l'istanza
+anche su un incontro non suo. Nella suite il dado è spento di default
+(`conftest`), riacceso dai lucchetti dedicati.
 
 - **Gate a 4 strati** (`narrazione.valida_turno`): schema Pydantic → registry archetipi
   (chiusura per-run, congelata nella stagione) → budget (gradi/blocchi/archetipi
@@ -100,14 +137,21 @@ mutato; la `guardia_scrittura` protegge dal cambio di World sotto la coroutine s
   (riga ⚠ nella cronaca della TUI) e `ConsumoProvider` (token in/out, cache, refusal,
   errori di trasporto — condiviso fra backend forte e veloce) è stampato **all'uscita**
   dal gioco: trasporto vs generazione si distinguono, l'errore di setup non è più muto.
-- **Struttura I/O per il caching**: il prefisso statico viaggia nel canale `sistema`
-  byte-identico su ogni chiamata, marcato `cache_control` — oggi **sotto i minimi di
-  cache** (vedi debito §4.2-C).
+- **Struttura I/O per il caching — ATTIVA**: prefissi differenziati per stadio
+  (`prefisso_gm` pieno su gating/ideazione/prova; `PREFISSO_RIFINITURA` corto su
+  limatura/distillazione) e guida `STILE_CINEMA` statica DENTRO il prefisso della
+  corsia FORTE, che supera deliberatamente la soglia di cache di Opus (≈1400 token
+  > 1024, lucchetto di soglia + byte-identità). Il retry di troncatura del trasporto
+  raddoppia `max_tokens` invece di ripetere il limite. `TurnoNarrazione` ha perso il
+  campo `opzioni` (write-only: il menu lo compone la mappa) e i prompt ancillari il
+  fascicolo intero.
 
 Lucchetti principali: `test_gm_pipeline` (budget chiamate, firma, cache, memoria
-derivata), `test_narrazione_gate`, `test_tributo_beneficio` (gate avversariale con
-provider "già compromesso"), `test_contracts_schema`, `test_contracts_purity`
-(contracts = stdlib+Pydantic e basta).
+derivata, resoconto, soglia di cache), `test_master_engine` (rotte, corsie, guardia
+di fase, sincronia retry), `test_narrazione_gate`, `test_tributo_beneficio` (gate
+avversariale con provider "già compromesso"), `test_contracts_schema`,
+`test_contracts_purity` (contracts = stdlib+Pydantic e basta), `test_provider_root`,
+`test_memoria_narrativa`, `test_incontri`, `test_scontro_narrato`.
 
 ### 2.2 Combattimento
 
@@ -188,6 +232,11 @@ sempre **derivati**, rimozione per fonte), un solo enum `SlotEquip` (9 slot + mo
 concesse con **provenienza** (`mosse_concesse`: sfilare un anello non cancella una
 mossa innata né quella del gemello ancora indosso).
 
+I **contratti AI dei premi** (oggetti/skill generati: Sit.3+4) sono progettati SU
+CARTA in `docs/contratto-premi-ai.md` (schemi `OggettoGenerato`/`SkillGenerata` a
+zero numeri, rotte `premi.*` gating, innesto in `_deposita_bottino`): si posano
+quando questo canale si accende, non prima.
+
 **Ma il canale è spento, ed è il punto del prossimo passo (§4.1):** `SistemaEquip` non
 è registrato da nessun host, `PlayerEquipaggia/Toglie` non hanno produttori,
 `ComponenteEquip` **non è persistente** (lucchettato: si registra il tag *insieme*
@@ -255,7 +304,8 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
 
 | Branch | Contenuto | Ruolo |
 |---|---|---|
-| **`headless-game-engine`** ★ | Il **motore di gioco** e nient'altro: `contracts` + `motore` + `guscio` + composition root + contenuti + i suoi test. Unica dipendenza viva: **Pydantic**. | **Il prodotto.** È qui che il motore si porta avanti fino a diventare vendibile. |
+| **`narrative-system`** ★ | `headless-game-engine` + l'asse AI: dieta token, Master-Engine (rotte), composition root del provider, prosa cinematografica + cache, scontro narrato (apertura/resoconto/epitaffio), porta memoria narrativa, sistema incontri/imboscata. | **Il branch di lavoro corrente** (da 2026-08-08): la "ciccia" AI del gioco. Confluirà in `headless-game-engine` quando accettato. |
+| `headless-game-engine` | Il **motore di gioco** e nient'altro: `contracts` + `motore` + `guscio` + composition root + contenuti + i suoi test. Unica dipendenza viva: **Pydantic**. | **Il prodotto.** È qui che il motore si porta avanti fino a diventare vendibile. |
 | `react-ecosystem` | Tutto il motore **+** host HTTP (`src/host_web`, FastAPI) **+** SPA React (`web/`). | **Il laboratorio.** Ci si gioca e si vede l'evoluzione. Il motore che matura qui viene travasato nel prodotto; la presentazione resta. |
 | `main` | Allineato a `6d4ab35`. | **Indietro** rispetto a entrambi. Va portato avanti quando il motore è accettato. |
 | `v1-textual-implementation` | `main` storico + **UI Textual** (nodo C, fasi 9–10). | **Archivio.** Riferimento se si volesse riesumare una TUI. |
@@ -294,12 +344,11 @@ fine dei numeri §11 (tararli sul gioco nudo significherebbe tararli due volte).
 
 Ordine proposto (ogni passo sblocca il successivo):
 
-1. **Riposo vero** — comporre `TipoAzione.RIPOSA` dalla mappa quando è vera (stanza
-   senza nemici, nessuno status ostativo), produrre `RiposoConcluso` (la riga di
-   cronaca esiste già), recuperare HP/mana da foglie §11, e **collegare il seam
-   dell'imboscata** (`componi_imboscata` → `fast_forward`: il dado-evento gira già a
-   vuoto, e la console ne promette il rischio). È il pezzo più piccolo e ripaga subito:
-   il mana smette di essere una risorsa a esaurimento irreversibile.
+1. **Riposo vero** — ✅ CHIUSO (2026-08-08, branch `narrative-system`): l'opzione
+   `RIPOSA` è di scena, il recupero HP/mana passa dalle foglie §11 e **il seam
+   dell'imboscata è collegato** (`componi_imboscata_scena` → `fast_forward`/
+   `passa_turno`, con `RiposoConcluso.interrotto` e recupero parziale sui tick
+   reali — vedi §2.1). Il mana non è più a esaurimento irreversibile.
 2. **Equip acceso** — registrare `SistemaEquip` nel bucket di narrazione, dare un
    produttore a `PlayerEquipaggia/Toglie`, e rendere `ComponenteEquip` persistente
    **insieme** all'hook di re-equip (ADR-1 F5 — il lucchetto che oggi vieta il tag
@@ -337,17 +386,14 @@ Ordine proposto (ogni passo sblocca il successivo):
 - `main._collezione` riscandisce e ri-valida l'intera libreria per ogni asset risolto
   (O(P·M) al boot): invisibile oggi, quadratico con una libreria vera.
 
-**C. Economia LLM** (il tally ora è visibile: misurare prima di ottimizzare)
-- **Prompt caching di fatto spento**: il prefisso `sistema` (~617 tok) è sotto i minimi
-  (Opus 1024 / Haiku 4096) — le 4 chiamate Haiku lo ripagano pieno ogni turno. Leve:
-  prefisso ridotto per gli stadi ancillari (limatura/distillazione non hanno bisogno di
-  cast/lore per «riscrivi 80 parole») o superamento deliberato della soglia sulla gating.
-- **Retry di troncatura identico**: su `max_tokens` si ributta lo stesso prompt con lo
-  stesso limite → ritronca quasi certamente; distinguere troncatura da guasto di rete e
-  alzare il limite nel retry.
-- Fascicolo inviato 3 volte per turno; ideazione chiamata anche al reveal dove la sua
-  unica influenza meccanica è impossibile; campo `TurnoNarrazione.opzioni` generato a
-  ogni gating e **mai letto** (il menu lo compone la mappa) — da togliere dallo schema.
+**C. Economia LLM** (la dieta token 2026-08 ha chiuso i punti storici: caching
+attivo, retry di troncatura a limite crescente, `opzioni` rimosso, ideazione solo
+sui turni-azione, prompt ancillari sfoltiti — tutto in §2.1)
+- **Misura live mancante**: la baseline `ConsumoProvider` prima/dopo la dieta non è
+  ancora stata registrata su una run reale (attesa ~35-45% in meno per sessione,
+  `cache_letti > 0` dalla seconda chiamata) — serve una sessione con chiave.
+- Il tally per rotta del Master-Engine esiste ma nessun host lo mostra ancora
+  (il riassunto di sessione stampa solo il totale `ConsumoProvider`).
 
 **D. Test e taratura**
 - `test_banco_nemici` è diventato uno **specchio della formula** (ricalcola l'atteso con
