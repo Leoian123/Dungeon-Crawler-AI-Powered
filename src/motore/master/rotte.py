@@ -69,5 +69,15 @@ for _rotta in (
     Rotta("gm.prova", InquadramentoProva, Corsia.VELOCE, retry=0, fase=Fase.NARRAZIONE),
     Rotta("gm.limatura", Flavor, Corsia.VELOCE, retry=0, fase=Fase.NARRAZIONE),
     Rotta("gm.distilla", Flavor, Corsia.VELOCE, retry=0, fase=Fase.NARRAZIONE),
+    # --- Scontro narrato (Fase 5): tutte non-gating, degrado deterministico ----
+    # Apertura: breve trailer al tasto Combatti — vive nella TRANSIZIONE di fase
+    # (l'host la attende DOPO il flip), quindi lecita ovunque (fase=None).
+    Rotta("scontro.apertura", Flavor, Corsia.VELOCE, retry=0, fase=None),
+    # Resoconto: la chiusura cinematografica dai FATTI deterministici — è un
+    # turno GM a tutti gli effetti, vive in NARRAZIONE.
+    Rotta("scontro.resoconto", Flavor, Corsia.FORTE, retry=0, fase=Fase.NARRAZIONE),
+    # Epitaffio: la voce dello showrunner sulla schermata terminale (la run è
+    # chiusa: nessuna fase da esigere, nessun Archivio da scrivere).
+    Rotta("scontro.epitaffio", Flavor, Corsia.FORTE, retry=0, fase=None),
 ):
     registra_rotta(_rotta)

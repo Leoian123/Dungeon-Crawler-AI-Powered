@@ -660,14 +660,47 @@ class IstanzaCombattimento:
         self._conclusa = False
         self._vittoria = False
         self._fuga = False
-        self._coppie = [(CombatResolved, self._su_resolved), (MortePersonaggio, self._su_morte)]
+        # I MOMENTI salienti (Fase 5): stringhe deterministiche dal bus — primo
+        # sangue, status applicati, colpo di grazia. L'AI del resoconto li VESTE,
+        # non li inventa (risolvi prima, narra dopo).
+        self._momenti: list[str] = []
+        self._ultimo_colpo = ""
+        self._coppie = [
+            (CombatResolved, self._su_resolved), (MortePersonaggio, self._su_morte),
+            (ColpoInferto, self._su_colpo), (StatusApplicato, self._su_status),
+        ]
         for tipo, handler in self._coppie:
             bus.registra(tipo, handler)
+
+    @staticmethod
+    def _chi(diegetico: str) -> str:
+        return diegetico or "il crawler"  # "" = protagonista (contratto eventi)
+
+    def _annota(self, riga: str) -> None:
+        if len(self._momenti) < 5 and riga not in self._momenti:
+            self._momenti.append(riga)
+
+    def _su_colpo(self, e: ColpoInferto) -> None:
+        riga = f"{self._chi(e.attaccante)} colpisce {self._chi(e.bersaglio)}"
+        if e.mossa and e.mossa != "attacco":
+            riga += f" con {etichetta_mossa(e.mossa)}"
+        if not self._momenti:
+            self._annota(f"primo sangue: {riga}")
+        self._ultimo_colpo = riga
+
+    def _su_status(self, e: StatusApplicato) -> None:
+        self._annota(f"{e.fonte or 'il crawler'} infligge {e.status} "
+                     f"a {self._chi(e.bersaglio)}")
 
     def _su_resolved(self, evento: CombatResolved) -> None:
         self._conclusa = True
         self._vittoria = bool(getattr(evento, "vittoria", False))
         self._fuga = bool(getattr(evento, "fuga", False))
+        if self._vittoria and self._ultimo_colpo:
+            # Fuori dal cap: la chiusura si racconta sempre.
+            momento = f"colpo di grazia: {self._ultimo_colpo}"
+            if momento not in self._momenti:
+                self._momenti.append(momento)
 
     def _su_morte(self, _evento: MortePersonaggio) -> None:
         self._conclusa = True  # permadeath: lo scontro non si chiude, la run sì
@@ -730,6 +763,7 @@ class IstanzaCombattimento:
             hp_persi=max(0, self._hp_iniziali - hp_ora),
             nemico=self.nemico,
             fuga=self._fuga,
+            momenti=tuple(self._momenti),
         )
 
     def chiudi(self) -> None:

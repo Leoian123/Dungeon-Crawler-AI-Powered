@@ -194,3 +194,7 @@ class FattiScontro(BaseModel):
     hp_persi: int
     nemico: str = ""
     fuga: bool = False  # disimpegno riuscito a scontro aperto (FNC §4)
+    # I MOMENTI salienti (primo sangue, status, colpo di grazia): stringhe
+    # deterministiche raccolte dall'istanza sul bus — l'AI non inventa cosa è
+    # successo, lo VESTE (Fase 5). Default () = retro-compatibile.
+    momenti: tuple[str, ...] = ()

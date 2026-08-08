@@ -396,14 +396,78 @@ def test_il_turno_post_scontro_non_e_inghiottito_dalla_cache(mondo_isolato) -> N
     esito1, arch, mem = _pipeline(prov)               # il reveal congela il record
     assert esito1.da_cache is False
 
-    for voce in coda_post_scontro(_turno(), limata="il dopo-scontro", memoria="r2"):
+    for voce in coda_post_scontro("il dopo-scontro"):
         prov.accoda(voce)
     fatti = FattiScontro(vittoria=True, turni=3, hp_persi=4, nemico="Slime Mangiascarti")
     esito2, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
     assert esito2.da_cache is False, "il turno post-scontro è stato inghiottito dalla cache"
+    assert esito2.messaggio.prosa == "il dopo-scontro"
     assert any("[fascicolo/esito-scontro]" in p for p, _s in prov.chiamate), (
         "i fatti dello scontro non hanno raggiunto il prompt del turno che li narra"
     )
+
+
+def test_resoconto_una_sola_chiamata_e_zero_tempo(mondo_isolato) -> None:
+    """Fase 5: il turno post-scontro è il ramo RESOCONTO — una sola chiamata
+    Flavor (rotta scontro.resoconto), zero ideazione/gating (prima generava
+    un'entità mai materializzata), zero tick (il tempo l'ha bruciato il loop)."""
+    _arma_run()
+    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    _e1, arch, mem = _pipeline(prov)
+    n = len(prov.chiamate)
+
+    prov.accoda(dict(testo="chiusura cinematografica"))
+    fatti = FattiScontro(vittoria=True, turni=4, hp_persi=2, nemico="Slime Madre",
+                         momenti=("primo sangue: il crawler colpisce Slime Madre",))
+    prima = tempo_piano_corrente()
+    esito, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
+    assert len(prov.chiamate) == n + 1  # UNA chiamata: il resoconto
+    assert [s for _p, s in prov.chiamate[n:]] == [Flavor]
+    assert TurnoNarrazione not in [s for _p, s in prov.chiamate[n:]]
+    assert esito.messaggio.tempo.tick_spesi == 0
+    assert tempo_piano_corrente() == prima
+    # I momenti raggiungono il prompt; la memoria registra i fatti.
+    assert "[scontro/momenti]" in prov.chiamate[-1][0]
+    assert "primo sangue" in prov.chiamate[-1][0]
+    assert "Slime Madre" in mem.finestra()[-1]
+
+
+def test_resoconto_congelato_e_riletto_a_zero_chiamate(mondo_isolato) -> None:
+    _arma_run()
+    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    _e1, arch, mem = _pipeline(prov)
+    prov.accoda(dict(testo="chiusura"))
+    fatti = FattiScontro(vittoria=True, turni=3, hp_persi=0, nemico="X")
+    esito1, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
+    assert esito1.da_cache is False and esito1.messaggio.prosa == "chiusura"
+    n = len(prov.chiamate)
+    esito2, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
+    assert esito2.da_cache is True and len(prov.chiamate) == n
+    assert esito2.messaggio.prosa == "chiusura"
+
+
+def test_resoconto_degrada_a_template_deterministico(mondo_isolato) -> None:
+    _arma_run()
+    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    _e1, arch, mem = _pipeline(prov)
+    # FIFO vuota: il resoconto degrada al template dai FATTI (mai un turno muto).
+    fatti = FattiScontro(vittoria=True, turni=5, hp_persi=7, nemico="Il Regista")
+    esito, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
+    assert esito.messaggio.fallback is True
+    assert "Il Regista" in esito.messaggio.prosa
+    assert "non si rialza" in esito.messaggio.prosa
+
+
+def test_resoconto_distingue_la_fuga(mondo_isolato) -> None:
+    _arma_run()
+    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    _e1, arch, mem = _pipeline(prov)
+    prov.accoda(dict(testo="via di corsa"))
+    fatti = FattiScontro(vittoria=False, turni=2, hp_persi=3, nemico="X", fuga=True)
+    esito, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
+    assert "FUGA" in prov.chiamate[-1][0]  # l'istruzione per esito è quella giusta
+    assert "fuga" in _m.finestra()[-1]     # la memoria registra l'esito vero
+    assert esito.messaggio.tempo.tick_spesi == 0
 
 
 def test_la_rivisita_di_una_stanza_ripulita_lo_dice(mondo_isolato) -> None:

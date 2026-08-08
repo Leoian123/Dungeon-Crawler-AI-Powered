@@ -666,6 +666,61 @@ def _prompt_distilla(prosa: str, f: Fascicolo) -> str:
     ])
 
 
+# --- Resoconto di scontro (Fase 5, Probl. 3): i FATTI deterministici vestiti ----
+
+_ISTRUZIONE_RESOCONTO_VITTORIA = (
+    "[istruzione] Narra la CHIUSURA dello scontro: 250-400 parole, regia piena "
+    "(guida di stile — le chiusure sono conseguenze: cosa resta sul pavimento, "
+    "cosa è cambiato nella stanza, cosa il pubblico ha applaudito). Racconta i "
+    "momenti elencati senza inventarne di nuovi; nessun numero, nessun bottino "
+    "che i fatti non dichiarano."
+)
+
+_ISTRUZIONE_RESOCONTO_FUGA = (
+    "[istruzione] Narra la FUGA: poche frasi brucianti — cosa ti sei lasciato "
+    "alle spalle, cosa ti porti addosso, la voce del pubblico deluso o divertito. "
+    "Nessun esito riscritto: la fuga è riuscita, il nemico resta padrone della "
+    "stanza. Nessun numero."
+)
+
+
+def _prompt_resoconto(fascicolo: Fascicolo) -> str:
+    """Il prompt del resoconto: fascicolo (porta già `[fascicolo/esito-scontro]`)
+    + i momenti salienti raccolti dal bus + l'istruzione per esito."""
+    e = fascicolo.esito_scontro
+    righe = [sezione_fascicolo(fascicolo)]
+    if e is not None and e.momenti:
+        righe += [f"[scontro/momenti] {m}" for m in e.momenti]
+    fuga = e is not None and e.fuga
+    righe.append(_ISTRUZIONE_RESOCONTO_FUGA if fuga else _ISTRUZIONE_RESOCONTO_VITTORIA)
+    return "\n".join(righe)
+
+
+def _resoconto_fallback(e: FattiScontro) -> str:
+    """Il degrado deterministico del resoconto: un template dai FATTI — brutto ma
+    onesto, zero chiamate (il gemello del fallback atomico della narrazione)."""
+    nemico = e.nemico or "il nemico"
+    if e.fuga:
+        return (f"Ti lasci {nemico} alle spalle e non ti volti. "
+                "La stanza resta sua; il fiato, per ora, è tuo.")
+    if e.vittoria:
+        ferite = "Porti addosso i segni della lotta." if e.hp_persi > 0 else \
+                 "Ne esci senza un graffio."
+        return (f"{nemico} non si rialza. Lo scontro si chiude dopo {e.turni} scambi. "
+                f"{ferite} La stanza torna silenziosa.")
+    return "Lo scontro è finito. La stanza tiene il conto di ciò che è costato."
+
+
+def _memoria_scontro(e: FattiScontro, fascicolo: Fascicolo) -> str:
+    """La riga di memoria del resoconto: deterministica, dai fatti (H-11)."""
+    if e.fuga:
+        esito = "fuga"
+    else:
+        esito = "vinto" if e.vittoria else "chiuso"
+    return (f"Stanza {fascicolo.stanza} — scontro con {e.nemico or 'il nemico'}: "
+            f"{esito} in {e.turni} turni")
+
+
 # NB: qui viveva `_rng_prova(tick)`, uno stream dedicato per-tick che esisteva per un
 # solo motivo — la prova pescava un d20, e pescarlo dallo stream condiviso avrebbe
 # desincronizzato il replay (l'esistenza della prova dipende dall'LLM). Con la prova
@@ -819,6 +874,56 @@ async def esegui_turno_gm(
     # (statico per la run → cache piena) e vincola il budget del gate.
     piano_attivo = design_piano_corrente()
     sistema = prefisso_gm(stagione_corrente(), piano_attivo)
+
+    # --- Ramo RESOCONTO (Fase 5, Probl. 3): scontro appena chiuso, nessuna
+    # azione — si narra dai FATTI. Niente ideazione né gating: il vecchio flusso
+    # generava un'entità mai materializzata (token buttati) e spendeva tempo che
+    # il loop di scontro aveva già bruciato. Stessa chiave d'Archivio (marcatore
+    # esito-scontro): congela-una-volta-rileggi-sempre vale anche qui.
+    if not azione and esito_scontro is not None and not reveal:
+        _nota(avanzamento, "Il GM racconta lo scontro…", 0.4)
+        flavor = await engine.genera(
+            "scontro.resoconto", _prompt_resoconto(fascicolo), sistema=sistema
+        )
+        in_fallback = flavor is None
+        prosa = flavor.testo if flavor is not None else _resoconto_fallback(esito_scontro)
+        if guardia_scrittura is not None:
+            guardia_scrittura()  # barriera: ultimo await passato (F-11)
+        _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
+        riga_memoria = _memoria_scontro(esito_scontro, fascicolo)
+        memoria.registra(riga_memoria)
+        etichetta = "il tempo dello scontro"  # i tick li ha spesi il loop, non il GM
+        snapshot = (
+            ", ".join(fascicolo.proiezione.descrittori) or "ignoto",
+            f"stanza {fascicolo.stanza} — uscite: "
+            f"{', '.join(map(str, fascicolo.uscite)) or 'nessuna'}",
+            f"tempo: {etichetta} (+0 tick)",
+        )
+        messaggio = MessaggioGM(
+            prosa=prosa,
+            dove=_dove(fascicolo),
+            come="a scontro concluso",
+            tempo=TempoVista(tick_correnti=tempo_piano_corrente(), tick_spesi=0,
+                             etichetta=etichetta),
+            snapshot=snapshot,
+            prova=None,
+            fallback=in_fallback,
+        )
+        archivio.congela(chiave, {
+            "seq": fascicolo.tick,
+            "entita": "",  # nessuna materializzazione: la rilettura onesta non scatta
+            "prosa": prosa,
+            "dove": messaggio.dove,
+            "come": messaggio.come,
+            "etichetta": etichetta,
+            "snapshot": list(snapshot),
+            "prova": None,
+            "memoria": riga_memoria,
+            "fallback": in_fallback,
+        }, tipo=TIPO_RECORD_GM)
+        _nota(avanzamento, "Fatto.", 1.0)
+        return EsitoTurnoGM(messaggio=messaggio, risultato=None, da_cache=False)
+
     budget = prepara_contesto(fascicolo.livello, rng, piano=piano_attivo)
 
     # --- Stadio 1: ideazione (consultiva; None ⇒ si compone senza) — SOLO sui

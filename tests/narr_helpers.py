@@ -70,10 +70,10 @@ def coda_azione(turno, *, idea=IDEA_QUIETE, prova=_ASSENTE, limata=None, memoria
     return coda
 
 
-def coda_post_scontro(turno, *, limata=None, memoria=None) -> list:
-    """FIFO del turno post-scontro (fatti nel fascicolo, nessuna azione → come il
-    reveal, l'ideazione non gira)."""
-    return [turno, _voce_flavor(limata), _voce_flavor(memoria)]
+def coda_post_scontro(resoconto=None) -> list:
+    """FIFO del turno post-scontro: dal 2026-08 è il ramo RESOCONTO — UNA sola
+    chiamata `Flavor` che veste i fatti (niente ideazione, niente gating)."""
+    return [_voce_flavor(resoconto)]
 
 
 def turno(
