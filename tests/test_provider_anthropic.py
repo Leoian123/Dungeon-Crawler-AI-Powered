@@ -175,4 +175,4 @@ def test_live_turno_di_narrazione_passa_il_gate(mondo_isolato: str) -> None:
                       voce="Sei il dungeon: genera una stanza con un mostro dal catalogo.")
     )
     # Qualunque sia l'esito (reale o fallback), il motore produce un turno GIOCABILE.
-    assert risultato.turno.prosa and risultato.turno.opzioni
+    assert risultato.turno.prosa and risultato.turno.entita.archetipo

@@ -73,7 +73,6 @@ from contracts import (
     PlayerEquipaggia,
     PlayerSiMuove,
     PlayerToglie,
-    Opzione,
     OpzioneVista,
     PlayerChoseOption,
     Grado,
@@ -1553,10 +1552,6 @@ def turni_da_piano(piano) -> list[TurnoNarrazione]:
     ordine). Accetta sia il DTO `PianoRisolto` sia il dataclass `PianoAttivo`
     (stessi campi sul cast: duck-typed). Esauriti i turni, l'orchestrazione
     degrada al fallback deterministico: il gioco non si blocca mai."""
-    combatti_o_scappa = [
-        Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
-        Opzione(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
-    ]
     return [
         TurnoNarrazione(
             prosa=mob.prosa_stanza,
@@ -1570,7 +1565,6 @@ def turni_da_piano(piano) -> list[TurnoNarrazione]:
                 # cast (override e mosse suoi), non un sosia posizionale.
                 riferimento=mob.slug,
             ),
-            opzioni=combatti_o_scappa,
             durata=mob.durata,
         )
         for mob in piano.cast

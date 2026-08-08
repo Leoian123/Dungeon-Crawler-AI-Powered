@@ -36,9 +36,7 @@ from contracts import (
     EncounterStarted,
     EntitaGenerata,
     Flavor,
-    Opzione,
     SchedaProiezione,
-    TipoAzione,
     TurnoNarrazione,
 )
 
@@ -82,13 +80,6 @@ RETRY_PROSA = 0
 PROSA_NEUTRA = "La stanza è silenziosa. Qualcosa si muove nell'ombra."
 NOME_NEUTRO = "Sagoma indistinta"
 DESCRIZIONE_NEUTRA = "Una presenza generica, abbozzata dal dungeon."
-
-# Il menu fisso di default (F §6.3): Combatti / Scappi / Altro.
-MENU_FISSO: tuple[Opzione, ...] = (
-    Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
-    Opzione(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
-    Opzione(tipo=TipoAzione.ALTRO, etichetta="Altro"),
-)
 
 
 # --- Componente dell'entità generata (materializzata nel World) ---------------
@@ -258,8 +249,8 @@ class RisultatoTurno:
 # --- Fallback atomico, locale, deterministico (F §6.3, F-8) -------------------
 
 def fallback_turno(budget: Budget, *, ingresso_combattimento: bool = False) -> RisultatoTurno:
-    """Il fallback unico: testo neutro + archetipo di default DESIGNATO nel budget +
-    menu fisso, applicati **insieme** (atomico).
+    """Il fallback unico: testo neutro + archetipo di default DESIGNATO nel budget,
+    applicati **insieme** (atomico). Il menu non c'entra: lo compone la mappa.
 
     - **Locale** — catalogo e testo neutro sono in casa: nessuna rete.
     - **Deterministico** — l'archetipo di default è *designato* (non pescato) e la
@@ -278,7 +269,6 @@ def fallback_turno(budget: Budget, *, ingresso_combattimento: bool = False) -> R
     turno = TurnoNarrazione(
         prosa=PROSA_NEUTRA,
         entita=entita,
-        opzioni=list(MENU_FISSO),
         durata=Durata.TURNO,
     )
     # In-budget per costruzione; ripassa per il gate per coerenza (e clamp d'ingresso).

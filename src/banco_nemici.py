@@ -39,9 +39,7 @@ from contracts import (
     Durata,
     EntitaGenerata,
     Grado,
-    Opzione,
     SchedaProiezione,
-    TipoAzione,
     TurnoNarrazione,
 )
 from motore import (
@@ -156,10 +154,7 @@ def gate_e_stat(cand: NemicoSperimentale, budget, livello: int) -> tuple[bool, s
         archetipo=cand.archetipo, grado=cand.grado, blocchi=cand.blocchi,
         nome=cand.nome, descrizione=cand.descrizione,
     )
-    turno = TurnoNarrazione(
-        prosa="(banco di prova)", entita=eg,
-        opzioni=[Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti")], durata=Durata.TURNO,
-    )
+    turno = TurnoNarrazione(prosa="(banco di prova)", entita=eg, durata=Durata.TURNO)
     validato = valida_turno(turno, budget)        # autorità del gate (schema·catalogo·budget)
     motivo = _diagnosi_gate(eg, budget)
     if validato is None:

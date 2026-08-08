@@ -176,8 +176,8 @@ _ISTRUZIONE_IDEAZIONE = (
 
 _ISTRUZIONE_COMPOSIZIONE = (
     "[istruzione] Narra il turno: la prosa DEVE contestualizzare l'azione del giocatore "
-    "in un dove e un come; scegli archetipo/grado/blocchi DENTRO il budget; proponi le "
-    "opzioni; dichiara la durata (vocabolario chiuso) e il beneficio che l'azione "
+    "in un dove e un come; scegli archetipo/grado/blocchi DENTRO il budget; "
+    "dichiara la durata (vocabolario chiuso) e il beneficio che l'azione "
     "reclama (nessuno|recupero|lavoro|addestramento|svolta — 'svolta' per ogni pretesa "
     "di avanzamento permanente). Coerente con l'idea sopra, se presente. Prosa "
     "ASCIUTTA: 3-5 frasi, niente preamboli."

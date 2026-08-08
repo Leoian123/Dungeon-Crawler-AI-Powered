@@ -17,7 +17,6 @@ from contracts import (
     EntitaGenerata,
     Flavor,
     Grado,
-    Opzione,
     TipoAzione,
     TurnoNarrazione,
 )
@@ -103,10 +102,9 @@ def _enum_chiuso(annotazione: object) -> bool:
 
 
 def test_F4_campi_meccanici_sono_vocabolari_chiusi() -> None:
-    # Grado/Blocco/TipoAzione/Durata restano enum compilati.
+    # Grado/Blocco/Durata restano enum compilati.
     assert _enum_chiuso(EntitaGenerata.model_fields["grado"].annotation)
     assert _enum_chiuso(EntitaGenerata.model_fields["blocchi"].annotation)
-    assert _enum_chiuso(Opzione.model_fields["tipo"].annotation)
     assert _enum_chiuso(TurnoNarrazione.model_fields["durata"].annotation)
 
 
@@ -127,7 +125,7 @@ def test_F4_archetipo_slug_a_chiusura_per_run() -> None:
 
 
 def test_F4_nessuna_leva_di_budget_o_anomalia() -> None:
-    for modello in (EntitaGenerata, Opzione, TurnoNarrazione, Flavor):
+    for modello in (EntitaGenerata, TurnoNarrazione, Flavor):
         for nome in modello.model_fields:
             assert nome.lower() not in _NOMI_LEVA_VIETATI, (
                 f"leva vietata (budget/anomalia/livello) in {modello.__name__}.{nome}"
@@ -136,7 +134,7 @@ def test_F4_nessuna_leva_di_budget_o_anomalia() -> None:
 
 def test_F4_schema_chiuso_extra_vietati() -> None:
     # extra="forbid": l'AI non può aggiungere un campo per invocare l'anomalia.
-    for modello in (EntitaGenerata, Opzione, TurnoNarrazione, Flavor):
+    for modello in (EntitaGenerata, TurnoNarrazione, Flavor):
         assert modello.model_config.get("extra") == "forbid", modello.__name__
     # Prova comportamentale: un campo extra viene rifiutato dalla validazione.
     with pytest.raises(Exception):
@@ -148,9 +146,12 @@ def test_F4_schema_chiuso_extra_vietati() -> None:
 def test_F1_turno_narrazione_ha_i_campi_giusti() -> None:
     # `beneficio` (gate anti-arbitraggio): classificazione su enum chiuso col default
     # NESSUNO — l'AI classifica il vantaggio reclamato, il costo lo applica il motore.
+    # Niente `opzioni`: il menu lo compone la mappa, mai l'AI (campo write-only
+    # rimosso nella dieta token 2026-08).
     assert set(TurnoNarrazione.model_fields) == {
-        "prosa", "entita", "opzioni", "durata", "beneficio",
+        "prosa", "entita", "durata", "beneficio",
     }
+    assert "opzioni" not in TurnoNarrazione.model_fields
     assert "livello" not in TurnoNarrazione.model_fields
 
 

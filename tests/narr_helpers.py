@@ -11,8 +11,6 @@ from contracts import (
     Durata,
     EntitaGenerata,
     Grado,
-    Opzione,
-    TipoAzione,
     TurnoNarrazione,
 )
 from motore import Budget, ARCHETIPO_DEFAULT
@@ -54,9 +52,5 @@ def turno(
             nome=nome,
             descrizione=descrizione,
         ),
-        opzioni=[
-            Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
-            Opzione(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
-        ],
         durata=durata,
     )

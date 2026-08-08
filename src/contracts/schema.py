@@ -317,19 +317,12 @@ class EntitaGenerata(BaseModel):
     riferimento: Slug | None = None
 
 
-class Opzione(BaseModel):
-    """Un'opzione del menu: spazio d'azione chiuso (`tipo`) + etichetta libera."""
-
-    model_config = _CHIUSO
-
-    tipo: TipoAzione   # categoriale, chiuso
-    etichetta: str     # flavor, libero
-
-
 class TurnoNarrazione(BaseModel):
     """Il "candidato" della chiamata di narrazione (PLK §2): UNA chiamata `genera`.
 
-    `{ prosa, entità, opzioni, durata }` — senza `livello` (profondità del motore).
+    `{ prosa, entità, durata }` — senza `livello` (profondità del motore) e senza
+    menu: le azioni possibili le compone la mappa (autorità spaziale), mai l'AI —
+    un campo `opzioni` qui era output pagato a ogni chiamata e mai letto.
     `durata` è una categoria chiusa (F-14): sta QUI, non su `Flavor`.
     """
 
@@ -337,7 +330,6 @@ class TurnoNarrazione(BaseModel):
 
     prosa: str
     entita: EntitaGenerata
-    opzioni: list[Opzione]
     durata: Durata     # categoria del tempo; il motore la mappa a carico-tick via gate
     # Il vantaggio reclamato dall'azione del giocatore (default = niente): l'AI
     # CLASSIFICA, il motore applica il pavimento di costo (§11) — gate asimmetrico,

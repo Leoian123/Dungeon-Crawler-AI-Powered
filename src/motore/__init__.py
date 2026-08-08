@@ -297,7 +297,6 @@ from .tempo import (
 from .narrazione import (
     RETRY_NARRAZIONE,
     RETRY_PROSA,
-    MENU_FISSO,
     PROSA_NEUTRA,
     EntitaMob,
     RisultatoTurno,
@@ -637,7 +636,6 @@ __all__ = [
     # narrazione (socket, gate, fallback, materializzazione)
     "RETRY_NARRAZIONE",
     "RETRY_PROSA",
-    "MENU_FISSO",
     "PROSA_NEUTRA",
     "EntitaMob",
     "RisultatoTurno",
