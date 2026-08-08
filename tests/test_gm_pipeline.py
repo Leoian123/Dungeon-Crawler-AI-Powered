@@ -48,6 +48,7 @@ from motore import (
 from motore import calibrazione as cal
 from main import _turni_scriptati, costruisci_sessione
 from provider import FakeProvider
+from tests.narr_helpers import coda_azione, coda_post_scontro, coda_reveal
 
 
 def _arma_run(seed: int = 7) -> None:
@@ -83,7 +84,7 @@ def _pipeline(prov, arch=None, mem=None, **kw):
 
 def test_conteggio_e_ordine_chiamate(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([_idea(), _turno(), dict(testo="limata"), dict(testo="riga memoria")])
+    prov = FakeProvider(coda_reveal(_turno(), limata="limata", memoria="riga memoria"))
     esito, _a, _m = _pipeline(prov)
     schemi = [s for _p, s in prov.chiamate]
     assert schemi == [Ideazione, TurnoNarrazione, Flavor, Flavor]
@@ -98,7 +99,7 @@ def test_conteggio_e_ordine_chiamate(mondo_isolato) -> None:
 
 def test_ideazione_degrada_senza_retry(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([None, _turno(), None, None])
+    prov = FakeProvider(coda_reveal(_turno(), idea=None))
     esito, _a, _m = _pipeline(prov)
     schemi = [s for _p, s in prov.chiamate]
     assert schemi.count(Ideazione) == 1  # nessun retry sugli stadi non-gating
@@ -114,7 +115,7 @@ def test_gate_e_fallback_atomico_invariati(mondo_isolato) -> None:
     _arma_run()
     fuori = _turno()
     fuori["entita"]["grado"] = "oro"  # fuori dal budget normale (BRONZO/ARGENTO)
-    prov = FakeProvider([None, fuori, None, None])  # il gate rifiuta ⇒ fallback, SENZA retry
+    prov = FakeProvider(coda_reveal(fuori, idea=None))  # il gate rifiuta ⇒ fallback, SENZA retry
     esito, _a, _m = _pipeline(prov)
     assert esito.messaggio.fallback is True
     assert esito.messaggio.prosa == PROSA_NEUTRA  # limatura degradata ⇒ bozza (neutra)
@@ -123,8 +124,8 @@ def test_gate_e_fallback_atomico_invariati(mondo_isolato) -> None:
 
 def test_trasporto_fallito_ritenta_solo_la_gating(mondo_isolato) -> None:
     _arma_run()
-    # Ideazione None + gating None due volte (1 + 1 retry) + ancillari degradati.
-    prov = FakeProvider([None, None, None, None, None])
+    # FIFO vuota: OGNI stadio degrada (trasporto), qualunque sia il loro numero.
+    prov = FakeProvider([])
     esito, _a, _m = _pipeline(prov)
     assert esito.messaggio.fallback is True
     assert [s for _p, s in prov.chiamate].count(TurnoNarrazione) == 2  # 1 + 1 retry, mai di più
@@ -150,10 +151,10 @@ def test_azioni_diverse_a_tick_fermo_non_collidono(mondo_isolato) -> None:
     0 tick; l'azione successiva nella stessa stanza NON deve rileggere la prosa
     dell'azione precedente dalla cache."""
     _arma_run()
-    prov = FakeProvider([
-        _idea(), _turno(), dict(testo="prosa dell'attacco"), dict(testo="r1"),
-        _idea(), _turno(), dict(testo="prosa del frugare"), dict(testo="r2"),
-    ])
+    prov = FakeProvider(
+        coda_azione(_turno(), limata="prosa dell'attacco", memoria="r1")
+        + coda_azione(_turno(), limata="prosa del frugare", memoria="r2")
+    )
     esito1, arch, mem = _pipeline(
         prov, azione="attacco il mob", ingresso_combattimento=True)
     esito2, _a, _m = _pipeline(
@@ -171,7 +172,7 @@ def test_azioni_diverse_a_tick_fermo_non_collidono(mondo_isolato) -> None:
 
 def test_cache_rilegge_senza_chiamate(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([_idea(), _turno(), dict(testo="limata"), dict(testo="riga")])
+    prov = FakeProvider(coda_reveal(_turno(), limata="limata", memoria="riga"))
     esito1, arch, mem = _pipeline(prov)
     n = len(prov.chiamate)
     esito2, _a, _m = _pipeline(prov, arch=arch, mem=mem)
@@ -183,7 +184,9 @@ def test_cache_rilegge_senza_chiamate(mondo_isolato) -> None:
 
 def test_memoria_ricostruita_dall_archivio(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([None, _turno(), None, dict(testo="C'era uno slime, ora lo sai.")])
+    prov = FakeProvider(
+        coda_reveal(_turno(), idea=None, memoria="C'era uno slime, ora lo sai.")
+    )
     _e, arch, mem = _pipeline(prov)
     assert mem.finestra() == ("C'era uno slime, ora lo sai.",)
     ricostruita = MemoriaTurni.ricostruisci(arch)
@@ -214,7 +217,7 @@ def test_tempo_speso_dal_motore(mondo_isolato) -> None:
     _arma_run()
     turno = _turno()
     turno["durata"] = "un_attimo"
-    prov = FakeProvider([None, turno, None, None])
+    prov = FakeProvider(coda_reveal(turno, idea=None))
     prima = tempo_piano_corrente()
     esito, _a, _m = _pipeline(prov)
     speso = esito.messaggio.tempo.tick_spesi
@@ -224,7 +227,7 @@ def test_tempo_speso_dal_motore(mondo_isolato) -> None:
 
 def test_ingresso_combattimento_non_spende_tempo(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([None, _turno(), None, None])
+    prov = FakeProvider(coda_reveal(_turno(), idea=None))
     prima = tempo_piano_corrente()
     esito, _a, _m = _pipeline(prov, ingresso_combattimento=True)
     assert esito.messaggio.tempo.tick_spesi == 0
@@ -235,9 +238,9 @@ def test_ingresso_combattimento_non_spende_tempo(mondo_isolato) -> None:
 
 def test_prova_solo_se_esiste_e_tira_il_motore(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([
-        _idea("prova"), _turno(), dict(classe="bronzo", stat="destrezza"), None, None,
-    ])
+    prov = FakeProvider(coda_azione(
+        _turno(), idea=_idea("prova"), prova=dict(classe="bronzo", stat="destrezza"),
+    ))
     esito, _a, _m = _pipeline(prov, azione="scassinare la grata")
     schemi = [s for _p, s in prov.chiamate]
     assert InquadramentoProva in schemi
@@ -249,7 +252,7 @@ def test_prova_solo_se_esiste_e_tira_il_motore(mondo_isolato) -> None:
 
 def test_avanzamento_monotono_e_completo(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([_idea(), _turno(), dict(testo="l"), dict(testo="m")])
+    prov = FakeProvider(coda_reveal(_turno(), limata="l", memoria="m"))
     tappe: list[tuple[str, float]] = []
     esito, arch, mem = _pipeline(prov, avanzamento=lambda e, f: tappe.append((e, f)))
     frazioni = [f for _e, f in tappe]
@@ -264,7 +267,7 @@ def test_avanzamento_monotono_e_completo(mondo_isolato) -> None:
 
 def test_callback_rotto_non_rompe_il_turno(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider([None, _turno(), None, None])
+    prov = FakeProvider(coda_reveal(_turno(), idea=None))
     def esplode(_e: str, _f: float) -> None:
         raise RuntimeError("host rotto")
     esito, _a, _m = _pipeline(prov, avanzamento=esplode)
@@ -338,12 +341,12 @@ def test_il_turno_post_scontro_non_e_inghiottito_dalla_cache(mondo_isolato) -> N
     from contracts import FattiScontro
 
     _arma_run()
-    prov = FakeProvider([_idea(), _turno(), dict(testo="reveal"), dict(testo="r1")])
+    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r1"))
     esito1, arch, mem = _pipeline(prov)               # il reveal congela il record
     assert esito1.da_cache is False
 
-    prov.accoda(None); prov.accoda(_turno())          # ideazione + gating del post-scontro
-    prov.accoda(dict(testo="il dopo-scontro")); prov.accoda(dict(testo="r2"))
+    for voce in coda_post_scontro(_turno(), idea=None, limata="il dopo-scontro", memoria="r2"):
+        prov.accoda(voce)
     fatti = FattiScontro(vittoria=True, turni=3, hp_persi=4, nemico="Slime Mangiascarti")
     esito2, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
     assert esito2.da_cache is False, "il turno post-scontro è stato inghiottito dalla cache"
@@ -359,7 +362,7 @@ def test_la_rivisita_di_una_stanza_ripulita_lo_dice(mondo_isolato) -> None:
     from motore import dissolvi_mob
 
     _arma_run()
-    prov = FakeProvider([_idea(), _turno(), dict(testo="reveal col mob"), dict(testo="r")])
+    prov = FakeProvider(coda_reveal(_turno(), limata="reveal col mob", memoria="r"))
     esito1, arch, mem = _pipeline(prov)
     nome = _turno()["entita"]["nome"]
 
@@ -384,12 +387,13 @@ def test_la_memoria_non_registra_entita_mai_materializzate(mondo_isolato) -> Non
     mai nel mondo — un fatto falso propagato alla finestra di memoria, congelato
     in Archivio e ricostruito al load."""
     _arma_run()
-    prov = FakeProvider([_idea(), _turno(), dict(testo="reveal"), None])  # distilla degradata
+    prov = FakeProvider(coda_reveal(_turno(), limata="reveal"))  # distilla degradata
     _e1, arch, mem = _pipeline(prov)
     nome = _turno()["entita"]["nome"]
     assert nome in mem.finestra()[-1], "il reveal materializza: il nome VA in memoria"
 
-    prov.accoda(None); prov.accoda(_turno()); prov.accoda(None); prov.accoda(None)
+    for voce in coda_azione(_turno(), idea=None):
+        prov.accoda(voce)
     _e2, _a, _m = _pipeline(prov, arch=arch, mem=mem, azione="frugo tra i detriti")
     assert nome not in mem.finestra()[-1], (
         "il turno-azione ha messo in memoria un'entità mai materializzata"
