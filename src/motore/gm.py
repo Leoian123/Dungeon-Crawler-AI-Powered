@@ -41,14 +41,16 @@ import hashlib
 import random
 import re
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from contracts import (
     ClasseBeneficio,
     ClasseProva,
+    DocumentoMemoria,
     Durata,
     FattiScontro,
+    TipoDocumento,
     Ideazione,
     InquadramentoProva,
     IntenzioneScena,
@@ -291,6 +293,9 @@ class Fascicolo:
     azione: str = ""                        # "" = turno di reveal (nessuna azione)
     esito_scontro: FattiScontro | None = None  # handoff dall'istanza di combattimento
     piano_etichetta: str = ""               # grounding compatto del design attivo
+    # Voci dalla MEMORIA NARRATIVA (porta, Fase 6): documenti recuperati per
+    # rilevanza — contesto lungo oltre la finestra dei riassunti-turno.
+    memoria_lunga: tuple[str, ...] = ()
 
 
 def componi_fascicolo(
@@ -356,6 +361,8 @@ def sezione_fascicolo(f: Fascicolo) -> str:
     ]
     if f.memoria:
         righe.append("[fascicolo/memoria] finora: " + " | ".join(f.memoria))
+    if f.memoria_lunga:
+        righe += [f"[fascicolo/memoria-lunga] {voce}" for voce in f.memoria_lunga]
     if f.esito_scontro is not None:
         e = f.esito_scontro
         if getattr(e, "fuga", False):
@@ -800,6 +807,7 @@ async def esegui_turno_gm(
     ingresso_combattimento: bool = False,
     avanzamento: Avanzamento | None = None,
     guardia_scrittura: Callable[[], None] | None = None,
+    memoria_narrativa=None,
 ) -> EsitoTurnoGM:
     """UN turno GM completo: ideazione → composizione (gating+prova+limatura) →
     scrittura. Una sola unità `await` cancellabile: se cade prima della scrittura,
@@ -830,6 +838,18 @@ async def esegui_turno_gm(
     engine = provider if isinstance(provider, MasterEngine) else MasterEngine.avvolgi(provider)
 
     fascicolo = componi_fascicolo(memoria, azione=azione, esito_scontro=esito_scontro)
+    # Memoria narrativa (porta, Fase 6): i documenti rilevanti per l'azione o per
+    # il nemico appena affrontato entrano come contesto lungo. Sola lettura, zero
+    # chiamate: il recupero è deterministico (contratto della porta).
+    if memoria_narrativa is not None:
+        query = azione or (esito_scontro.nemico if esito_scontro is not None else "")
+        if query:
+            voci = tuple(
+                f"{d.titolo}: {d.testo}"[:200]
+                for d in memoria_narrativa.recupera(query, limite=3)
+            )
+            if voci:
+                fascicolo = replace(fascicolo, memoria_lunga=voci)
     # Il reveal dipende dallo STATO DELLA STANZA (mai narrata → va materializzata),
     # anche con fatti di scontro pendenti: sono il fascicolo del turno, non la sua
     # natura. Il caso speciale è il post-scontro nella STESSA stanza: lì il turno
@@ -892,6 +912,18 @@ async def esegui_turno_gm(
         _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
         riga_memoria = _memoria_scontro(esito_scontro, fascicolo)
         memoria.registra(riga_memoria)
+        if memoria_narrativa is not None:
+            # Il primo produttore della memoria narrativa: lo scontro è un EVENTO
+            # durevole della run — deterministico, dai fatti, zero chiamate.
+            code = "; ".join(esito_scontro.momenti)
+            memoria_narrativa.salva(DocumentoMemoria(
+                id=f"scontro-p{fascicolo.livello}-s{fascicolo.stanza}-t{fascicolo.tick}",
+                tipo=TipoDocumento.EVENTO,
+                titolo=f"Scontro con {esito_scontro.nemico or 'un nemico'}",
+                testo=riga_memoria + (f"; {code}" if code else ""),
+                piano=fascicolo.livello,
+                tick=fascicolo.tick,
+            ))
         etichetta = "il tempo dello scontro"  # i tick li ha spesi il loop, non il GM
         snapshot = (
             ", ".join(fascicolo.proiezione.descrittori) or "ignoto",

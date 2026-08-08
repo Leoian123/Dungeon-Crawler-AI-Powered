@@ -280,6 +280,7 @@ from .piano import (
     valida_piano,
 )
 from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
+from .memoria_narrativa import TIPO_RECORD_MEMORIA, MemoriaSuArchivio
 from .seme import SemeRun, crea_seme, master_seed
 from .tempo import (
     TempoNonAvanzabile,
@@ -659,6 +660,8 @@ __all__ = [
     "ConsumoRotta",
     "Corsia",
     "MasterEngine",
+    "MemoriaSuArchivio",
+    "TIPO_RECORD_MEMORIA",
     "ROTTE",
     "Rotta",
     "registra_rotta",

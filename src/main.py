@@ -88,6 +88,7 @@ from motore import (
     Archivio,
     ArchetipoAttivo,
     MasterEngine,
+    MemoriaSuArchivio,
     PREFISSO_RIFINITURA,
     ProfiloArchetipo,
     mosse_note,
@@ -858,6 +859,7 @@ class SessioneGioco:
         self.coda = None  # CodaIntenti: nasce all'ingresso in run (dai factory)
         self.archivio: Archivio | None = None
         self.memoria: MemoriaTurni | None = None
+        self.memoria_lunga: MemoriaSuArchivio | None = None  # porta narrativa (Fase 6)
         self.uuid = ""
         self.etichetta = ""  # il nome del crawler: etichetta dello slot di save
         self.ultimo_messaggio: MessaggioGM | None = None
@@ -902,6 +904,7 @@ class SessioneGioco:
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
         sessione.archivio = Archivio(master_seed=master_seed(), model_id=MODEL_ID_DEFAULT)
         sessione.memoria = MemoriaTurni()
+        sessione.memoria_lunga = MemoriaSuArchivio(sessione.archivio)
         return sessione
 
     @classmethod
@@ -956,6 +959,9 @@ class SessioneGioco:
             master_seed=master_seed(), model_id=MODEL_ID_DEFAULT
         )
         sessione.memoria = MemoriaTurni.ricostruisci(sessione.archivio)
+        # La memoria narrativa RIPARTE dallo stesso sidecar: i documenti congelati
+        # (record `memoria_doc`) sono già dentro l'Archivio ricaricato.
+        sessione.memoria_lunga = MemoriaSuArchivio(sessione.archivio)
         sessione.etichetta = next(
             (v.etichetta for v in indice_crawler(directory) if v.uuid == uuid), uuid
         )
@@ -989,6 +995,7 @@ class SessioneGioco:
             # Barriera: durante gli await del provider un'altra sessione può aver
             # preso il run-World — il ricontrollo scatta PRIMA della scrittura.
             guardia_scrittura=self._guardia_aperta,
+            memoria_narrativa=self.memoria_lunga,
         )
         if not esito.da_cache:  # un turno riletto non consuma i fatti: li narrerà il prossimo
             self._fatti_scontro = None
@@ -1021,6 +1028,7 @@ class SessioneGioco:
             esito_scontro=self._fatti_scontro,
             avanzamento=self.on_avanzamento,
             guardia_scrittura=self._guardia_aperta,  # come in prossima_narrazione
+            memoria_narrativa=self.memoria_lunga,
         )
         if not esito.da_cache:
             self._fatti_scontro = None

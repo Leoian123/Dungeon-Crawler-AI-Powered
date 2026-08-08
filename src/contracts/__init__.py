@@ -63,6 +63,11 @@ from .schema import (
     Ideazione,
     InquadramentoProva,
 )
+from .memoria import (
+    DocumentoMemoria,
+    MemoriaNarrativa,
+    TipoDocumento,
+)
 from .contenuti import (
     ArchetipoAsset,
     AssetVista,
@@ -172,6 +177,9 @@ __all__ = [
     "Stagione",
     "StagioneRisolta",
     # snapshot di rendering per la vista
+    "DocumentoMemoria",
+    "MemoriaNarrativa",
+    "TipoDocumento",
     "OpzioneVista",
     "SnapshotVista",
     "Terminale",
