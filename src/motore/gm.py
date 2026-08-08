@@ -658,8 +658,11 @@ async def esegui_turno_gm(
     scrittura. Una sola unità `await` cancellabile: se cade prima della scrittura,
     nessuno stato è mutato (F-11/G-20).
 
-    Budget per costruzione: ideazione ≤1; composizione ≤4 (1 gating + 1 retry +
-    prova ≤1 + limatura ≤1); scrittura ≤1 (distillazione memoria). Cache-hit: zero.
+    Budget per costruzione: ideazione ≤1 e SOLO sui turni-azione (al reveal la sua
+    unica influenza meccanica — inquadrare una prova — è impossibile: chiamarla
+    era un round-trip pagato a ogni stanza nuova, dieta token 2026-08);
+    composizione ≤4 (1 gating + 1 retry + prova ≤1 + limatura ≤1); scrittura ≤1
+    (distillazione memoria). Cache-hit: zero.
     Latenza: limatura e distillazione partono IN PARALLELO (un solo round-trip);
     `avanzamento(etichetta, frazione)` racconta all'host a che punto siamo.
 
@@ -715,14 +718,19 @@ async def esegui_turno_gm(
             })
         return EsitoTurnoGM(messaggio=messaggio, risultato=None, da_cache=True)
 
-    # --- Stadio 1: ideazione (consultiva; None ⇒ si compone senza) -------------
-    _nota(avanzamento, "Il GM riflette sulla scena…", 0.1)
     # Il design ATTIVO (stagione congelata nella run): colora il canale sistema
     # (statico per la run → cache piena) e vincola il budget del gate.
     piano_attivo = design_piano_corrente()
     sistema = prefisso_gm(stagione_corrente(), piano_attivo)
     budget = prepara_contesto(fascicolo.livello, rng, piano=piano_attivo)
-    idea = await ideazione(provider, fascicolo, budget, sistema=sistema)
+
+    # --- Stadio 1: ideazione (consultiva; None ⇒ si compone senza) — SOLO sui
+    # turni-azione: al reveal non c'è azione da inquadrare e l'unico suo effetto
+    # meccanico (la prova, che richiede `azione`) non può esistere.
+    idea = None
+    if azione:
+        _nota(avanzamento, "Il GM riflette sulla scena…", 0.1)
+        idea = await ideazione(provider, fascicolo, budget, sistema=sistema)
 
     # --- Stadio 2: composizione — LA chiamata gating (gate+fallback invariati) --
     _nota(avanzamento, "Il GM scrive il turno…", 0.35)

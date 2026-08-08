@@ -50,9 +50,12 @@ def _voce_flavor(v):
     return dict(testo=v) if isinstance(v, str) else v
 
 
-def coda_reveal(turno, *, idea=IDEA_QUIETE, limata=None, memoria=None) -> list:
-    """FIFO di un turno-REVEAL: [ideazione, gating, limatura, distillazione]."""
-    return [idea, turno, _voce_flavor(limata), _voce_flavor(memoria)]
+def coda_reveal(turno, *, limata=None, memoria=None) -> list:
+    """FIFO di un turno-REVEAL: [gating, limatura, distillazione].
+
+    Nessuno stadio di ideazione: al reveal non c'è azione da inquadrare (skip
+    della dieta token 2026-08)."""
+    return [turno, _voce_flavor(limata), _voce_flavor(memoria)]
 
 
 def coda_azione(turno, *, idea=IDEA_QUIETE, prova=_ASSENTE, limata=None, memoria=None) -> list:
@@ -67,9 +70,10 @@ def coda_azione(turno, *, idea=IDEA_QUIETE, prova=_ASSENTE, limata=None, memoria
     return coda
 
 
-def coda_post_scontro(turno, *, idea=IDEA_QUIETE, limata=None, memoria=None) -> list:
-    """FIFO del turno post-scontro (fatti nel fascicolo, nessuna azione)."""
-    return [idea, turno, _voce_flavor(limata), _voce_flavor(memoria)]
+def coda_post_scontro(turno, *, limata=None, memoria=None) -> list:
+    """FIFO del turno post-scontro (fatti nel fascicolo, nessuna azione → come il
+    reveal, l'ideazione non gira)."""
+    return [turno, _voce_flavor(limata), _voce_flavor(memoria)]
 
 
 def turno(
