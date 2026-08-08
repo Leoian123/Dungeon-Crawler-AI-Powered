@@ -310,6 +310,12 @@ class EntitaGenerata(BaseModel):
     blocchi: list[Blocco]
     nome: str          # libero (flavor)
     descrizione: str   # libero (flavor)
+    # Identità cinematografica (Sit.2, 2026-08): SOLO testo, zero conseguenza
+    # meccanica — il dettaglio visivo che resta negli occhi e il tic che rende
+    # il mob riconoscibile. Default "" = retro-compatibile (archivi e provider
+    # storici non li dichiarano).
+    aspetto: str = ""  # libero (flavor): il dettaglio visivo memorabile
+    tratto: str = ""   # libero (flavor): l'abitudine/verso che lo distingue
     # RECLUTAMENTO strutturato (D5): lo slug di un mob del CAST del piano corrente.
     # È un NOME da un set chiuso per-run (mai un numero): il gate lo verifica al 4°
     # strato — fuori cast → rifiuto (fallback F-13). None = mob "coniato" dall'AI

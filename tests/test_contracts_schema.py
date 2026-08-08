@@ -85,11 +85,15 @@ def test_F3_entita_generata_non_ha_livello() -> None:
 def test_F3_campi_attesi_di_entita_generata() -> None:
     # archetipo, grado, blocchi, nome, descrizione (F-1/§2) + `riferimento` (D5):
     # il reclutamento dal cast — un NOME da un set chiuso per-run, opzionale,
-    # verificato dal 4° strato del gate. Mai un numero.
+    # verificato dal 4° strato del gate. Mai un numero. `aspetto`/`tratto`
+    # (Sit.2, 2026-08): identità cinematografica SOLO-testo, default "".
     assert set(EntitaGenerata.model_fields) == {
         "archetipo", "grado", "blocchi", "nome", "descrizione", "riferimento",
+        "aspetto", "tratto",
     }
     assert EntitaGenerata.model_fields["riferimento"].default is None
+    assert EntitaGenerata.model_fields["aspetto"].default == ""
+    assert EntitaGenerata.model_fields["tratto"].default == ""
 
 
 # --- F-4: campi a conseguenza meccanica = enum chiusi; nessuna leva ------------

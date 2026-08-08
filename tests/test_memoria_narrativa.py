@@ -138,6 +138,41 @@ def test_la_memoria_lunga_entra_nel_prompt_solo_se_rilevante(mondo_isolato) -> N
                for p, _s in prov.chiamate)
 
 
+def test_mob_memorabile_scrive_un_personaggio(mondo_isolato, monkeypatch) -> None:
+    """Sit.2: la materializzazione di un mob di grado alto (o anomalia) salva un
+    PERSONAGGIO nella memoria narrativa — deterministico, zero chiamate."""
+    from contracts import Grado
+    from motore import gm as gm_mod
+    from tests.narr_helpers import budget as costruisci_budget
+
+    _arma_run()
+    bud = costruisci_budget(gradi=(Grado.BRONZO, Grado.ORO))
+    monkeypatch.setattr(gm_mod, "prepara_contesto", lambda livello, rng, piano=None: bud)
+
+    turno = _turni_scriptati()[0].model_dump()
+    turno["entita"]["grado"] = "oro"
+    turno["entita"]["aspetto"] = "una corona di denti da latte"
+    turno["entita"]["tratto"] = "canticchia jingle pubblicitari"
+
+    arch = Archivio(master_seed=7, model_id="test")
+    lunga = MemoriaSuArchivio(arch)
+    _pipeline(FakeProvider(coda_reveal(turno)), arch, MemoriaTurni(), lunga)
+
+    nome = turno["entita"]["nome"]
+    doc = lunga.recupera(nome, tipi=(TipoDocumento.PERSONAGGIO,))
+    assert doc and doc[0].titolo == nome
+    assert "corona di denti" in doc[0].testo and "oro" in doc[0].testo
+
+
+def test_mob_ordinario_non_intasa_la_memoria(mondo_isolato) -> None:
+    _arma_run()
+    arch = Archivio(master_seed=7, model_id="test")
+    lunga = MemoriaSuArchivio(arch)
+    turno = _turni_scriptati()[0].model_dump()  # grado bronzo, nessuna anomalia
+    _pipeline(FakeProvider(coda_reveal(turno)), arch, MemoriaTurni(), lunga)
+    assert not arch.record_di_tipo(TIPO_RECORD_MEMORIA)
+
+
 def test_il_resoconto_scrive_un_evento(mondo_isolato) -> None:
     _arma_run()
     arch = Archivio(master_seed=7, model_id="test")

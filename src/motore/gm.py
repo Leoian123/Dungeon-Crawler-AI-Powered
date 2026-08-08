@@ -50,6 +50,7 @@ from contracts import (
     DocumentoMemoria,
     Durata,
     FattiScontro,
+    Grado,
     TipoDocumento,
     Ideazione,
     InquadramentoProva,
@@ -72,7 +73,7 @@ from .calibrazione import (
     PAVIMENTO_BENEFICIO,
     TARIFFA_FUORI_SCALA,
 )
-from .catalogo import ANCORE_CLASSE, Budget, carico_tick, prepara_contesto
+from .catalogo import ANCORE_CLASSE, Budget, carico_tick, prepara_contesto, rango_grado
 from .design import (
     PianoAttivo,
     StagioneAttiva,
@@ -259,9 +260,11 @@ _ISTRUZIONE_IDEAZIONE = (
 _ISTRUZIONE_COMPOSIZIONE_REVEAL = (
     "[istruzione] Metti in scena la stanza: questa è un'APERTURA — 250-400 parole, "
     "regia piena secondo la guida di stile (inquadratura → movimento → creatura). "
-    "Scegli archetipo/grado/blocchi DENTRO il budget; dai alla creatura un corpo, "
-    "un'abitudine e un tratto memorabile; dichiara la durata (vocabolario chiuso). "
-    "Nessun preambolo, nessun riassunto in coda."
+    "Scegli archetipo/grado/blocchi DENTRO il budget; dai alla creatura un corpo e "
+    "un'identità: compila `aspetto` (IL dettaglio visivo che resta negli occhi) e "
+    "`tratto` (l'abitudine o il verso che la distingue) — evita i cliché e i sosia "
+    "di ciò che la memoria del fascicolo ha già visto; dichiara la durata "
+    "(vocabolario chiuso). Nessun preambolo, nessun riassunto in coda."
 )
 
 _ISTRUZIONE_COMPOSIZIONE_AZIONE = (
@@ -1043,6 +1046,21 @@ async def esegui_turno_gm(
         ent = materializza_turno(risultato, bus)
         registra_mob(ent)
         segna_visitata()
+        eg = risultato.turno.entita
+        if memoria_narrativa is not None and (
+            risultato.anomala or rango_grado(eg.grado) >= rango_grado(Grado.ORO)
+        ):
+            # Il mob MEMORABILE (grado alto o anomalia) diventa un PERSONAGGIO
+            # della memoria narrativa: deterministico, zero chiamate (Sit.2).
+            dettagli = "; ".join(x for x in (eg.descrizione, eg.aspetto, eg.tratto) if x)
+            memoria_narrativa.salva(DocumentoMemoria(
+                id=f"mob-p{fascicolo.livello}-s{fascicolo.stanza}",
+                tipo=TipoDocumento.PERSONAGGIO,
+                titolo=eg.nome,
+                testo=f"{eg.grado.value}: {dettagli}" if dettagli else eg.grado.value,
+                piano=fascicolo.livello,
+                tick=fascicolo.tick,
+            ))
     tick_spesi = spendi_tempo(bus, durata, ingresso_combattimento=ingresso_combattimento)
 
     if not riga_memoria:

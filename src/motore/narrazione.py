@@ -409,6 +409,8 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
             nome=entita.nome,
             descrizione=entita.descrizione,
             livello=livello,
+            aspetto=entita.aspetto,
+            tratto=entita.tratto,
         ),
         primarie,
         # Seam gear per-entità: le chiavi vengono dal profilo (dato), mai da lookup

@@ -29,6 +29,10 @@ class EntitaMob:
     descrizione: str
     livello: int
     stanza: int | None = None
+    # Identità cinematografica (Sit.2): flavor puro, default "" → i save storici
+    # si deserializzano invariati (campo assente = stringa vuota).
+    aspetto: str = ""
+    tratto: str = ""
 
 
 @dataclass
