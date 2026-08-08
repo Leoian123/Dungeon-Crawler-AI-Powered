@@ -95,10 +95,18 @@ class AnthropicBackend:
         max_tokens: int = 2048,
         timeout: float = 30.0,
         consumo: ConsumoProvider | None = None,
+        retry_troncatura: int = 1,
+        fattore_troncatura: float = 2.0,
     ) -> None:
         self.modello = modello
         self.max_tokens = max_tokens
         self.timeout = timeout
+        # Troncatura (`stop_reason == "max_tokens"`): ributtare lo stesso prompt con
+        # lo stesso limite ritronca quasi certamente — il retry di trasporto alza il
+        # limite (×fattore). È politica di TRASPORTO (come max_retries): il motore
+        # continua a decidere il retry di dominio per schema (F §5.1).
+        self.retry_troncatura = retry_troncatura
+        self.fattore_troncatura = fattore_troncatura
         # Il tally della spesa: l'`usage` di ogni risposta non si butta più via.
         # `consumo` condiviso fra più backend = totale per-run senza aggregatori.
         self.consumo = consumo if consumo is not None else ConsumoProvider()
@@ -133,35 +141,43 @@ class AnthropicBackend:
                 "text": sistema,
                 "cache_control": {"type": "ephemeral"},
             }]
-        try:
-            # `beta.messages.parse`: è QUESTO il metodo dell'output strutturato
-            # sull'SDK pinnato (0.75) — il namespace non-beta non ce l'ha, e
-            # chiamarlo lì era un AttributeError inghiottito che degradava OGNI
-            # turno live a fallback (giro 2026-08-07). L'header beta lo aggiunge
-            # l'SDK da solo.
-            risposta = await client.beta.messages.parse(
-                model=self.modello,
-                max_tokens=self.max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-                output_format=schema,
-                **extra,
-            )
-        except Exception as exc:
-            # Il motore ripiega comunque (retry per schema, poi fallback atomico);
-            # qui si CLASSIFICA il guasto, così il tally sa dire il perché.
-            self.consumo.registra_guasto(_classifica_guasto(exc))
-            return None
+        max_tokens = self.max_tokens
+        for tentativo in range(self.retry_troncatura + 1):
+            try:
+                # `beta.messages.parse`: è QUESTO il metodo dell'output strutturato
+                # sull'SDK pinnato (0.75) — il namespace non-beta non ce l'ha, e
+                # chiamarlo lì era un AttributeError inghiottito che degradava OGNI
+                # turno live a fallback (giro 2026-08-07). L'header beta lo aggiunge
+                # l'SDK da solo.
+                risposta = await client.beta.messages.parse(
+                    model=self.modello,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}],
+                    output_format=schema,
+                    **extra,
+                )
+            except Exception as exc:
+                # Il motore ripiega comunque (retry per schema, poi fallback atomico);
+                # qui si CLASSIFICA il guasto, così il tally sa dire il perché.
+                self.consumo.registra_guasto(_classifica_guasto(exc))
+                return None
 
-        # La spesa si conta QUI, prima di ogni esito: anche un refusal si paga.
-        self.consumo.registra_risposta(getattr(risposta, "usage", None))
+            # La spesa si conta QUI, prima di ogni esito: anche un refusal si paga.
+            self.consumo.registra_risposta(getattr(risposta, "usage", None))
 
-        # Refusal o troncatura (max_tokens): generazione fallita → None (PLK §6).
-        stop = getattr(risposta, "stop_reason", None)
-        if stop in _STOP_FALLITI:
-            self.consumo.registra_guasto(str(stop))
-            return None
+            # Refusal o troncatura (max_tokens): generazione fallita → None (PLK §6).
+            stop = getattr(risposta, "stop_reason", None)
+            if stop in _STOP_FALLITI:
+                self.consumo.registra_guasto(str(stop))
+                if stop == "max_tokens" and tentativo < self.retry_troncatura:
+                    # Troncato: ritentare uguale ritroncherebbe — si alza il limite.
+                    # Il guasto del primo colpo resta nel tally (si è pagato).
+                    max_tokens = int(max_tokens * self.fattore_troncatura)
+                    continue
+                return None
 
-        candidato = getattr(risposta, "parsed_output", None)
-        # Cintura e bretelle: solo un'istanza conforme allo schema passa (il gate del
-        # motore farà comunque catalogo+budget; qui è la garanzia di forma del trasporto).
-        return candidato if isinstance(candidato, schema) else None
+            candidato = getattr(risposta, "parsed_output", None)
+            # Cintura e bretelle: solo un'istanza conforme allo schema passa (il gate del
+            # motore farà comunque catalogo+budget; qui è la garanzia di forma del trasporto).
+            return candidato if isinstance(candidato, schema) else None
+        return None

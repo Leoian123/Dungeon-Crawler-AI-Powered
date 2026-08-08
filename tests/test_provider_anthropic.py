@@ -135,6 +135,63 @@ def test_le_cause_di_guasto_sono_distinte() -> None:
     )
 
 
+def test_troncatura_ritenta_con_limite_alzato() -> None:
+    """Retry di troncatura (dieta token 2026-08): su `stop_reason == "max_tokens"`
+    ributtare lo stesso prompt con lo stesso limite ritronca quasi certamente —
+    il trasporto ritenta UNA volta col limite raddoppiato. Nessun retry su
+    `refusal` (non è un problema di spazio)."""
+    import asyncio
+
+    from contracts import Flavor
+
+    class _Risposta:
+        def __init__(self, stop: str, parsed=None) -> None:
+            self.stop_reason = stop
+            self.parsed_output = parsed
+            self.usage = None
+
+    class _MessaggiTroncanti:
+        """Prima risposta troncata, seconda buona; registra i max_tokens visti."""
+
+        def __init__(self, risposte: list) -> None:
+            self._risposte = list(risposte)
+            self.limiti_visti: list[int] = []
+
+        async def parse(self, **kw):
+            self.limiti_visti.append(kw["max_tokens"])
+            return self._risposte.pop(0)
+
+    def _client_con(messaggi):
+        beta = type("Beta", (), {})()
+        beta.messages = messaggi
+        cli = type("Cli", (), {})()
+        cli.beta = beta
+        return cli
+
+    buono = Flavor(testo="ok")
+    msg = _MessaggiTroncanti([_Risposta("max_tokens"), _Risposta("end_turn", buono)])
+    b = AnthropicBackend(max_tokens=512)
+    b._client = _client_con(msg)
+    assert asyncio.run(b.genera("p", Flavor)) is buono
+    assert msg.limiti_visti == [512, 1024], "il retry deve alzare il limite, non ripeterlo"
+    # Il primo colpo troncato resta nel tally: si è pagato.
+    assert b.consumo.cause.get("max_tokens") == 1 and b.consumo.chiamate == 2
+
+    # Doppia troncatura: dopo il retry si arrende (None), due guasti nel tally.
+    msg2 = _MessaggiTroncanti([_Risposta("max_tokens"), _Risposta("max_tokens")])
+    b2 = AnthropicBackend(max_tokens=512)
+    b2._client = _client_con(msg2)
+    assert asyncio.run(b2.genera("p", Flavor)) is None
+    assert msg2.limiti_visti == [512, 1024] and b2.consumo.cause["max_tokens"] == 2
+
+    # Refusal: nessun retry (non è un problema di spazio), una sola chiamata.
+    msg3 = _MessaggiTroncanti([_Risposta("refusal")])
+    b3 = AnthropicBackend(max_tokens=512)
+    b3._client = _client_con(msg3)
+    assert asyncio.run(b3.genera("p", Flavor)) is None
+    assert msg3.limiti_visti == [512] and b3.consumo.cause["refusal"] == 1
+
+
 # --- Integrazione LIVE col backend reale (opzionale) --------------------------
 
 _HA_CHIAVE = bool(os.environ.get("ANTHROPIC_API_KEY"))
