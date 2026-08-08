@@ -64,6 +64,7 @@ def _costruisci_app(sessione):
             self._msg_visto = None     # ultimo MessaggioGM già considerato (dedup avvisi)
             self._avvisi_fallback = 0  # quanti turni degradati sono stati segnalati
             self._terminale_annunciato = False  # la riga di chiusura si scrive UNA volta
+            self._epitaffio_scritto = False     # l'epitaffio si chiede UNA volta
             self._menu_zaino = False   # il menu mostra l'inventario invece della scena
 
         def compose(self) -> ComposeResult:
@@ -124,13 +125,31 @@ def _costruisci_app(sessione):
 
         async def _agisci(self, indice: int) -> None:
             # host→motore: intento tipizzato in coda, poi il turno del motore (C-7).
+            fase_prima = self.fase_corrente
             self.sessione.coda.accoda(PlayerChoseOption(indice))
             snap = self.sessione.avanza()
             righe = self.cronaca.preleva()
-            if not self._morto and not snap.opzioni:
-                # menu vuoto ⇒ tornati in attesa: si chiede un nuovo turno di narrazione.
+            if not self._morto and (
+                not snap.opzioni
+                or (snap.fase == "narrazione" and fase_prima == "combattimento")
+            ):
+                # Menu vuoto ⇒ nuovo turno di narrazione; scontro appena chiuso ⇒
+                # il RESOCONTO narrativo dei fatti (Fase 5 — il feedback che prima
+                # mancava: nemico sconfitto, fuga o vittoria raccontati).
                 snap = await self._con_attesa(self.sessione.prossima_narrazione())
             await self._mostra(snap, righe)
+            if snap.fase == "combattimento" and fase_prima != "combattimento":
+                # APERTURA cinematografica IN CODA al feedback deterministico: la
+                # riga «Lo scontro ha inizio.» è già nel log e lo scontro è già
+                # giocabile — questa prosa arriva quando arriva (mai bloccante).
+                testo = await self.sessione.prosa_apertura_scontro()
+                if testo:
+                    self.query_one("#log", RichLog).write(f"[i]{testo}[/i]")
+            if self._morto and not self._epitaffio_scritto:
+                self._epitaffio_scritto = True
+                testo = await self.sessione.epitaffio()
+                if testo:
+                    self.query_one("#log", RichLog).write(f"[i]{testo}[/i]")
 
         # --- Zaino ed equip: la demo del canale loot→zaino→indosso (porte vere) ---
 

@@ -87,6 +87,8 @@ from motore import (
     MODEL_ID_DEFAULT,
     Archivio,
     ArchetipoAttivo,
+    MasterEngine,
+    PREFISSO_RIFINITURA,
     ProfiloArchetipo,
     mosse_note,
     MemoriaTurni,
@@ -868,6 +870,7 @@ class SessioneGioco:
         self._scena: tuple[OpzioneScena, ...] = ()  # binding indice→azione di scena
         self._istanza: IstanzaCombattimento | None = None
         self._fatti_scontro: FattiScontro | None = None  # handoff scontro→GM
+        self._fatti_epitaffio: FattiScontro | None = None  # fatti della morte (Fase 5)
         self._nome_mob = ""
 
     @classmethod
@@ -1025,6 +1028,58 @@ class SessioneGioco:
         self._sincronizza_scena()
         return self._snapshot_corrente(esito.messaggio.prosa)
 
+    def _engine(self) -> MasterEngine:
+        """Il canale unico delle chiamate AI, sul provider CORRENTE (che può
+        cambiare dopo il load: il copione offline si deriva dal save)."""
+        prov = self.provider
+        return prov if isinstance(prov, MasterEngine) else MasterEngine.avvolgi(prov)
+
+    async def prosa_apertura_scontro(self, *, imboscata: bool = False) -> str | None:
+        """Sit.1 (Fase 5): il trailer d'apertura dello scontro — rotta
+        `scontro.apertura`, non-gating, corsia veloce.
+
+        Contratto d'uso NON bloccante: l'host la `await`-a DOPO il flip a
+        combattimento — la riga deterministica «Lo scontro ha inizio.» è già in
+        cronaca e lo scontro è già giocabile; questa prosa arriva quando arriva.
+        `None` = degrado silenzioso (resta la riga fissa)."""
+        self._guardia_aperta()
+        if self._istanza is None:
+            return None
+        nemico = self._istanza.nemico or self._nome_mob or "il nemico"
+        innesco = ("l'agguato è scattato: nessuno ha scelto questo scontro"
+                   if imboscata else "il crawler ha scelto di combattere")
+        prompt = "\n".join([
+            f"[scena] Lo scontro si apre: davanti al crawler c'è {nemico}; {innesco}.",
+            "[istruzione] 2-4 frasi cinematiche di APERTURA (un trailer): la "
+            "minaccia entra in scena con un gesto che ne mostra il carattere. "
+            "Nessun esito anticipato, nessun numero.",
+        ])
+        flavor = await self._engine().genera(
+            "scontro.apertura", prompt, sistema=PREFISSO_RIFINITURA
+        )
+        return flavor.testo if flavor is not None else None
+
+    async def epitaffio(self) -> str | None:
+        """La voce dello showrunner sulla schermata terminale (permadeath).
+
+        Legge SOLO i fatti già raccolti (`_fatti_epitaffio`): nessuna guardia di
+        run (la run è chiusa), nessun Archivio (lo slot è ritirato). `None` =
+        nessuna morte registrata o degrado (resta la riga deterministica)."""
+        fatti = self._fatti_epitaffio
+        if fatti is None:
+            return None
+        prompt = "\n".join([
+            f"[fine] Il crawler {self.etichetta or 'senza nome'} è morto: "
+            f"{fatti.nemico or 'il dungeon'} ha chiuso lo scontro in "
+            f"{fatti.turni} scambi.",
+            "[istruzione] Un EPITAFFIO da showrunner: 2-4 frasi, ironia nera e un "
+            "filo di rispetto — il pubblico saluta. Nessun numero.",
+        ])
+        flavor = await self._engine().genera(
+            "scontro.epitaffio", prompt, sistema=PREFISSO_RIFINITURA
+        )
+        return flavor.testo if flavor is not None else None
+
     def avanza(self) -> SnapshotVista:
         """Il **turno del motore** per l'host (IC §7.1) — drenaggio UNIFICATO:
 
@@ -1051,6 +1106,13 @@ class SessioneGioco:
             self._istanza = None
             if self._fatti_scontro is not None and self._fatti_scontro.vittoria:
                 self._deposita_bottino()
+            if (self._fatti_scontro is not None
+                    and not self._fatti_scontro.vittoria
+                    and not self._fatti_scontro.fuga
+                    and not protagonista()[2].vivo):
+                # Permadeath: i fatti restano leggibili per l'epitaffio anche a
+                # run chiusa (la porta non tocca più il World).
+                self._fatti_epitaffio = self._fatti_scontro
         self._sincronizza_scena()
         return self._snapshot_corrente()
 
