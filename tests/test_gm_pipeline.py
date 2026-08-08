@@ -26,6 +26,7 @@ from motore import (
     Fase,
     MemoriaTurni,
     PREFISSO_GM,
+    PREFISSO_RIFINITURA,
     PROSA_NEUTRA,
     SistemaTempoPiano,
     TIPO_RECORD_GM,
@@ -91,10 +92,20 @@ def test_conteggio_e_ordine_chiamate(mondo_isolato) -> None:
     assert schemi == [TurnoNarrazione, Flavor, Flavor]
     assert schemi.count(TurnoNarrazione) == 1  # UNA sola chiamata gating (G-22)
     # Struttura I/O per il caching (F §7/H §13): il prefisso statico viaggia nel
-    # canale `sistema` (byte-identico su OGNI chiamata), MAI duplicato nel corpo.
-    assert prov.sistemi == [PREFISSO_GM] * 3
+    # canale `sistema` (byte-identico per stadio), MAI duplicato nel corpo; le
+    # rifiniture (limatura/distillazione) prendono il prefisso CORTO.
+    assert prov.sistemi == [PREFISSO_GM, PREFISSO_RIFINITURA, PREFISSO_RIFINITURA]
     assert all(PREFISSO_GM not in p for p, _s in prov.chiamate)
     assert esito.messaggio.prosa == "limata" and not esito.da_cache
+
+
+def test_prefisso_rifinitura_snello() -> None:
+    """Il prefisso delle rifiniture non trasporta il contratto di gioco né il
+    design della run: riscrivere una bozza non li richiede (dieta token)."""
+    assert len(PREFISSO_RIFINITURA) < len(PREFISSO_GM)
+    for zavorra in ("[stagione", "[piano", "cast", "beneficio", "mappa"):
+        assert zavorra not in PREFISSO_RIFINITURA
+    assert "numeri" in PREFISSO_RIFINITURA  # la linea rossa F-3 resta anche qui
 
 
 def test_reveal_non_chiama_ideazione(mondo_isolato) -> None:
@@ -113,6 +124,9 @@ def test_azione_chiama_ideazione_e_lidea_alimenta_la_gating(mondo_isolato) -> No
     schemi = [s for _p, s in prov.chiamate]
     assert schemi == [Ideazione, TurnoNarrazione, Flavor, Flavor]
     assert "[ideazione]" in prov.chiamate[1][0]  # l'idea alimenta il prompt gating
+    # Prefisso pieno sugli stadi che decidono, corto sulle rifiniture.
+    assert prov.sistemi == [PREFISSO_GM, PREFISSO_GM,
+                            PREFISSO_RIFINITURA, PREFISSO_RIFINITURA]
     assert esito.messaggio.prosa == "limata" and not esito.da_cache
 
 

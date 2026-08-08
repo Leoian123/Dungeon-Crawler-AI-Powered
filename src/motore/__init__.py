@@ -315,6 +315,7 @@ from .narrazione import (
 )
 from .gm import (
     PREFISSO_GM,
+    PREFISSO_RIFINITURA,
     TIPO_RECORD_GM,
     EsitoTurnoGM,
     Fascicolo,
@@ -653,6 +654,7 @@ __all__ = [
     "ingaggia_combattimento",
     # pipeline GM (G §9.2: fan-out sotto il socket, una sola gating per turno)
     "PREFISSO_GM",
+    "PREFISSO_RIFINITURA",
     "TIPO_RECORD_GM",
     "EsitoTurnoGM",
     "Fascicolo",

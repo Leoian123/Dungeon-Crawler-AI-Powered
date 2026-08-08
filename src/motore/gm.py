@@ -122,6 +122,17 @@ PREFISSO_GM = "\n".join([
     "[contratto] Rispondi SOLO nella forma strutturata richiesta in coda.",
 ])
 
+# Prefisso CORTO per gli stadi di rifinitura (limatura/distillazione): riscrivere
+# 80 parole non richiede lore, cast né le regole del contratto di gioco — il
+# prefisso pieno era ripagato intero da ogni chiamata Haiku (dieta token 2026-08).
+# Statico e byte-identico per costruzione (è una costante, non una cascata).
+PREFISSO_RIFINITURA = "\n".join([
+    "[gm] Sei la voce del dungeon: ironica, dark-comica (stile Dungeon Crawler Carl).",
+    "[contratto] Non emettere MAI numeri di gioco: niente HP, danni, soglie, minuti, percentuali.",
+    "[contratto] Non aggiungere fatti nuovi: lavora SOLO sul testo fornito.",
+    "[contratto] Rispondi SOLO nella forma strutturata richiesta in coda.",
+])
+
 
 def prefisso_gm(
     stagione: StagioneAttiva | None, piano: PianoAttivo | None
@@ -786,10 +797,13 @@ async def esegui_turno_gm(
     _nota(avanzamento, "Rifinitura e memoria…", 0.8)
     etichetta = ETICHETTA_TEMPO[durata]
     prosa = risultato.turno.prosa
+    # Le rifiniture viaggiano col prefisso CORTO: niente lore/cast per riscrivere
+    # una bozza (il prefisso pieno resta su gating/ideazione/prova, dov'è cache).
     limata, riga_memoria = await asyncio.gather(
         genera_prosa(provider, _prompt_limatura(prosa, fascicolo, etichetta, prova_vista),
-                     sistema=sistema),
-        genera_prosa(provider, _prompt_distilla(prosa, fascicolo), sistema=sistema),
+                     sistema=PREFISSO_RIFINITURA),
+        genera_prosa(provider, _prompt_distilla(prosa, fascicolo),
+                     sistema=PREFISSO_RIFINITURA),
     )
     if limata:
         prosa = limata
