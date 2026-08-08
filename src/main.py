@@ -1021,6 +1021,15 @@ class SessioneGioco:
         self._sincronizza_scena()
         return self._snapshot_corrente()
 
+    def fonti_indossate(self) -> tuple[str, ...]:
+        """Le fonti INDOSSO (dal manifest), per l'host dell'inventario: `EquipVista`
+        mostra la geometria per slot ma non porta la fonte, e il toggle
+        indossa/togli ha bisogno dell'id di dominio durevole."""
+        self._guardia_aperta()
+        pent, _marker, _scheda = protagonista()
+        comp = equip_attivo(pent)
+        return comp.fonti() if comp is not None else ()
+
     def _deposita_bottino(self) -> None:
         """Drop seeded a scontro VINTO: il CANALE del loot (la tabella è contenuto,
         oggi un solo oggetto dimostrativo — la riempie l'authoring, non il motore).
@@ -1277,7 +1286,12 @@ class SessioneGioco:
         # Clamp a zero: «HP -4/30» sull'ultima schermata di una run persa
         # comunica un motore rotto, non un overkill (giro 2026-08-07).
         hp = f"HP {max(0, scheda.punti_vita)}/{max_hp(pent)}"  # massimo DERIVATO (§5)
-        extra: list[str] = []
+        # Il mana è una risorsa che ora si spende E si recupera: sta nel pannello
+        # come gli HP. Lo zaino compare solo quando contiene qualcosa.
+        extra: list[str] = [f"mana {assicura_mana(pent).attuale}/{max_mana(pent)}"]
+        n_zaino = len(fonti_zaino(pent))
+        if n_zaino:
+            extra.append(f"zaino: {n_zaino}")
         if in_combattimento() and self.guscio.terminale is None:
             # Il giocatore VEDE chi affronta e quanto gli resta (feel G §5.6);
             # a run CONCLUSA il nemico non si elenca più — lo scontro non esiste.
@@ -1732,6 +1746,14 @@ def elenca_crawler(directory: Path | None = None) -> list[CrawlerVista]:
         )
         for v in indice_crawler(directory)
     ]
+
+
+def etichetta_oggetto(fonte: str) -> str:
+    """Il nome diegetico di un oggetto del catalogo ("" o ignoto → la fonte):
+    l'host mostra parole, mai id di dominio nudi."""
+    oggetto = CATALOGO_OGGETTI.get(fonte)
+    nome = getattr(oggetto, "nome", "") if oggetto is not None else ""
+    return nome or fonte
 
 
 def _rendi(snapshot: SnapshotVista, stampa: Callable[[str], None]) -> None:

@@ -91,6 +91,62 @@ def test_il_turno_degradato_avvisa_nel_log() -> None:
     asyncio.run(run())
 
 
+def test_zaino_e_scheda_dalla_ui() -> None:
+    """La demo del giro nuovo dentro la TUI: vinci → bottino nello zaino → Z apre
+    l'inventario → Indossa/Togli via porte → C mostra la scheda. Tutto senza che
+    l'host tocchi il motore: solo porte e DTO."""
+    pytest.importorskip("textual")
+    from textual.widgets import Button
+
+    from motore import calibrazione as cal
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")             # la scheda non esplode a inizio run
+            await pilot.pause()
+
+            await pilot.click("#opz-0")        # Combatti
+            await pilot.pause()
+            for _ in range(40):                # vinci lo scontro
+                if app.fase_corrente != "combattimento" or app._morto:
+                    break
+                await pilot.click("#opz-0")
+                await pilot.pause()
+            assert not app._morto and app.fase_corrente == "narrazione"
+            assert "dadi-truccati" in app.sessione.scheda().zaino, (
+                "la vittoria non ha depositato il bottino nello zaino"
+            )
+
+            await pilot.press("z")             # inventario nel menu
+            await pilot.pause()
+            ids = {b.id for b in app.query(Button)}
+            assert "zaino-dadi-truccati" in ids and "zaino-chiudi" in ids
+
+            await pilot.click("#zaino-dadi-truccati")     # Indossa
+            await pilot.pause()
+            assert "dadi-truccati" in app.sessione.fonti_indossate()
+
+            await pilot.click("#zaino-dadi-truccati")     # Togli (toggle)
+            await pilot.pause()
+            assert "dadi-truccati" not in app.sessione.fonti_indossate()
+
+            await pilot.click("#zaino-chiudi")            # torna alla scena
+            await pilot.pause()
+            assert app.fase_corrente == "narrazione"
+            assert not any(
+                (b.id or "").startswith("zaino-") for b in app.query(Button)
+            ), "chiusa la borsa, il menu deve tornare alla scena"
+
+    vecchio = cal.PROB_DROP
+    cal.PROB_DROP = 1.0                        # drop garantito: si dimostra il canale
+    try:
+        asyncio.run(run())
+    finally:
+        cal.PROB_DROP = vecchio
+
+
 def test_permadeath_chiude_il_menu() -> None:
     pytest.importorskip("textual")
     from textual.widgets import Button

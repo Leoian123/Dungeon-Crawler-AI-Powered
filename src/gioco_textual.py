@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 
 from contracts import MortePersonaggio, PlayerChoseOption
-from main import CronacaBus, _riga_terminale, costruisci_sessione
+from main import CronacaBus, _riga_terminale, costruisci_sessione, etichetta_oggetto
 
 
 def _costruisci_app(sessione):
@@ -46,6 +46,8 @@ def _costruisci_app(sessione):
         """
         BINDINGS = [
             Binding("a", "azione", "Azione libera"),
+            Binding("z", "zaino", "Zaino"),
+            Binding("c", "scheda", "Scheda"),
             Binding("s", "salva", "Salva"),
             Binding("q", "quit", "Esci"),
         ]
@@ -62,6 +64,7 @@ def _costruisci_app(sessione):
             self._msg_visto = None     # ultimo MessaggioGM già considerato (dedup avvisi)
             self._avvisi_fallback = 0  # quanti turni degradati sono stati segnalati
             self._terminale_annunciato = False  # la riga di chiusura si scrive UNA volta
+            self._menu_zaino = False   # il menu mostra l'inventario invece della scena
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -111,6 +114,11 @@ def _costruisci_app(sessione):
             bid = event.button.id or ""
             if bid == "esci":
                 self.exit()
+            elif bid == "zaino-chiudi":
+                self._menu_zaino = False
+                await self._mostra(self.sessione.avanza(), self.cronaca.preleva())
+            elif bid.startswith("zaino-"):
+                await self._toggle_equip(bid[len("zaino-"):])
             elif bid.startswith("opz-"):
                 await self._agisci(int(bid.split("-", 1)[1]))
 
@@ -123,6 +131,75 @@ def _costruisci_app(sessione):
                 # menu vuoto ⇒ tornati in attesa: si chiede un nuovo turno di narrazione.
                 snap = await self._con_attesa(self.sessione.prossima_narrazione())
             await self._mostra(snap, righe)
+
+        # --- Zaino ed equip: la demo del canale loot→zaino→indosso (porte vere) ---
+
+        async def action_zaino(self) -> None:
+            """Apre l'inventario nel menu (solo in narrazione, da vivi): un bottone
+            per fonte posseduta — Indossa/Togli passano dalle porte della sessione,
+            il phase-gate resta del motore."""
+            if self._morto or self._occupato or self.fase_corrente != "narrazione":
+                return
+            self._menu_zaino = True
+            await self._monta_zaino()
+
+        async def _monta_zaino(self) -> None:
+            menu = self.query_one("#menu", Horizontal)
+            await menu.remove_children()
+            fonti = self.sessione.scheda().zaino
+            indossate = set(self.sessione.fonti_indossate())
+            bottoni = [
+                Button(
+                    ("Togli " if f in indossate else "Indossa ") + etichetta_oggetto(f),
+                    id=f"zaino-{f}",
+                    variant="warning" if f in indossate else "success",
+                )
+                for f in fonti
+            ]
+            bottoni.append(Button("Torna alla scena", id="zaino-chiudi"))
+            await menu.mount(*bottoni)
+            if not fonti:
+                self.query_one("#log", RichLog).write(
+                    "[dim]Zaino vuoto: il bottino arriva dagli scontri vinti.[/]"
+                )
+
+        async def _toggle_equip(self, fonte: str) -> None:
+            rl = self.query_one("#log", RichLog)
+            if fonte in set(self.sessione.fonti_indossate()):
+                snap = self.sessione.togli(fonte)
+                rl.write(f"Togli {etichetta_oggetto(fonte)}: i suoi effetti svaniscono.")
+            else:
+                snap = self.sessione.equipaggia(fonte)
+                rl.write(
+                    f"Indossi {etichetta_oggetto(fonte)}: modificatori e mosse "
+                    f"concesse sono attivi."
+                )
+            stato = "  ·  ".join(snap.stato) if snap.stato else "—"
+            self.query_one("#stato", Static).update(f"[b]\\[{snap.fase}][/b]  {stato}")
+            await self._monta_zaino()          # il menu resta sull'inventario
+
+        # --- Scheda: la proiezione completa del contratto, nel log ---------------
+
+        def action_scheda(self) -> None:
+            if self._occupato:
+                return
+            s = self.sessione.scheda()
+            rl = self.query_one("#log", RichLog)
+            rl.write(f"[b]— SCHEDA di {s.nome} —[/b]  piano {s.livello} · tick {s.tick_piano}")
+            rl.write(f"HP {s.hp}/{s.hp_max} · mana {s.mana}/{s.mana_max}")
+            primarie = "  ".join(f"{k} {v}" for k, v in s.primarie.items())
+            occulte = ", ".join(s.primarie_occulte) or "—"
+            rl.write(f"Primarie: {primarie}  [dim](occulte: {occulte})[/]")
+            rl.write("Derivate: " + "  ".join(f"{k} {v}" for k, v in s.derivate.items()))
+            for sk in s.skills:
+                pronta = "pronta" if sk.pronta else f"in ricarica ({sk.cd_residuo})"
+                costo = f" · {sk.costo_mana} mana" if sk.costo_mana else ""
+                rl.write(f"  • {sk.etichetta} — {pronta}{costo}")
+            indosso = ", ".join(
+                etichetta_oggetto(f) for f in self.sessione.fonti_indossate()
+            ) or "niente"
+            zaino = ", ".join(etichetta_oggetto(f) for f in s.zaino) or "vuoto"
+            rl.write(f"Indosso: {indosso}  ·  Zaino: {zaino}  [dim](Z per gestirlo)[/]")
 
         def action_azione(self) -> None:
             """Apre l'input dell'azione libera (solo in narrazione, da vivi)."""
@@ -190,6 +267,24 @@ def _costruisci_app(sessione):
                         "respinta dal gate): turno neutro di ripiego. Il consumo "
                         "dettagliato appare all'uscita.[/]"
                     )
+                # La PROVA diventa parole: classe, stat, esito e margine — la
+                # texture «di un soffio» che il contratto porta e nessuna
+                # superficie mostrava (giro 2026-08-07).
+                prova = getattr(msg, "prova", None)
+                if prova is not None:
+                    if prova.esito is None:
+                        esito = "inquadrata"
+                    else:
+                        esito = "RIUSCITA" if prova.esito else "FALLITA"
+                    grado = getattr(getattr(prova, "grado", None), "value", "") or ""
+                    coda = f" — margine {prova.margine}" if prova.margine is not None else ""
+                    if grado:
+                        coda += f", {grado.replace('_', ' ')}"
+                    rl.write(
+                        f"[cyan]🎲 Prova di {prova.stat} (classe {prova.classe}): "
+                        f"{esito}{coda}.[/]"
+                    )
+            self._menu_zaino = False           # la scena riprende sempre il menu
             menu = self.query_one("#menu", Horizontal)
             await menu.remove_children()
             if self._morto:
