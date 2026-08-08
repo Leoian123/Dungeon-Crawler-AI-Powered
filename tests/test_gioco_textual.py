@@ -68,6 +68,29 @@ def test_finestra_di_conferma_azione_libera() -> None:
     asyncio.run(run())
 
 
+def test_il_turno_degradato_avvisa_nel_log() -> None:
+    """Regression (audit 2026-08-07): il fallback atomico arrivava al giocatore come
+    prosa qualunque — lo si riconosceva solo a occhio dalla «Sagoma indistinta».
+    Con un provider che non risponde mai, la UI deve DIRE che il turno è di ripiego."""
+    pytest.importorskip("textual")
+    from provider import FakeProvider
+
+    async def run() -> None:
+        # FIFO vuota: ogni chiamata ritorna None → gating fallita → fallback atomico.
+        app = gioco_textual._costruisci_app(
+            costruisci_sessione(seed=1, provider=FakeProvider([]))
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert app.sessione.ultimo_messaggio is not None
+            assert app.sessione.ultimo_messaggio.fallback is True
+            assert app._avvisi_fallback >= 1, (
+                "il turno degradato non ha prodotto l'avviso nel log"
+            )
+
+    asyncio.run(run())
+
+
 def test_permadeath_chiude_il_menu() -> None:
     pytest.importorskip("textual")
     from textual.widgets import Button

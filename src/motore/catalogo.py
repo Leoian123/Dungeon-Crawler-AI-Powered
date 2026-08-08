@@ -26,6 +26,8 @@ from contracts import Blocco, ClasseProva, Durata, Grado
 # i migrati per non rompere i consumatori storici (`from .catalogo import REGISTRY_ARCHETIPI`…).
 from .calibrazione import (  # noqa: F401  (re-export)
     CARICO_TICK,
+    GRADI_PER_PROFONDITA,
+    PROFONDITA_PER_GRADO,
     DURATA_BLOCCO_DEFAULT,
     PRIMARIE_BASE_CARL,
     PROB_ANOMALIA,
@@ -66,6 +68,21 @@ def rango_grado(grado: Grado) -> int:
     """Il `rango:int` (1–6) del `Grado`. Usato come rango di uno status applicato da
     un'entità composta dall'AI (G §4.3) e per la scelta deterministica del fallback."""
     return RANGO_GRADO[grado]
+
+
+# --- `Grado` → `ClasseProva`: la difficoltà che un'entità *impone* --------------
+# I due enum sono lo stesso ordinamento nominato (bronzo…celestiale) visto da due lati:
+# `Grado` = quanto vale un'entità, `ClasseProva` = quanto è difficile un'impresa. Derivata
+# **per indice**, non elencata: se qualcuno aggiunge un membro a uno solo dei due, la
+# `zip` lo lascia fuori e il test di sincronia lo grida (F-6).
+CLASSE_DA_GRADO: dict[Grado, ClasseProva] = dict(zip(Grado, ClasseProva, strict=True))
+
+
+def classe_da_grado(grado: Grado) -> ClasseProva:
+    """La classe di prova che un'entità di questo `Grado` impone (es. sfuggirle).
+
+    Il motore la deriva; l'AI non la sceglie mai — è il gemello di `rango_grado`."""
+    return CLASSE_DA_GRADO[grado]
 
 
 # --- Formula-madre: (archetipo, grado, livello) → primarie (FNC §5.5) ----------
@@ -109,9 +126,27 @@ class Budget:
 ARCHETIPO_DEFAULT = "slime"
 
 
+def gradi_per_profondita(livello: int) -> frozenset[Grado]:
+    """La finestra di gradi ammessi a una profondità (§11).
+
+    Sale scendendo: partendo dal bronzo, la finestra si sposta di un grado ogni
+    `PROFONDITA_PER_GRADO` piani e ne contiene `GRADI_PER_PROFONDITA`. Prima il budget
+    senza-piano offriva `{bronzo, argento}` a **qualunque** profondità: un piano 10 era
+    facile quanto il primo, e il `livello` che la formula-madre riceveva non aveva un
+    corrispettivo nel *contenuto* ammesso.
+
+    Con un piano attivo il budget viene dal design (il vincolo hard dell'autore); questa
+    resta l'autorità per il percorso senza piano — harness, banco, save legacy — e come
+    riferimento di lint per chi scrive un piano nuovo."""
+    scala = list(Grado)
+    primo = min((max(1, livello) - 1) // PROFONDITA_PER_GRADO, len(scala) - 1)
+    ultimo = min(primo + GRADI_PER_PROFONDITA, len(scala))
+    return frozenset(scala[primo:ultimo])
+
+
 def _budget_normale(livello: int) -> Budget:
     """Budget ordinario per profondità (SEGNAPOSTO Gruppo 2)."""
-    gradi = {Grado.BRONZO, Grado.ARGENTO}
+    gradi = gradi_per_profondita(livello)
     blocchi = {Blocco.VELENO, Blocco.RIGENERAZIONE}
     return Budget(
         livello=livello,
@@ -179,6 +214,8 @@ ANCORE_CLASSE: dict[ClasseProva, tuple[str, ...]] = {
     ClasseProva.BRONZO: ("scappare da una blatta mannara",),
     ClasseProva.ARGENTO: ("disinnescare una trappola rumorosa",),
     ClasseProva.ORO: ("convincere una guardia veterana",),
+    ClasseProva.PLATINO: ("rubare a un boss di piano mentre ti guarda",),
+    ClasseProva.LEGGENDARIO: ("zittire una sala che ti vuole morto",),
     ClasseProva.CELESTIALE: ("sedurre un dio",),
 }
 

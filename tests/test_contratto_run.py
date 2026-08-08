@@ -63,26 +63,35 @@ def test_lo_snapshot_di_una_run_viva_dice_che_e_viva(run_pulita, tmp_path) -> No
 
 
 def test_la_run_conclusa_attraversa_la_membrana(run_pulita, tmp_path) -> None:
-    """IL test che conta. Scendere la scala oggi conclude la run: lo snapshot lo
-    DICE, invece di servire un menu su una partita finita.
+    """IL test che conta, e ora conta davvero: lo snapshot distingue **«sceso di un
+    piano»** da **«vinto»**.
 
-    È la porta che il multi-piano userà per distinguere «sceso di un piano»
-    (`terminale is None`, `profondita` cresciuta) da «vinto» (`PIANO_COMPLETATO`)."""
+    Il contratto era stato scritto anticipando questo momento (`terminale`/`profondita`
+    esistevano già); finché la stagione aveva un piano solo, però, la prima discesa era
+    indistinguibile dalla vittoria e il ramo "continua" non era esercitato da nessuno.
+    Con due piani lo è: si scende, la run VIVE, si scende ancora e finisce."""
     from contracts import PlayerDiscende
     from motore import mappa_corrente
+
+    def _scendi(sessione):
+        _ent, mappa = mappa_corrente()
+        mappa.stanza_corrente = next(iter(mappa.piano.discese))  # la discesa vuole la scala
+        sessione.coda.accoda(PlayerDiscende())
+        return sessione.avanza()
 
     sessione = costruisci_sessione(nome="Sceso", seed=1, directory=tmp_path)
     snap = asyncio.run(sessione.prossima_narrazione())
     assert snap.run_conclusa is False
 
-    _ent, mappa = mappa_corrente()
-    mappa.stanza_corrente = next(iter(mappa.piano.discese))  # la discesa vuole la scala
-    sessione.coda.accoda(PlayerDiscende())
-    snap = sessione.avanza()
+    snap = _scendi(sessione)                      # piano 1 → 2: si continua
+    assert snap.terminale is None, "scendere dal PRIMO piano non è vincere"
+    assert snap.run_conclusa is False
+    assert snap.profondita == 2
 
+    snap = _scendi(sessione)                      # piano 2 → fuori: vittoria
     assert snap.terminale is Terminale.PIANO_COMPLETATO
     assert snap.run_conclusa is True, "l'host deve poterlo sapere DAL CONTRATTO"
-    assert snap.profondita == 2
+    assert snap.profondita == 3
 
 
 def test_ogni_porta_risponde_con_lo_STESSO_stato_di_run(run_pulita, tmp_path) -> None:
@@ -107,7 +116,10 @@ def test_ogni_porta_risponde_con_lo_STESSO_stato_di_run(run_pulita, tmp_path) ->
     for snap in (dopo_avanza, dopo_narrazione):
         assert snap.terminale is sessione.terminale
         assert snap.profondita == livello_corrente()
-    assert dopo_narrazione.run_conclusa is True
+    # Qui la run è VIVA (sceso al piano 2 di 2): ciò che il test difende è la
+    # COERENZA fra le porte, non un esito particolare — le due devono raccontare la
+    # stessa run, conclusa o no.
+    assert dopo_narrazione.run_conclusa is dopo_avanza.run_conclusa
 
 
 def test_l_hand_off_restituisce_il_terminale_e_torna_al_menu(run_pulita, tmp_path) -> None:
@@ -159,6 +171,123 @@ def test_ogni_evento_di_dominio_ha_una_riga_di_cronaca() -> None:
     raccontati = {tipo for tipo, _formatta in _MAPPA_EVENTI}
     muti = {t.__name__ for t in dichiarati - raccontati}
     assert not muti, f"eventi senza riga di cronaca (nascerebbero muti): {sorted(muti)}"
+
+
+def test_la_cronaca_della_fuga_negata_non_racconta_uno_stordimento() -> None:
+    """Regression (audit 2026-08-07): il produttore emette `causa="fuga_negata"`,
+    ma il consumer gestiva solo "fuga_fallita" (mai emessa da nessuno) e ripiegava
+    sul ramo stordito: chi si vedeva negare la fuga leggeva «Sei stordito»."""
+    from contracts import TurnoSaltato
+    from main import _riga_turno_saltato
+
+    negata = _riga_turno_saltato(TurnoSaltato(nome="", causa="fuga_negata"))
+    assert "fuga" in negata.lower() and "stordito" not in negata.lower()
+    stordito = _riga_turno_saltato(TurnoSaltato(nome="", causa="stordito"))
+    assert "stordito" in stordito.lower()
+
+
+def test_ogni_terminale_ha_una_riga_di_chiusura() -> None:
+    """Regression (giro 2026-08-07): la VITTORIA della run era completamente muta
+    — `PIANO_COMPLETATO` arrivava nello snapshot e nessuna superficie lo
+    verbalizzava; l'ultima riga letta vincendo era una discesa verso un piano
+    inesistente."""
+    from contracts import Terminale
+    from main import _riga_terminale
+
+    righe = {t: _riga_terminale(t) for t in Terminale}
+    assert all(righe.values()), "un terminale senza testo chiude la run in silenzio"
+    assert len(set(righe.values())) == len(righe), "due terminali con la stessa riga"
+    assert "VINTO" in righe[Terminale.PIANO_COMPLETATO]
+
+
+def test_la_morte_non_recita_il_literal_dellenum() -> None:
+    from main import _riga_morte
+
+    riga = _riga_morte(type("E", (), {"causa": "sconfitta"})())
+    assert "sconfitta" not in riga and "morto" in riga.lower()
+
+
+def test_la_discesa_oltre_lultimo_piano_e_vittoria_non_un_piano_nuovo(
+    run_pulita, tmp_path
+) -> None:
+    from contracts import DiscesaPiano
+    from main import _riga_discesa, costruisci_sessione
+
+    costruisci_sessione(nome="Fine", seed=1, directory=tmp_path)  # stagione-1: 2 piani
+    dentro = _riga_discesa(DiscesaPiano(piano=2))
+    fuori = _riga_discesa(DiscesaPiano(piano=3))
+    assert "piano 2" in dentro
+    assert "piano 3" not in fuori and "COMPLETA" in fuori
+
+
+def test_i_descrittori_non_mostrano_hp_negativi(run_pulita, tmp_path) -> None:
+    """L'ultima schermata di una run persa mostrava «HP -4/30» col nemico ancora
+    in lista: numeri sporchi nel momento più carico del giro."""
+    import asyncio as _asyncio
+
+    from main import costruisci_sessione
+    from motore import protagonista
+
+    sessione = costruisci_sessione(nome="Fine", seed=1, directory=tmp_path)
+    _asyncio.run(sessione.prossima_narrazione())
+    _p, _m, scheda = protagonista()
+    scheda.punti_vita = -4
+    stato = sessione._descrittori()
+    assert any(s.startswith("HP 0/") for s in stato), stato
+
+
+def test_le_righe_di_colpo_flettono_e_nominano_la_mossa() -> None:
+    """«1 danni» era un plurale rotto, e la mossa usata non compariva mai."""
+    from main import _riga_colpo
+
+    def _e(**kw):
+        base = dict(attaccante="", bersaglio="Slime", danno=1,
+                    hp_rimasti=4, hp_max=5, mossa="attacco")
+        base.update(kw)
+        return type("E", (), base)()
+
+    uno = _riga_colpo(_e(danno=1))
+    assert "1 danno " in uno and "1 danni" not in uno
+    dardo = _riga_colpo(_e(danno=3, mossa="dardo_arcano"))
+    assert "3 danni" in dardo and "con Dardo arcano" in dardo
+
+
+def test_il_veleno_ti_morde_col_clitico_al_posto_giusto() -> None:
+    from main import _riga_effetto_status
+
+    e = type("E", (), {"bersaglio": "", "delta_hp": -1, "status": "veleno"})()
+    assert _riga_effetto_status(e) == "Il veleno ti morde: -1 HP."
+
+
+def test_il_disimpegno_di_scena_ha_una_riga(run_pulita, tmp_path) -> None:
+    """Regression (giro 2026-08-07): il disimpegno riuscito dissolveva il mob in
+    silenzio totale — nessun evento, nessuna riga."""
+    import asyncio as _asyncio
+
+    from contracts import PlayerChoseOption
+    from main import CronacaBus, costruisci_sessione
+
+    from motore import tempo_piano_corrente
+
+    sessione = costruisci_sessione(nome="Scappa", seed=1, directory=tmp_path)
+    cronaca = CronacaBus(sessione.bus)
+    try:
+        snap = _asyncio.run(sessione.prossima_narrazione())
+        etichette = {o.etichetta: o.indice for o in snap.opzioni}
+        assert "Scappi" in etichette, f"scena inattesa: {etichette}"
+        cronaca.preleva()
+        t0 = tempo_piano_corrente()
+        sessione.coda.accoda(PlayerChoseOption(etichette["Scappi"]))
+        sessione.avanza()
+        righe = cronaca.preleva()
+        assert any("disimpegni" in r for r in righe), (
+            f"nessuna riga per il disimpegno riuscito: {righe}"
+        )
+        # …e il disimpegno PAGA la sua durata (il docstring lo dichiarava, il
+        # codice no: scappare era gratis anche in tick — giro 2026-08-07).
+        assert tempo_piano_corrente() > t0, "il disimpegno non ha speso tempo"
+    finally:
+        cronaca.chiudi()
 
 
 def test_la_cronaca_del_riposo_distingue_l_interruzione() -> None:

@@ -62,15 +62,41 @@ class SchedaProiezione(BaseModel):
 
 class SlotEquip(str, Enum):
     """Gli slot di equipaggiamento: vocabolario CHIUSO (come ogni cosa con
-    conseguenza meccanica, F-4).
+    conseguenza meccanica, F-4). **Un solo enum di slot in tutto il progetto.**
 
-    Corrispondono uno-a-uno alle leve di geometria che il motore già usa per le
-    derivate (`Corredo`: armatura → mobilità, arma → accuratezza). Il vocabolario
-    è fissato ORA perché è ciò che rende additivo il resto: quando esisteranno gli
-    oggetti, entreranno in slot già dichiarati."""
+    Aveva due membri (`arma`, `armatura`) perché descriveva le due *leve di geometria*
+    che muovono le derivate, non i posti reali dove si indossa qualcosa. Con gli oggetti
+    veri servono i nove slot fisici dell'armatura (ADR-1 D5), e la tentazione era
+    aggiungere un secondo enum `SlotArmatura` accanto a questo: **due vocabolari di slot
+    divergono al primo ritocco** (uno cresce, l'altro no, e la proiezione mostra una
+    scheda che non è più il componente). Quindi il vocabolario è uno e i nove slot
+    stanno qui dentro; la "famiglia armatura" è il sottoinsieme `SLOT_ARMATURA`.
+
+    `MANO_DX`/`MANO_SX` sono il **layer-armatura** (i guanti), distinto dal **layer
+    impugnato** (`ARMA`): guanto e arma convivono sulla stessa mano, non competono.
+    Il layer impugnato resta a un mount solo finché la review-armi (ADR-1 D7) non decide
+    su off-hand, scudi e due-mani."""
 
     ARMA = "arma"
-    ARMATURA = "armatura"
+    TESTA = "testa"
+    BUSTO = "busto"
+    BRACCIO_DX = "braccio_dx"
+    BRACCIO_SX = "braccio_sx"
+    MANO_DX = "mano_dx"
+    MANO_SX = "mano_sx"
+    GAMBE = "gambe"
+    PIEDE_DX = "piede_dx"
+    PIEDE_SX = "piede_sx"
+
+
+# La **famiglia armatura**: i soli slot che entrano nella media pesata di `m_armatura`
+# (ADR-1 D5, denominatore fisso). Derivata per esclusione — aggiungere uno slot-armatura
+# a `SlotEquip` lo fa entrare qui da solo, mentre un mount impugnato nuovo (off-hand,
+# scudo) va escluso ESPLICITAMENTE, che è la parte a cui bisogna pensare.
+SLOT_IMPUGNATI: tuple[SlotEquip, ...] = (SlotEquip.ARMA,)
+SLOT_ARMATURA: tuple[SlotEquip, ...] = tuple(
+    s for s in SlotEquip if s not in SLOT_IMPUGNATI
+)
 
 
 class EquipVista(BaseModel):
@@ -160,4 +186,8 @@ class SchedaVista(BaseModel):
     mana_max: int = 0
     skills: tuple[SkillVista, ...] = ()
     equip: tuple[EquipVista, ...] = ()
+    # Le FONTI possedute (id di dominio, l'etichetta la risolve l'host dal
+    # catalogo): il deposito del canale loot→equip. Default vuoto: un host che
+    # non lo legge continua a funzionare.
+    zaino: tuple[str, ...] = ()
     progressione: ProgressioneVista = ProgressioneVista()

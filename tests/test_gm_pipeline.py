@@ -136,6 +136,37 @@ def test_firma_stabile_e_distinta() -> None:
     assert firma_turno(7, 1, 3, "reveal") == firma_turno(7, 1, 3, "reveal")
     assert firma_turno(7, 1, 3, "reveal") != firma_turno(7, 1, 4, "reveal")
     assert firma_turno(7, 1, 3, "azione", 5) != firma_turno(7, 1, 3, "azione", 6)
+    # Stesso tick, azioni diverse: chiavi diverse (il tick può non avanzare —
+    # status unsafe, ingresso in combattimento — e il testo deve discriminare).
+    assert (firma_turno(7, 1, 3, "azione", 5, azione="attacco")
+            != firma_turno(7, 1, 3, "azione", 5, azione="frugo tra i resti"))
+    # Idempotenza della singola unità di turno: stessa azione ⇒ stessa chiave.
+    assert (firma_turno(7, 1, 3, "azione", 5, azione="attacco")
+            == firma_turno(7, 1, 3, "azione", 5, azione="attacco"))
+
+
+def test_azioni_diverse_a_tick_fermo_non_collidono(mondo_isolato) -> None:
+    """Il bug del record congelato: con ingresso in combattimento il turno spende
+    0 tick; l'azione successiva nella stessa stanza NON deve rileggere la prosa
+    dell'azione precedente dalla cache."""
+    _arma_run()
+    prov = FakeProvider([
+        _idea(), _turno(), dict(testo="prosa dell'attacco"), dict(testo="r1"),
+        _idea(), _turno(), dict(testo="prosa del frugare"), dict(testo="r2"),
+    ])
+    esito1, arch, mem = _pipeline(
+        prov, azione="attacco il mob", ingresso_combattimento=True)
+    esito2, _a, _m = _pipeline(
+        prov, arch=arch, mem=mem, azione="frugo tra i resti",
+        ingresso_combattimento=True)
+    assert esito1.da_cache is False and esito2.da_cache is False
+    assert esito2.messaggio.prosa != esito1.messaggio.prosa
+    # La STESSA azione allo stesso tick invece rilegge (idempotenza, H §8.2).
+    n = len(prov.chiamate)
+    esito3, _a, _m = _pipeline(
+        prov, arch=arch, mem=mem, azione="attacco il mob",
+        ingresso_combattimento=True)
+    assert esito3.da_cache is True and len(prov.chiamate) == n
 
 
 def test_cache_rilegge_senza_chiamate(mondo_isolato) -> None:
@@ -295,6 +326,75 @@ def test_salva_scrive_i_record_gm(run_pulita, tmp_path) -> None:
     from motore.persistenza.disco import leggi_archivio, path_archivio
     dati = leggi_archivio(path_archivio(tmp_path, sessione.uuid))
     assert any(r["tipo"] == TIPO_RECORD_GM for r in dati["record"])  # fix del bug sidecar
+
+
+# --- Post-scontro e rivisita: la cache non inghiotte, il testo non mente ---------
+
+def test_il_turno_post_scontro_non_e_inghiottito_dalla_cache(mondo_isolato) -> None:
+    """Regression (giro 2026-08-07): a scontro chiuso l'host chiede un turno senza
+    azione; la fase cadeva su 'reveal' e il cache-hit restituiva il record congelato
+    — i FATTI dello scontro restavano da narrare per sempre, e il giocatore
+    rileggeva il mob appena ucciso descritto vivo."""
+    from contracts import FattiScontro
+
+    _arma_run()
+    prov = FakeProvider([_idea(), _turno(), dict(testo="reveal"), dict(testo="r1")])
+    esito1, arch, mem = _pipeline(prov)               # il reveal congela il record
+    assert esito1.da_cache is False
+
+    prov.accoda(None); prov.accoda(_turno())          # ideazione + gating del post-scontro
+    prov.accoda(dict(testo="il dopo-scontro")); prov.accoda(dict(testo="r2"))
+    fatti = FattiScontro(vittoria=True, turni=3, hp_persi=4, nemico="Slime Mangiascarti")
+    esito2, _a, _m = _pipeline(prov, arch=arch, mem=mem, esito_scontro=fatti)
+    assert esito2.da_cache is False, "il turno post-scontro è stato inghiottito dalla cache"
+    assert any("[fascicolo/esito-scontro]" in p for p, _s in prov.chiamate), (
+        "i fatti dello scontro non hanno raggiunto il prompt del turno che li narra"
+    )
+
+
+def test_la_rivisita_di_una_stanza_ripulita_lo_dice(mondo_isolato) -> None:
+    """Regression (giro 2026-08-07): la rilettura del reveal congelato descriveva
+    il mob morto/dissolto come vivo e in agguato. Ora il motore appende una coda
+    deterministica quando il mob del record non è più in scena."""
+    from motore import dissolvi_mob
+
+    _arma_run()
+    prov = FakeProvider([_idea(), _turno(), dict(testo="reveal col mob"), dict(testo="r")])
+    esito1, arch, mem = _pipeline(prov)
+    nome = _turno()["entita"]["nome"]
+
+    mob = mob_corrente()
+    assert mob is not None
+    dissolvi_mob()                                     # la stanza è stata ripulita
+    n = len(prov.chiamate)
+    esito2, _a, _m = _pipeline(prov, arch=arch, mem=mem)
+    assert esito2.da_cache is True and len(prov.chiamate) == n  # sempre zero chiamate
+    assert nome in esito2.messaggio.prosa
+    assert "non c'è più" in esito2.messaggio.prosa, (
+        "la stanza ripulita rilegge il mob come vivo: il testo contraddice il mondo"
+    )
+    # Con il mob ANCORA in scena, invece, il record si rilegge intatto.
+    esito_prima = esito1.messaggio.prosa
+    assert esito_prima not in ("",) and "non c'è più" not in esito_prima
+
+
+def test_la_memoria_non_registra_entita_mai_materializzate(mondo_isolato) -> None:
+    """Regression (giro 2026-08-07): il riassunto deterministico scriveva
+    «Stanza N: {entita.nome}» anche sui turni-azione, dove quell'entità non entra
+    mai nel mondo — un fatto falso propagato alla finestra di memoria, congelato
+    in Archivio e ricostruito al load."""
+    _arma_run()
+    prov = FakeProvider([_idea(), _turno(), dict(testo="reveal"), None])  # distilla degradata
+    _e1, arch, mem = _pipeline(prov)
+    nome = _turno()["entita"]["nome"]
+    assert nome in mem.finestra()[-1], "il reveal materializza: il nome VA in memoria"
+
+    prov.accoda(None); prov.accoda(_turno()); prov.accoda(None); prov.accoda(None)
+    _e2, _a, _m = _pipeline(prov, arch=arch, mem=mem, azione="frugo tra i detriti")
+    assert nome not in mem.finestra()[-1], (
+        "il turno-azione ha messo in memoria un'entità mai materializzata"
+    )
+    assert "frugo tra i detriti" in mem.finestra()[-1]
 
 
 # --- Handoff dello scontro: i FATTI entrano nel fascicolo ------------------------

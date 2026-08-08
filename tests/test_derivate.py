@@ -99,7 +99,8 @@ def test_def_eff_pct_armatura_non_gonfia_i_muscoli(mondo_isolato: str) -> None:
 def test_eva_eff_destrezza_per_coeff(mondo_isolato: str) -> None:
     # eva_eff = Des_eff × coeff_eva (geometria default MVP: veste×media). Magnitudine da Des.
     ent = esper.create_entity(Primarie(valori={StatId.DESTREZZA: 40}))
-    coeff = cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
+    # `K_EVA` è la scala globale: senza di lei il check 1 non si accenderebbe mai (§11).
+    coeff = cal.K_EVA * cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
     assert eva_eff(ent) == 40 * coeff
     # Un enchant +evasione entra in pct_evasione (solo schivata), non in Des: alza solo eva.
     assert eva_eff(ent, pct_evasione=1.0) == 40 * coeff * 2

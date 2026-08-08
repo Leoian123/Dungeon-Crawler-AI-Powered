@@ -130,3 +130,57 @@ def test_brucia_ammesso_negli_asset() -> None:
         grado=Grado.BRONZO, blocchi=[Blocco.BRUCIA], prosa_stanza="Sfrigola.",
     )
     assert lint_registry([mob.archetipo], mob.blocchi) == []
+
+
+# --- F11: un solo canale per i system di status --------------------------------
+
+def test_nessuna_sottoclasse_nominata_di_SistemaStatus() -> None:
+    """Gli alias storici (`SistemaVeleno`, `SistemaBrucia`, …) sono stati **ritirati**.
+
+    Non erano innocui: convivevano con `sistemi_status()`, e chi ne registrava uno
+    *insieme* alla derivazione faceva ticcare **due volte** lo stesso status —
+    dimezzandone la durata in silenzio. Nessun test lo avrebbe visto, perché entrambe le
+    strade funzionano da sole: il bug appare solo quando coesistono.
+
+    Un canale solo, quindi. Serve il system di un tipo? `SistemaStatus(bus, tipo=Veleno)`.
+    """
+    import ast
+    from pathlib import Path
+
+    sorgente = Path(__file__).resolve().parents[1] / "src" / "motore" / "status.py"
+    sottoclassi = {
+        n.name
+        for n in ast.walk(ast.parse(sorgente.read_text(encoding="utf-8")))
+        if isinstance(n, ast.ClassDef)
+        and any(isinstance(b, ast.Name) and b.id == "SistemaStatus" for b in n.bases)
+    }
+    assert not sottoclassi, (
+        f"sottoclassi nominate di SistemaStatus: {sottoclassi}. Cablarle INSIEME a "
+        "`sistemi_status()` fa ticcare due volte lo stesso status."
+    )
+
+
+def test_i_system_derivati_sono_uno_per_tipo() -> None:
+    from motore import sistemi_status
+
+    tipi = [s.tipo_status for s in sistemi_status()]
+    assert len(set(tipi)) == len(tipi), f"due system per lo stesso status: {tipi}"
+
+
+def test_le_magnitudini_degli_status_vivono_in_calibrazione() -> None:
+    """`SpecStatus` dice *come si comporta* uno status; *quanto* fa male lo dice §11.
+
+    `delta_per_rango` era un campo della dataclass: l'ultimo numero di bilanciamento
+    fuori dal catalogo — invisibile alla console di calibrazione e non tarabile senza
+    toccare il codice."""
+    import dataclasses
+
+    from contracts import Blocco
+    from motore import SpecStatus
+    from motore.calibrazione import DELTA_PER_RANGO
+
+    campi = {f.name for f in dataclasses.fields(SpecStatus)}
+    assert "delta_per_rango" not in campi and "durata_afflizione" not in campi
+    assert set(DELTA_PER_RANGO) == {b.value for b in Blocco}, (
+        "le foglie del delta sono generate dall'enum: un blocco nuovo ha la sua voce §11"
+    )

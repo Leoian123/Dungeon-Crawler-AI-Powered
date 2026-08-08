@@ -47,12 +47,49 @@ def _indice(snap, etichetta: str) -> int:
     )
 
 
+def _equipaggia_di_riferimento(grado: Grado) -> None:
+    """Veste il protagonista con l'equip **atteso** a quel grado (`CORREDO_RIFERIMENTO`).
+
+    Senza questo, il TTK sui gradi alti misurerebbe una cosa che il gioco non chiede
+    mai: un celestiale affrontato nudi non è uno scontro sbilanciato, è uno scontro che
+    il giocatore non dovrebbe aver modo di iniziare. **È l'equipaggiamento a fare da
+    progressione** — non ci sono livelli né punti-esperienza — quindi la banda del TTK
+    ha senso solo a parità di corredo atteso."""
+    from contracts import CategoriaArmatura, SLOT_ARMATURA, StatId, Taglia
+    from motore import (
+        CORREDO_RIFERIMENTO, Arma, Modificatore, PezzoArmatura, TipoMod,
+        equipaggia, protagonista,
+    )
+
+    rif = CORREDO_RIFERIMENTO[grado.value]
+    pent, _m, _s = protagonista()
+    categoria = CategoriaArmatura(rif["armatura"])
+    for slot in SLOT_ARMATURA:
+        equipaggia(pent, PezzoArmatura(
+            fonte=f"rif-{slot.value}", slot=slot, categoria=categoria,
+        ))
+    bonus = int(rif["bonus_forza"])
+    if bonus:
+        equipaggia(pent, Arma(
+            fonte="rif-arma", taglia=Taglia.MEDIA, nome="Arma di riferimento",
+            modificatori=(Modificatore(stat=StatId.FORZA, tipo=TipoMod.FLAT,
+                                       valore=bonus, fonte="rif-arma"),),
+        ))
+
+
 @pytest.mark.parametrize("archetipo", ["slime", "scheletro", "goblin"])
-@pytest.mark.parametrize("grado", [Grado.BRONZO, Grado.ARGENTO])
+@pytest.mark.parametrize("grado", list(Grado))
 def test_ttk_per_profilo(run_pulita, tmp_path, archetipo: str, grado: Grado) -> None:
+    """La banda 2-8 colpi vale **per (grado, corredo di riferimento)**, non in assoluto.
+
+    Prima girava su bronzo/argento soltanto, e dal platino in su il protagonista moriva
+    per costruzione: HP e danno dei nemici crescevano insieme (un `fattore` unico), e
+    nessun equipaggiamento poteva compensare due curve che salivano appaiate. Da F9 le
+    curve sono separate e il corredo atteso entra nel conto."""
     sessione = costruisci_sessione(
         nome="TTK", seed=1, directory=tmp_path, stagione=_stagione_un_mob(archetipo, grado)
     )
+    _equipaggia_di_riferimento(grado)
     colpi_giocatore = []
     sessione.bus.registra(ColpoInferto, colpi_giocatore.append)
     try:

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from contracts import Blocco, TipoDanno
 
 from .azione import ApplicaStatus, Azione, Danno, Effetto, QuantitaDa
+from .azzardo import DannoVariabile
 from .calibrazione import (
     COOLDOWN_MOSSA,
     COSTO_MANA_MOSSA,
@@ -41,6 +42,12 @@ class Mossa:
     etichetta: str = ""
     costo_mana: int = 0   # §11: la risorsa che limita le mosse forti
     cooldown: int = 0     # §11: turni di ricarica (N=2 blocca un proprio turno; N=1 è nullo)
+    # DICHIARAZIONE d'azzardo: questa mossa vuole un esito incerto (`azzardo.py`). È
+    # l'unico modo di accendere il consenso sull'`Azione`, ed è per questo che sta nel
+    # CATALOGO e non nell'effetto: la scelta di giocare d'azzardo è della mossa, non del
+    # primitivo — un `DannoVariabile` finito per errore in una mossa non dichiarata viene
+    # semplicemente saltato dal risolutore.
+    azzardo: bool = False
 
 
 # Le due mosse storiche dell'MVP. Il danno base è TIPATO (MISCHIA): attiva il layer
@@ -67,6 +74,16 @@ CATALOGO_MOSSE: dict[str, Mossa] = {
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.FUOCO),
             ApplicaStatus(blocco=Blocco.BRUCIA),
         ), etichetta="Sputo infuocato", cooldown=COOLDOWN_MOSSA["sputo_infuocato"]),
+        # --- AZZARDO OPT-IN (F10) — la sola voce del catalogo che PESCA. ---------
+        # ⚠️ Non è "il tiro del danno": il danno del gioco è deterministico (check 2).
+        # Questa è la *magia dall'esito incerto* di Gr2 §5.2, e per esistere deve
+        # dichiararsi con `azzardo=True` — senza, il risolutore la salta senza pescare.
+        # NON sta in `MOSSE_DEFAULT` né nel repertorio iniziale del protagonista: la
+        # porta chi se la procura, ed è un test statico a impedire che ci finisca.
+        Mossa("roulette_del_sistema", (
+            DannoVariabile(minimo=1, massimo=20, tipo=TipoDanno.GENERICO),
+        ), etichetta="Roulette del Sistema", costo_mana=COSTO_MANA_MOSSA["roulette_del_sistema"],
+            azzardo=True),
         # L'INCANTESIMO del protagonista: nessuna ricarica, il limite è la risorsa.
         # Danno FUOCO e non un tipo nuovo — `TipoDanno` è un vocabolario chiuso e
         # il fuoco incrocia le resistenze già calibrate degli archetipi.
@@ -90,6 +107,31 @@ def etichetta_mossa(chiave: str) -> str:
 MOSSE_DEFAULT: tuple[str, ...] = ("attacco", "attacco_pesante")
 
 
+# --- Seam: fonti AGGIUNTIVE di mosse (chi concede si registra, il risolutore
+# legge fonti anonime). Serve all'equip — le mosse degli oggetti sono DERIVATE
+# alla lettura, mai scritte nel Repertorio persistente — senza che il risolutore
+# nomini mai l'equip (il lucchetto di ADR-1 F2 resta intatto).
+_FONTI_MOSSE: list = []
+
+
+def registra_fonte_mosse(fonte) -> None:
+    """Registra un lettore `entita -> tuple[chiavi]` (idempotente)."""
+    if fonte not in _FONTI_MOSSE:
+        _FONTI_MOSSE.append(fonte)
+
+
+def mosse_concesse(entita: int) -> tuple[str, ...]:
+    """Le mosse concesse dalle fonti registrate, in ordine e senza duplicati."""
+    viste: set[str] = set()
+    out: list[str] = []
+    for fonte in _FONTI_MOSSE:
+        for chiave in fonte(entita):
+            if chiave not in viste:
+                viste.add(chiave)
+                out.append(chiave)
+    return tuple(out)
+
+
 def mosse_note() -> frozenset[str]:
     """Le chiavi del catalogo (per lint di authoring e vocabolario degli host)."""
     return frozenset(CATALOGO_MOSSE)
@@ -105,4 +147,5 @@ def azione_da_mossa(chiave: str, *, sorgente: int, bersaglio: int | None) -> Azi
         effetti=list(mossa.effetti),
         costo={"AP": mossa.costo_ap, "MANA": mossa.costo_mana},
         mossa=chiave,
+        consenso_azzardo=mossa.azzardo,   # solo chi lo dichiara può pescare
     )

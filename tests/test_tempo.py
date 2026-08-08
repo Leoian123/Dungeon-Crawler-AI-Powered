@@ -25,14 +25,11 @@ from motore import (
     PianoIncontro,
     Risoluzione,
     SistemaDeathCheck,
+    sistemi_status,
     SistemaDiscesa,
-    SistemaRigenerazione,
     SistemaRinforzi,
-    SistemaStordito,
     SistemaTempoPiano,
     SistemaTurnoCombattimento,
-    SistemaBrucia,
-    SistemaVeleno,
     SpecNemico,
     TempoNonAvanzabile,
     Valenza,
@@ -79,7 +76,9 @@ def _avvia_esplorazione(*, seed: int = 42, hp: int = 30, destrezza: int = 10):
     pent = crea_protagonista(destrezza=destrezza, punti_vita=hp)
     avvia_run(
         sempre_attivi=[
-            SistemaVeleno(), SistemaBrucia(), SistemaRigenerazione(), SistemaStordito(),
+            # DERIVATI dalla tabella unica (come il guscio vero): un status nuovo
+            # entra da sé, e non c'è modo di cablarne due volte lo stesso.
+            *sistemi_status(),
             SistemaDeathCheck(bus), SistemaTempoPiano(),
         ],
         solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(bus)],

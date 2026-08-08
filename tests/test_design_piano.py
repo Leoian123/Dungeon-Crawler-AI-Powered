@@ -76,12 +76,18 @@ def test_tag_e_slug_malformati_respinti() -> None:
 # --- Parità: la Falsa Idra derivata dalla libreria = il vecchio copione ---------
 
 def test_parita_falsa_idra() -> None:
+    """Il cast storico è ancora tutto lì, nell'ordine, e derivato dalla libreria.
+
+    Sottoinsieme e non uguaglianza: il piano può ACQUISTARE teste (la Prima Donna è
+    entrata col dodger, F7) senza che questo test diventi un ostacolo ad aggiungere
+    contenuto. Ciò che non deve succedere è che ne PERDA, o che ne cambi l'ordine."""
     turni = _turni_scriptati()
-    assert [t.entita.nome for t in turni] == [
+    storici = [
         "Slime Mangiascarti", "Goblin Bigliettaio", "Scheletro Sarto",
         "Gemelli nel Trench", "Goblin Burattinaio", "Coro delle Ossa",
         "Slime Madre", "Il Regista",
     ]
+    assert [t.entita.nome for t in turni][: len(storici)] == storici
     assert "Rolex" in turni[0].prosa
     assert all(t.entita.grado in {Grado.BRONZO, Grado.ARGENTO} for t in turni)
 
@@ -186,7 +192,8 @@ def test_stagione_congelata_round_trip_nel_save(run_pulita, tmp_path) -> None:
     tornata = stagione_corrente()
     assert tornata is not None
     assert tornata.slug == STAGIONE_DEFAULT and tornata.numero == 1
-    [piano] = tornata.piani
+    piano = tornata.piani[0]  # la stagione ha più piani: il round-trip li porta tutti
+    assert len(tornata.piani) >= 2, "la stagione congelata deve conservare TUTTI i piani"
     assert piano.cast[0].nome == "Slime Mangiascarti"
     assert piano.cast[0].archetipo == "slime"  # enum RICOSTRUITO, non str
     # La stanza già narrata è RILETTA (cache): la storia non si riscrive.

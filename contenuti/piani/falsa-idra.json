@@ -26,7 +26,8 @@
     "archetipi": [
       "slime",
       "scheletro",
-      "goblin"
+      "goblin",
+      "felino"
     ]
   },
   "cast": [
@@ -37,7 +38,8 @@
     "goblin-burattinaio",
     "coro-delle-ossa",
     "slime-madre",
-    "il-regista"
+    "il-regista",
+    "prima-donna"
   ],
   "stanze": null
 }

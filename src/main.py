@@ -40,6 +40,9 @@ from contracts import (
     CombatResolved,
     EffettoStatus,
     StatusApplicato,
+    CrolloDungeon,
+    DisimpegnoScena,
+    StatusSvanito,
     TurnoSaltato,
     CrawlerVista,
     MobAsset,
@@ -65,8 +68,11 @@ from contracts import (
     IntentoEsplorazione,
     MessaggioGM,
     MortePersonaggio,
+    OggettoTrovato,
     PlayerDiscende,
+    PlayerEquipaggia,
     PlayerSiMuove,
+    PlayerToglie,
     Opzione,
     OpzioneVista,
     PlayerChoseOption,
@@ -112,10 +118,16 @@ from motore import (
     messaggi_pendenti,
     mob_corrente,
     nome_mob_corrente,
+    riposa,
+    CATALOGO_OGGETTI,
+    assicura_zaino,
+    fonti_zaino,
     MobAttivo,
     PianoAttivo,
     StagioneAttiva,
     design_piano_corrente,
+    stagione_corrente,
+    lint_profilo,
     lint_registry,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
@@ -124,6 +136,7 @@ from motore import (
     assicura_mana,
     etichetta_mossa,
     geometria_di,
+    equip_attivo,
     max_mana,
     mossa_pagabile,
     mosse_di,
@@ -134,8 +147,10 @@ from motore import (
     protagonista,
     salva_run,
     stat_eff,
+    spendi_tempo,
     tempo_piano_corrente,
     tenta_disimpegno,
+    classe_disimpegno,
     tick,
     travasa,
 )
@@ -360,6 +375,10 @@ def _risolvi_archetipo(
         chiave = getattr(pieno, nome)
         if chiave not in tabella:
             errori.append(f"archetipo {slug}: {nome} {chiave!r} non è una chiave di tabella")
+    # …e le MAGNITUDINI stanno in una banda derivata dal catalogo: è qui che
+    # `pv_base=99999` smette di essere un mob con 99.999 HP e diventa un errore di
+    # authoring, sollevato alla risoluzione invece che scoperto giocando.
+    errori.extend(lint_profilo(slug, pieno))
     mosse = list(asset.mosse) if asset is not None else []
     fuori = [m for m in mosse if m not in mosse_note()]
     if fuori:
@@ -580,15 +599,33 @@ def _skills_di(entita: int) -> tuple[SkillVista, ...]:
 
 
 def _equip_di(entita: int) -> tuple[EquipVista, ...]:
-    """Gli slot di equipaggiamento. OGGI SEMPRE VUOTI di oggetti: il motore non ne
-    ha: si espone la GEOMETRIA attiva (`Corredo`, o i default §11), che è ciò che
-    muove davvero le derivate. Il giorno in cui esisteranno gli oggetti, `nome` si
-    riempie e questa funzione resta della stessa forma."""
+    """Gli slot di equipaggiamento, uno per slot **reale** (ADR-1 F1).
+
+    Due sorgenti, in cascata, che è la stessa cascata delle derivate:
+      1. il `ComponenteEquip` — l'oggetto davvero indossato in quello slot;
+      2. la **geometria** attiva (`Corredo`, o i default §11) — la categoria che muove i
+         numeri quando nessun oggetto occupa lo slot.
+
+    Uno slot vuoto NON è un buco nella scheda: mostra la geometria che vale comunque
+    (`veste`, `naturale`), perché è quella a decidere `coeff_eva`/`coeff_acc`. È il
+    motivo per cui `categoria` esisteva già prima degli oggetti."""
     armatura, _taglia, arma = geometria_di(entita)
-    return (
-        EquipVista(slot=SlotEquip.ARMA, categoria=arma),
-        EquipVista(slot=SlotEquip.ARMATURA, categoria=armatura),
-    )
+    comp = equip_attivo(entita)
+
+    def _riga(slot: SlotEquip) -> EquipVista:
+        indossato = None
+        if comp is not None:
+            indossato = comp.arma if slot is SlotEquip.ARMA else comp.armatura.get(slot)
+        if indossato is None:
+            return EquipVista(
+                slot=slot, categoria=arma if slot is SlotEquip.ARMA else armatura
+            )
+        categoria = (
+            indossato.taglia.value if slot is SlotEquip.ARMA else indossato.categoria.value
+        )
+        return EquipVista(slot=slot, nome=indossato.nome, categoria=categoria)
+
+    return tuple(_riga(slot) for slot in SlotEquip)
 
 
 def _etichetta_mossa_ricca(entita: int, chiave: str) -> str:
@@ -818,8 +855,10 @@ class SessioneGioco:
         sessione.uuid = uuid4().hex[:8]
         sessione.etichetta = nome
         _invalida_sessione_precedente()  # l'ingresso in run smonta il World corrente
+        # Niente literal: destrezza e HP di partenza vengono dalla calibrazione
+        # (`CARL.destrezza`/`HP_DEFAULT`), così i knob della console valgono davvero.
         sessione.guscio.nuova_partita(
-            uuid=sessione.uuid, destrezza=10, hp=30, seed=seed,
+            uuid=sessione.uuid, seed=seed,
             n_stanze=n_stanze, stagione=stagione,
         )
         _registra_sessione_attiva(sessione)  # il run-World è suo
@@ -861,9 +900,19 @@ class SessioneGioco:
         if dati_rng:
             _ripristina_rng(sessione.rng, dati_rng)
         if sessione.provider is None:
-            # Offline: il copione si deriva dalla stagione CONGELATA nel save
-            # (design_piano_corrente; save legacy → Falsa Idra), mai dalla libreria.
-            sessione.provider = _fake_da_piano(design_piano_corrente())
+            # Offline: il copione si deriva dalla stagione CONGELATA nel save, mai dalla
+            # libreria (che può essere cambiata sotto una run già avviata). Si riparte
+            # dal piano CORRENTE e si copre anche la discesa che resta — riprendere una
+            # partita al piano 2 non deve consumare il copione del piano 1.
+            congelata = stagione_corrente()
+            corrente = design_piano_corrente()
+            if congelata is not None and corrente is not None:
+                # Copione KEYED su (piano, stanza): al reload non serve alcun
+                # riallineamento — le stanze già narrate rileggono l'Archivio e
+                # ogni stanza nuova pesca la SUA voce, a qualunque profondità.
+                sessione.provider = _fake_da_piani(congelata.piani)
+            else:  # save legacy senza stagione congelata → la Falsa Idra
+                sessione.provider = _fake_da_piano(corrente)
         sessione.uuid = uuid
         sessione.coda = sessione.guscio.coda
         sidecar = carica_archivio(directory, uuid)
@@ -967,8 +1016,48 @@ class SessioneGioco:
             self._fatti_scontro = self._istanza.fatti()
             self._istanza.chiudi()
             self._istanza = None
+            if self._fatti_scontro is not None and self._fatti_scontro.vittoria:
+                self._deposita_bottino()
         self._sincronizza_scena()
         return self._snapshot_corrente()
+
+    def _deposita_bottino(self) -> None:
+        """Drop seeded a scontro VINTO: il CANALE del loot (la tabella è contenuto,
+        oggi un solo oggetto dimostrativo — la riempie l'authoring, non il motore).
+
+        Pesca dallo stream RNG di sessione (persistito nel save: replay-safe),
+        fra le fonti del catalogo non ancora possedute; deposita la FONTE nello
+        Zaino e lo annuncia in cronaca. `PROB_DROP` è §11 (letto a runtime: il
+        knob della console è vivo)."""
+        from motore import calibrazione as _cal
+
+        pent, _marker, _scheda = protagonista()
+        zaino = assicura_zaino(pent)
+        candidate = [f for f in sorted(CATALOGO_OGGETTI) if f not in zaino.fonti]
+        if not candidate or self.rng.random() >= _cal.PROB_DROP:
+            return
+        fonte = candidate[self.rng.randrange(len(candidate))]
+        zaino.fonti.append(fonte)
+        oggetto = CATALOGO_OGGETTI[fonte]
+        self.bus.pubblica(OggettoTrovato(
+            nome=getattr(oggetto, "nome", "") or fonte, fonte=fonte,
+        ))
+
+    def equipaggia(self, fonte: str) -> SnapshotVista:
+        """Porta dell'inventario (ADR-1 D3): Zaino → manifest, via l'intento
+        tipizzato servito da `SistemaEquip` nel bucket di narrazione. In
+        combattimento l'intento resta in coda (phase-gate): mai servito dalla
+        fase sbagliata, mai più un intento che marcisce nel World."""
+        self._guardia_aperta()
+        self.coda.accoda(PlayerEquipaggia(fonte=fonte))
+        return self.avanza()
+
+    def togli(self, fonte: str) -> SnapshotVista:
+        """Porta simmetrica: sfila l'oggetto per `fonte` (rimozione per fonte,
+        mai operazione inversa — ADR-1 D1)."""
+        self._guardia_aperta()
+        self.coda.accoda(PlayerToglie(fonte=fonte))
+        return self.avanza()
 
     def salva(self) -> str:
         """Salvataggio a mano, in-run (H-6): il World sopravvive, scrittura prima di
@@ -1049,6 +1138,7 @@ class SessioneGioco:
             mana_max=max_mana(pent),
             skills=_skills_di(pent),
             equip=_equip_di(pent),
+            zaino=fonti_zaino(pent),
             progressione=ProgressioneVista(livello_piano=livello_corrente()),
         )
 
@@ -1092,12 +1182,30 @@ class SessioneGioco:
         if azione.tipo is TipoAzione.MUOVI and azione.stanza is not None:
             self.coda.accoda(PlayerSiMuove(azione.stanza))  # la serve SistemaMovimento
             return
+        if azione.tipo is TipoAzione.RIPOSA:
+            # ⚠️ Ramo ESPLICITO prima del fallback di ingaggio: senza, «Riposa»
+            # sarebbe caduto nel ramo finale e avrebbe APERTO UNO SCONTRO (la
+            # mina del fall-through, giro 2026-08-07). Il riposo è del motore:
+            # tick spesi via fast-forward, recupero da foglie §11, evento in cronaca.
+            riposa(self.bus)
+            return
         if azione.tipo is TipoAzione.SCAPPA:
             # Disimpegno: prova su stat PRIMA di ingaggiare (FNC §5.3, tirata dal motore).
             # La destrezza passa dal fold (GR2-3), non da un campo della scheda.
             pent, _m, _scheda = protagonista()
-            if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), ClasseProva.BRONZO, self.rng):
+            # La classe la impone il MOB della scena (il suo `Grado`), non una costante:
+            # disimpegnarsi da uno slime di bronzo e da un boss non è la stessa impresa.
+            if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), classe_disimpegno()):
+                # Il disimpegno si NARRA (prima il mob si dissolveva in silenzio
+                # totale): l'evento parte col nome ancora leggibile, poi si smonta.
+                self.bus.pubblica(DisimpegnoScena(nemico=nome_mob_corrente()))
                 dissolvi_mob()  # fuga riuscita: l'incontro si dissolve, la scena si riapre
+                # …e PAGA la sua durata (J): il docstring di `tenta_disimpegno` lo
+                # dichiarava, il codice non lo faceva — scappare era gratis anche
+                # in tick, e "scappa sempre" un room-clear senza costo.
+                from motore.calibrazione import DURATA_AZIONE as _DURATE
+
+                spendi_tempo(self.bus, _DURATE[TipoAzione.SCAPPA])
                 return
         # Combatti (o disimpegno fallito): l'incontro è il nemico DELLA STANZA, arruolato
         # col suo profilo calibrato (Primarie/Corredo/Resistenze). Il fallback per scalari
@@ -1166,10 +1274,13 @@ class SessioneGioco:
 
     def _descrittori(self) -> tuple[str, ...]:
         pent, _marker, scheda = protagonista()
-        hp = f"HP {scheda.punti_vita}/{max_hp(pent)}"  # massimo DERIVATO (§5)
+        # Clamp a zero: «HP -4/30» sull'ultima schermata di una run persa
+        # comunica un motore rotto, non un overkill (giro 2026-08-07).
+        hp = f"HP {max(0, scheda.punti_vita)}/{max_hp(pent)}"  # massimo DERIVATO (§5)
         extra: list[str] = []
-        if in_combattimento():
-            # Il giocatore VEDE chi affronta e quanto gli resta (feel G §5.6).
+        if in_combattimento() and self.guscio.terminale is None:
+            # Il giocatore VEDE chi affronta e quanto gli resta (feel G §5.6);
+            # a run CONCLUSA il nemico non si elenca più — lo scontro non esiste.
             for nome, attuali, massimi in nemici_in_scontro():
                 extra.append(f"{nome}: {attuali}/{massimi}")
         trovata = mappa_corrente()
@@ -1190,11 +1301,15 @@ def _riga_colpo(e: object) -> str:
     attaccante = getattr(e, "attaccante", "")
     bersaglio = getattr(e, "bersaglio", "")
     danno = getattr(e, "danno", 0)
+    unita = "danno" if danno == 1 else "danni"      # «1 danni» era un plurale rotto
     hp = f"({getattr(e, 'hp_rimasti', 0)}/{getattr(e, 'hp_max', 0)})"
-    pesante = " — COLPO PESANTE" if getattr(e, "mossa", "") == "attacco_pesante" else ""
+    mossa = getattr(e, "mossa", "")
+    # La MOSSA si nomina (prima solo l'attacco pesante aveva un inciso): l'etichetta
+    # diegetica viene dal catalogo, l'attacco base resta implicito.
+    con = f" con {etichetta_mossa(mossa)}" if mossa and mossa != "attacco" else ""
     if attaccante == "":  # il protagonista colpisce
-        return f"Colpisci {bersaglio or 'il nemico'}: {danno} danni {hp}{pesante}."
-    return f"{attaccante} ti colpisce: {danno} danni {hp}{pesante}."
+        return f"Colpisci {bersaglio or 'il nemico'}{con}: {danno} {unita} {hp}."
+    return f"{attaccante} ti colpisce{con}: {danno} {unita} {hp}."
 
 
 def _riga_status_applicato(e: object) -> str:
@@ -1220,10 +1335,21 @@ def _riga_effetto_status(e: object) -> str:
         soggetto = "Il veleno" if nome_status == "veleno" else (
             "Le fiamme" if nome_status == "brucia" else nome_status.capitalize()
         )
-        vittima = "ti" if chi == "" else chi
-        return f"{soggetto} {'morde' if nome_status == 'veleno' else 'mordono'} {vittima}: {delta} HP."
+        verbo = "mordono" if nome_status == "brucia" else "morde"
+        if chi == "":  # il clitico va PRIMA del verbo: «morde ti» era sgrammaticato
+            return f"{soggetto} ti {verbo}: {delta} HP."
+        return f"{soggetto} {verbo} {chi}: {delta} HP."
     chi_bene = "Recuperi" if chi == "" else f"{chi} rigenera"
     return f"{chi_bene} {delta} HP."
+
+
+def _riga_status_svanito(e: object) -> str:
+    chi = getattr(e, "bersaglio", "")
+    status = getattr(e, "status", "")
+    nome = status.capitalize() if status else "L'effetto"
+    if chi == "":
+        return f"{nome} esaurito: non fa più effetto su di te."
+    return f"{nome} esaurito su {chi}."
 
 
 def _riga_riposo(e: object) -> str:
@@ -1242,8 +1368,8 @@ def _riga_riposo(e: object) -> str:
 
 
 def _riga_turno_saltato(e: object) -> str:
-    if getattr(e, "causa", "") == "fuga_fallita":
-        return "Tenti la fuga: FALLITA. Il nemico ne approfitta."
+    if getattr(e, "causa", "") == "fuga_negata":
+        return "Tenti la fuga: NEGATA, non c'è via d'uscita. Il turno è speso."
     nome = getattr(e, "nome", "")
     return "Sei stordito: salti il turno!" if nome == "" else f"{nome} è stordito: salta il turno."
 
@@ -1256,16 +1382,57 @@ def _riga_risolto(e: object) -> str:
     return "Lo scontro si chiude."
 
 
+def _riga_morte(e: object) -> str:
+    """La morte è il beat più carico del giro: mai il literal dell'enum
+    («Sei morto: sconfitta.») come ultima parola della run."""
+    causa = getattr(e, "causa", "")
+    dettaglio = f" ({causa})" if causa and causa != "sconfitta" else ""
+    return f"Sei morto{dettaglio}. Il dungeon non fa repliche: la run finisce qui."
+
+
+def _riga_discesa(e: object) -> str:
+    """La discesa oltre l'ULTIMO piano è la vittoria: annunciare «Scendi: piano N»
+    per un piano che non esiste era l'unico testo che il vincitore leggeva."""
+    piano = getattr(e, "piano", "?")
+    stagione = stagione_corrente()
+    if (stagione is not None and isinstance(piano, int)
+            and piano > len(stagione.piani)):
+        return "Sali l'ultima scala: aria, luce, silenzio. La discesa è COMPLETA."
+    return f"Scendi: piano {piano}."
+
+
+def _riga_terminale(terminale: Terminale) -> str:
+    """La riga di chiusura della run, per QUALUNQUE host (TUI/CLI/web): il dato
+    `SnapshotVista.terminale` esisteva e nessuna superficie lo verbalizzava."""
+    if terminale is Terminale.PIANO_COMPLETATO:
+        return ("🏆 Fuori dall'ultima scala: la discesa è completa. Il dungeon, "
+                "a malincuore, applaude — HAI VINTO la run.")
+    if terminale is Terminale.SCONFITTA:
+        return ("💀 Permadeath: lo slot è ritirato. Il dungeon ringrazia per la "
+                "partecipazione.")
+    return "La run è in pausa: il crawler ti aspetta dove l'hai lasciato."
+
+
 _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (EncounterStarted, lambda _e: "Lo scontro ha inizio."),
     (ColpoInferto, _riga_colpo),
     (StatusApplicato, _riga_status_applicato),
     (EffettoStatus, _riga_effetto_status),
+    (StatusSvanito, _riga_status_svanito),
+    (CrolloDungeon, lambda e: (
+        f"Il dungeon perde la pazienza: tutto trema, tutti sanguinano "
+        f"(-{getattr(e, 'danno', 0)} HP a testa).")),
+    (DisimpegnoScena, lambda e: (
+        f"Ti disimpegni: {getattr(e, 'nemico', '') or 'l’incontro'} non ti segue. "
+        f"La scena si riapre.")),
+    (OggettoTrovato, lambda e: (
+        f"✦ Bottino: {getattr(e, 'nome', '') or getattr(e, 'fonte', '?')} "
+        f"(nello zaino).")),
     (TurnoSaltato, _riga_turno_saltato),
     (CombatResolved, _riga_risolto),
-    (MortePersonaggio, lambda e: f"Sei morto: {getattr(e, 'causa', '')}."),
+    (MortePersonaggio, _riga_morte),
     (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
-    (DiscesaPiano, lambda e: f"Scendi: piano {getattr(e, 'piano', '?')}."),
+    (DiscesaPiano, _riga_discesa),
     (RiposoConcluso, _riga_riposo),
 )
 
@@ -1402,17 +1569,69 @@ def _turni_scriptati() -> list[TurnoNarrazione]:
     return turni_da_piano(risolvi_stagione(STAGIONE_DEFAULT).piani[0])
 
 
-def _fake_da_piano(piano) -> FakeProvider:
-    """Il **FakeProvider scriptato** (offline): FIFO per chiamata — la pipeline GM
-    fa (fino a) 4 chiamate per turno, quindi il copione scripta gli stadi in
-    ordine: ideazione degradata (`None`), IL turno gating, limatura e
-    distillazione degradate. `piano=None` (save legacy) → la Falsa Idra."""
+class ProviderCopione(FakeProvider):
+    """Copione offline **keyed su (piano, stanza)** — mai una coda posizionale.
+
+    La FIFO per-visita aveva tre modi di rompersi, tutti misurati (giro 2026-08-07):
+    un'azione libera consumava le voci della stanza successiva (risposta
+    non-sequitur ORA e copione shiftato DOPO); scendere prima di aver visitato
+    tutte le stanze regalava le voci residue del piano 1 ai reveal del piano 2
+    (respinte dal gate → fallback congelato per sempre); il reload doveva
+    "saltare" le stanze già narrate. Qui il copione risponde SOLO alla chiamata
+    gating, con la voce della stanza in cui il protagonista si trova ORA:
+    qualunque ordine di visita, azione libera o ricarica. Gli stadi ancillari
+    (ideazione/limatura/distillazione/prova) degradano a `None`, come da
+    contratto della pipeline.
+
+    Sottoclasse di `FakeProvider` (stessa firma, stesso tracciamento di prompt
+    opachi e `sistemi`; la coda FIFO ereditata resta vuota). Vive nel composition
+    root e non in `provider/`: leggere mappa e profondità è lecito QUI, mai nel
+    layer di trasporto."""
+
+    def __init__(self, turni_per_livello: dict[int, list[TurnoNarrazione]]) -> None:
+        super().__init__()
+        self._turni_per_livello = turni_per_livello
+
+    async def genera(self, prompt: str, schema, *, sistema: str = ""):
+        if not isinstance(prompt, str):
+            raise TypeError(
+                f"il prompt verso il provider è una stringa opaca, non {type(prompt)!r} (G-13)"
+            )
+        self.chiamate.append((prompt, schema))
+        self.sistemi.append(sistema)
+        if schema is not TurnoNarrazione:
+            return None                        # stadi ancillari: degrado dichiarato
+        turni = self._turni_per_livello.get(livello_corrente())
+        trovata = mappa_corrente()
+        if not turni or trovata is None:
+            return None
+        stanza = trovata[1].stanza_corrente
+        if stanza >= len(turni):
+            return None    # geometria più larga del cast: fallback onesto, mai shift
+        return turni[stanza]
+
+
+def _fake_da_piano(piano) -> ProviderCopione:
+    """Copione da un piano solo (save legacy senza stagione congelata): la voce
+    vive alla profondità CORRENTE del World appena caricato. `None` → la Falsa Idra."""
     if piano is None:
         piano = risolvi_stagione(STAGIONE_DEFAULT).piani[0]
-    risposte: list[object] = []
-    for turno in turni_da_piano(piano):
-        risposte += [None, turno.model_dump(), None, None]
-    return FakeProvider(risposte)
+    try:
+        livello = livello_corrente()
+    except Exception:
+        livello = 1
+    return ProviderCopione({livello: turni_da_piano(piano)})
+
+
+def _fake_da_piani(piani) -> ProviderCopione:
+    """Il copione di **tutta la discesa**, un piano per profondità (1-based).
+
+    Keyed, non concatenato: ogni reveal, azione o rilettura riceve la voce della
+    stanza in cui si trova — il piano 2 si racconta col SUO cast anche scendendo
+    alla prima scala, e nessuna chiamata "consuma" il contenuto di qualcun altro."""
+    return ProviderCopione({
+        i + 1: turni_da_piano(piano) for i, piano in enumerate(piani)
+    })
 
 
 def costruisci_sessione(
@@ -1438,10 +1657,16 @@ def costruisci_sessione(
         risolta = risolvi_stagione(stagione if stagione is not None else STAGIONE_DEFAULT)
     piano1 = risolta.piani[0]
     if provider is None:
-        n_stanze = piano1.n_stanze  # il copione copre tutte le stanze
-        provider = _fake_da_piano(piano1)
+        n_stanze = piano1.n_stanze  # il copione copre tutte le stanze del PRIMO piano
+        # …ma il copione copre l'INTERA discesa: i piani successivi hanno la loro scala
+        # (la mappa si rigenera scendendo) e il loro cast.
+        provider = _fake_da_piani(risolta.piani)
     else:
-        n_stanze = piano1.stanze  # scala autorata; None → MAPPA_STANZE
+        # Stessa scala dell'offline: `stanze` autorata se c'è, altrimenti la
+        # taglia del CAST (una stanza per mob). Prima il live ripiegava su
+        # MAPPA_STANZE (6): lo stesso contenuto produceva piani da 9 stanze
+        # offline e da 6 live — mob senza stanza, misure non trasferibili.
+        n_stanze = piano1.stanze if piano1.stanze is not None else piano1.n_stanze
     return SessioneGioco.nuova(
         provider,
         directory=directory,
@@ -1515,6 +1740,9 @@ def _rendi(snapshot: SnapshotVista, stampa: Callable[[str], None]) -> None:
         stampa(snapshot.prosa)
     stato = ", ".join(snapshot.stato) if snapshot.stato else "—"
     stampa(f"[{snapshot.fase}] {stato}")
+    if snapshot.terminale is not None:
+        stampa(_riga_terminale(snapshot.terminale))
+        return
     for opz in snapshot.opzioni:
         stampa(f"  {opz.indice + 1}. {opz.etichetta}")
 

@@ -80,3 +80,10 @@ class Azione:
     effetti: list[Effetto]
     costo: dict[str, int] = field(default_factory=lambda: {"AP": 1})  # referenzia l'AP per CHIAVE
     mossa: str = "attacco"         # chiave diegetica della mossa (per la cronaca)
+    # Consenso all'AZZARDO OPT-IN: `False` di default, e il default è il punto. Il
+    # risolutore salta ogni effetto che pesca se questo flag non è stato acceso da chi
+    # ha *dichiarato* di volere la casualità (la voce di catalogo `azzardo=True`). Così
+    # "pescare per sbaglio" non è un bug possibile: è un percorso che non esiste.
+    # NB: il tipo di quegli effetti vive in `azzardo.py`, che questo modulo NON importa —
+    # la dipendenza è a senso unico, e il flag qui è un booleano qualunque.
+    consenso_azzardo: bool = False

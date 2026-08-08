@@ -31,9 +31,31 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-# Config condivisa: vietare campi extra chiude la porta a un campo con cui l'AI
-# proverebbe a invocare l'anomalia o ad alzarsi il budget (F-4, §4.3).
-_CHIUSO = ConfigDict(extra="forbid")
+def _senza_docstring(schema: dict) -> None:
+    """La docstring resta per chi legge il codice, ma NON viaggia come `description`
+    nel JSON schema inviato al provider a ogni chiamata — erano commenti per
+    sviluppatori (con riferimenti alle spec interne) che pesavano ~40% dei token di
+    input per turno (audit 2026-08-07). Una descrizione PENSATA per l'AI si dichiara
+    con `Field(description=...)`: quelle a livello campo non vengono toccate."""
+    schema.pop("description", None)
+
+
+# Config condivisa dei MODELLI: vietare campi extra chiude la porta a un campo con
+# cui l'AI proverebbe a invocare l'anomalia o ad alzarsi il budget (F-4, §4.3);
+# `json_schema_extra` spoglia la docstring dallo schema esportato.
+_CHIUSO = ConfigDict(extra="forbid", json_schema_extra=_senza_docstring)
+
+
+class SchemaSnello:
+    """Mixin degli ENUM del contratto AI: stesso scopo di `_senza_docstring`, per le
+    classi che non hanno una `model_config` (la docstring dell'enum finirebbe come
+    `description` nella sua voce `$defs`)."""
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        schema = handler(core_schema)
+        schema.pop("description", None)
+        return schema
 
 
 # --- Enum del catalogo: vocabolario chiuso (contenuti in G) -------------------
@@ -50,7 +72,7 @@ Slug = Annotated[str, StringConstraints(pattern=RE_SLUG)]
 ArchetipoId = Slug
 
 
-class Grado(str, Enum):
+class Grado(SchemaSnello, str, Enum):
     """Vocabolario chiuso del **grado** di un'entità (ex `Rarita`, override Gruppo 2 §1.1).
 
     Un solo enum AI-facing: l'AI **sceglie un nome**, mai un numero. La mappa
@@ -67,7 +89,7 @@ class Grado(str, Enum):
     CELESTIALE = "celestiale"
 
 
-class StatId(str, Enum):
+class StatId(SchemaSnello, str, Enum):
     """Vocabolario chiuso delle statistiche primarie (Gruppo 2 §2.2): SOLO nomi.
 
     È vocabolario, non comportamento: i **flag** per stat (visibilità, modificabilità,
@@ -84,7 +106,7 @@ class StatId(str, Enum):
     FORTUNA = "fortuna"        # esistenza-negata (canone DCC)
 
 
-class Blocco(str, Enum):
+class Blocco(SchemaSnello, str, Enum):
     """Le "interfacce" di FNC §5.5: contratti noti. Valori SEGNAPOSTO (contenuti in G).
 
     Il binding `Blocco → classe componente ECS` vive nel **registry del motore**
@@ -97,7 +119,7 @@ class Blocco(str, Enum):
     BRUCIA = "brucia"  # acceso nell'audit 2026-08: il sistema esisteva, il nome no
 
 
-class TipoDanno(str, Enum):
+class TipoDanno(SchemaSnello, str, Enum):
     """Tipo di danno di un attacco — enum chiuso AI-facing (Gruppo 2 tipi §2).
 
     Stessa famiglia di `Grado`/`Durata`: l'AI lo **dichiara**, il gate-catalogo lo
@@ -115,7 +137,7 @@ class TipoDanno(str, Enum):
     VELENO = "veleno"
 
 
-class TipoAzione(str, Enum):
+class TipoAzione(SchemaSnello, str, Enum):
     """Spazio d'azione chiuso → mappa su un'azione nota del motore (IC §2.3).
 
     `SCENDI` e `MUOVI` sono azioni **di scena**: compaiono nel menu SOLO quando la
@@ -135,23 +157,81 @@ class TipoAzione(str, Enum):
     ALTRO = "altro"
 
 
-class ClasseProva(str, Enum):
+class ClasseProva(SchemaSnello, str, Enum):
     """Difficoltà di una prova di abilità: una **classe nominata**, non un numero
-    (G §7.2). L'AI **seleziona** la classe inquadrando la prova, PRIMA del tiro, e
-    non può mutarla dopo; il motore mappa `classe → soglia` (seeded) e risolve.
+    (G §7.2). L'AI **seleziona** la classe inquadrando la prova, PRIMA della
+    risoluzione, e non può mutarla dopo; il motore mappa `classe → soglia` e
+    **confronta a margine** (G §7.1: nessun tiro).
 
     "celestiale" è un nome come "leggendario": vocabolario chiuso nel contratto. La
     tabella `classe → soglia` (la formula) e le **ancore** testuali vivono nel
     catalogo del MOTORE (G §7.4), MAI qui. Valori SEGNAPOSTO (contenuti in G).
     """
 
+    # Specchio ESATTO di `Grado`, stesso ordine: la difficoltà di una prova e il grado di
+    # un'entità sono la stessa scala nominata (mappa `CLASSE_DA_GRADO`, lato motore). Un
+    # membro qui senza la sua foglia §11 è un `KeyError` all'import di `calibrazione`.
     BRONZO = "bronzo"
     ARGENTO = "argento"
     ORO = "oro"
+    PLATINO = "platino"
+    LEGGENDARIO = "leggendario"
     CELESTIALE = "celestiale"
 
 
-class Durata(str, Enum):
+class Taglia(SchemaSnello, str, Enum):
+    """Quanto è grande un'entità (o un'arma): vocabolario CHIUSO, mai un numero.
+
+    Due consumatori lato motore, entrambi §11: `M_TAGLIA` (più piccolo = schivi di più,
+    check 1) e la *relazione* fra taglia dell'arma e taglia del portatore (`COEFF_ACC`).
+    L'AI sceglie il nome; i coefficienti restano del motore.
+
+    **Invariante di sincronia #7:** ogni `.value` qui deve esistere come chiave in
+    `M_TAGLIA` — un membro senza binding è un valore che il gate accetta e il motore non
+    sa pesare."""
+
+    COLOSSALE = "colossale"
+    ENORME = "enorme"
+    GROSSA = "grossa"
+    MEDIA = "media"
+    PICCOLA = "piccola"
+    INFIMA = "infima"
+
+
+class CategoriaArmatura(SchemaSnello, str, Enum):
+    """Quanto è ingombrante un pezzo d'armatura: vocabolario CHIUSO (ADR-1 D5).
+
+    È la leva **spaccata sui due check** che rende leggibile il trade-off tank/dodger:
+    la categoria abbassa `coeff_eva` (check 1 — con la piastra addosso schivi meno) e in
+    parallelo il pezzo somma a `DIFESA` (check 2 — incassi meno). Una funzione per check,
+    nessuna delle due sa dell'altra.
+
+    Sincronia #7: ogni `.value` è una chiave di `M_ARMATURA`."""
+
+    VESTE = "veste"
+    LEGGERA = "leggera"
+    MEDIA = "media"
+    PESANTE = "pesante"
+
+
+class SedeAccessorio(SchemaSnello, str, Enum):
+    """Dove si porta un accessorio: **tag di flavour**, non uno slot esclusivo (ADR-1 D6).
+
+    Deliberatamente NON meccanico e NON limitante: gli accessori sono un multiset aperto
+    (più anelli, più orecchini), il loro potere sta nei modificatori che portano, non nel
+    posto. Estendibile senza conseguenze sul risolutore — è vocabolario, non regola."""
+
+    ORECCHIE = "orecchie"
+    NASO = "naso"
+    BOCCA = "bocca"
+    DITA = "dita"
+    COLLO = "collo"
+    POLSI = "polsi"
+    CAVIGLIE = "caviglie"
+    BACINO = "bacino"
+
+
+class Durata(SchemaSnello, str, Enum):
     """Vocabolario del tempo (J §3.1) — enum chiuso con **ordine totale**.
 
     NON è un numero (F-14): è una categoria, come `Grado`. L'ordine totale è
@@ -191,6 +271,27 @@ class Durata(str, Enum):
         if not isinstance(other, Durata):
             return NotImplemented
         return self.ordine >= other.ordine
+
+
+class ClasseBeneficio(SchemaSnello, str, Enum):
+    """Il VANTAGGIO che un'azione libera reclama — enum chiuso, mai testo (F-14).
+
+    È il perno del gate anti-arbitraggio: il giocatore può manipolare la prosa
+    quanto vuole, ma un beneficio si ottiene SOLO dichiarandone la classe, e ogni
+    classe ha un pavimento di costo di proprietà del motore (§11). L'AI *classifica*
+    la richiesta; il conto lo applica il motore. Un'AI ingannata al ribasso non
+    regala niente: il pavimento vince in silenzio (mai un retry).
+
+    `NESSUNO` = azione di puro colore (il default: chi non reclama non paga).
+    `SVOLTA` = la pretesa di un avanzamento permanente ("maxo la skill"): fuori
+    scala per calibrazione — il Sistema presenta la tariffa vera e nega il resto.
+    """
+
+    NESSUNO = "nessuno"            # colore: nessun vantaggio reclamato
+    RECUPERO = "recupero"          # riposo, medicarsi, riprendere fiato
+    LAVORO = "lavoro"              # lavoro manuale: scuoiare, raccogliere, costruire
+    ADDESTRAMENTO = "addestramento"  # una sessione di pratica (non la maestria)
+    SVOLTA = "svolta"              # pretesa di avanzamento permanente/maestria
 
 
 # --- Modelli dello schema -----------------------------------------------------
@@ -238,6 +339,10 @@ class TurnoNarrazione(BaseModel):
     entita: EntitaGenerata
     opzioni: list[Opzione]
     durata: Durata     # categoria del tempo; il motore la mappa a carico-tick via gate
+    # Il vantaggio reclamato dall'azione del giocatore (default = niente): l'AI
+    # CLASSIFICA, il motore applica il pavimento di costo (§11) — gate asimmetrico,
+    # mai retry. Default per retro-compatibilità (archivi e provider storici).
+    beneficio: ClasseBeneficio = ClasseBeneficio.NESSUNO
 
 
 class Flavor(BaseModel):
@@ -254,7 +359,7 @@ class Flavor(BaseModel):
 
 # --- Pipeline GM: schemi degli stadi NON-GATING (G §9.2: fan-out sotto il socket) --
 
-class IntenzioneScena(str, Enum):
+class IntenzioneScena(SchemaSnello, str, Enum):
     """Che tipo di scena l'ideazione propone. Enum chiuso, valori SEGNAPOSTO."""
 
     SCONTRO = "scontro"
@@ -263,7 +368,7 @@ class IntenzioneScena(str, Enum):
     TRANSIZIONE = "transizione"
 
 
-class TonoScena(str, Enum):
+class TonoScena(SchemaSnello, str, Enum):
     """Tono narrativo proposto dall'ideazione. Enum chiuso, valori SEGNAPOSTO."""
 
     IRONICO = "ironico"

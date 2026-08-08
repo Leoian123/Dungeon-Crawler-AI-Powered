@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import esper
 
-from contracts import StatId
+from contracts import CategoriaArmatura, SlotEquip, StatId
 
 from . import calibrazione as cal
 from .corredo import Corredo
+from .equip import ComponenteEquip
 from .scheda import Scheda
 from .statistiche import stat_eff
 
@@ -93,17 +94,53 @@ def def_eff(ber: int) -> int:
     return cost_eff_come_centesimi(ber) + stat_eff(ber, StatId.DIFESA)  # entrambi CENTESIMI
 
 
+def m_armatura_di(ber: int) -> float:
+    """La mobilità concessa da ciò che l'entità **indossa**, in cascata a tre livelli.
+
+    **Un solo proprietario.** Questa è l'unica funzione che risponde alla domanda "quanto
+    ti impaccia l'armatura": tre sorgenti, una funzione. Se un giorno il calcolo si
+    sdoppiasse (uno per il protagonista equipaggiato, uno per i mob), `coeff_eva`
+    avrebbe due padroni e i due divergerebbero al primo ritocco.
+
+    1. **`ComponenteEquip`** → **media pesata sui nove slot** (ADR-1 II.3). Uno slot vuoto
+       vale `VESTE`: non indossare niente è la massima mobilità, non un buco nella media.
+    2. **`Corredo`** → il selettore singolo di sempre (i mob generati, che non hanno
+       oggetti ma hanno una categoria).
+    3. **niente** → i default globali `*_DEFAULT`.
+
+    Il livello 1 **degenera esattamente** nel livello 2 quando tutti gli slot sono vuoti:
+    la media pesata è una combinazione convessa (Σ pesi = 1), quindi vale `M_ARMATURA["veste"]`
+    bit-per-bit. È ciò che rende l'apertura non-regressiva.
+    """
+    comp = esper.try_component(ber, ComponenteEquip)
+    if comp is None or not comp.armatura:
+        armatura, _taglia, _arma = _geometria(ber)      # livelli 2 e 3
+        return cal.M_ARMATURA[armatura]
+
+    totale = 0.0
+    for slot, peso in cal.PESI_SLOT_ARMATURA.items():
+        pezzo = comp.armatura.get(SlotEquip(slot))
+        categoria = pezzo.categoria.value if pezzo is not None else CategoriaArmatura.VESTE.value
+        totale += peso * cal.M_ARMATURA[categoria]
+    return totale
+
+
 def _coeff_eva(ber: int, *, pct_evasione: float = 0.0) -> float:
     """Pendenza dell'evasione (§5.3): `m_armatura × m_taglia × (1 + Σ pct_evasione)`.
 
     `m_armatura`/`m_taglia` sono **selettori di categoria** (un valore ciascuno → prodotto
     *bounded*, non stacking moltiplicativo); le `%` di skill/enchant restano additive dentro
-    `(1+Σ)`. SEAM gear (aperto): armatura/taglia vengono dal `Corredo` del bersaglio
-    (`_geometria`), con fallback ai default globali per chi non lo porta."""
-    armatura, taglia, _arma = _geometria(ber)
-    m_armatura = cal.M_ARMATURA[armatura]
+    `(1+Σ)`. La mobilità passa da `m_armatura_di` (cascata equip → corredo → default); la
+    **taglia** resta per-entità dal `Corredo`, perché è una proprietà del corpo, non di ciò
+    che indossa: un gatto in armatura pesante resta un gatto.
+
+    `K_EVA` è la **scala globale** (§11), e senza di lei il check 1 non si accenderebbe
+    mai: il prodotto delle due tabelle sta attorno a `0.01`, contro un'accuratezza
+    dell'ordine delle decine. Le tabelle portano il rapporto *fra* le categorie (giusto),
+    il knob porta la magnitudine — due cose separate, tarate separatamente."""
+    _armatura, taglia, _arma = _geometria(ber)
     m_taglia = cal.M_TAGLIA[taglia]
-    return m_armatura * m_taglia * (1 + pct_evasione)
+    return cal.K_EVA * m_armatura_di(ber) * m_taglia * (1 + pct_evasione)
 
 
 def eva_eff(ber: int, *, pct_evasione: float = 0.0) -> float:

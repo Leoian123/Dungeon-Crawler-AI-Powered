@@ -21,7 +21,9 @@ def _primarie() -> Primarie:
 
 def test_senza_corredo_usa_i_default_globali(mondo_isolato) -> None:
     ent = esper.create_entity(_primarie())
-    atteso_eva = 10 * (cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT])
+    atteso_eva = 10 * cal.K_EVA * (
+        cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
+    )
     assert eva_eff(ent) == pytest.approx(atteso_eva)
     assert acc_eff(ent) == pytest.approx(
         (cal.W_FISICO * 10 + (1 - cal.W_FISICO) * 4) * cal.COEFF_ACC[cal.ARMA_DEFAULT]
@@ -30,7 +32,9 @@ def test_senza_corredo_usa_i_default_globali(mondo_isolato) -> None:
 
 def test_con_corredo_usa_i_suoi_slot(mondo_isolato) -> None:
     ent = esper.create_entity(_primarie(), Corredo(armatura="pesante", taglia="piccola", arma="piu_piccola"))
-    assert eva_eff(ent) == pytest.approx(10 * (cal.M_ARMATURA["pesante"] * cal.M_TAGLIA["piccola"]))
+    assert eva_eff(ent) == pytest.approx(
+        10 * cal.K_EVA * (cal.M_ARMATURA["pesante"] * cal.M_TAGLIA["piccola"])
+    )
     assert acc_eff(ent) == pytest.approx(
         (cal.W_FISICO * 10 + (1 - cal.W_FISICO) * 4) * cal.COEFF_ACC["piu_piccola"]
     )

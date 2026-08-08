@@ -188,6 +188,45 @@ def archetipo_attivo(slug: str) -> ArchetipoAttivo | None:
     return None
 
 
+def lint_profilo(slug: str, profilo) -> list[str]:
+    """Check di **magnitudine** su un profilo autorato: i numeri stanno in banda?
+
+    Chiude l'ultima porta scoperta dell'invariante "i numeri li deriva il motore".
+    L'invariante era difeso sulla porta **in-run** (l'AI sceglie da enum chiusi, mai
+    magnitudini) ma non su quella di **authoring**: `ProfiloArchetipoDati` valida la
+    *presenza* dei campi (`ge=1`), mai il *valore*, quindi un asset con `pv_base=99999`
+    passava e produceva un mob con 99.999 HP — G-L1 fuori dalla finestra, TTK
+    insensato, e nessun errore da nessuna parte.
+
+    La banda è **derivata dal catalogo**, non scritta a mano: `TETTO_AUTHORING ×` il
+    massimo fra i profili storici. Così alzare deliberatamente la scala del gioco
+    (calibrazione) allarga la banda da sé, mentre un refuso di battitura resta fuori.
+
+    Vive nel MOTORE e non in `contracts` per una ragione di confine: la banda dipende
+    da §11, e `contracts` non conosce la calibrazione (F-2).
+
+    Ritorna la lista degli errori — di **authoring**, sollevati alla risoluzione, mai
+    un crash a runtime."""
+    from .calibrazione import REGISTRY_ARCHETIPI, TETTO_AUTHORING
+
+    campi = ("pv_base", "danno_base", "destrezza_base", "intelligenza_base",
+             "saggezza_base", "fortuna_base", "difesa_base")
+    errori: list[str] = []
+    for campo in campi:
+        valore = getattr(profilo, campo, None)
+        if valore is None:
+            continue
+        storici = [getattr(p, campo, 0) or 0 for p in REGISTRY_ARCHETIPI.values()]
+        tetto = max([*storici, 1]) * TETTO_AUTHORING
+        if valore > tetto:
+            errori.append(
+                f"archetipo {slug}: {campo}={valore} fuori banda (tetto {tetto:g}, "
+                f"derivato dal catalogo §11). I numeri li deriva il motore: se serve "
+                f"davvero una scala più grande, si alza la calibrazione, non l'asset."
+            )
+    return errori
+
+
 def lint_registry(archetipi, blocchi, *, archetipi_noti=None) -> list[str]:
     """Check F-6: ogni categoria usata dal contenuto ha un binding nei registry.
 

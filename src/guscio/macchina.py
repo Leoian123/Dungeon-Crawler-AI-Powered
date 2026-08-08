@@ -41,6 +41,7 @@ from motore import (
     SistemaCrollo,
     SistemaDeathCheck,
     SistemaDiscesa,
+    SistemaEquip,
     SistemaMovimento,
     SistemaRinforzi,
     SistemaTempoPiano,
@@ -50,12 +51,14 @@ from motore import (
     carica_archivio,
     carica_crawler,
     collega_combattimento,
+    collega_discesa_mappa,
     collega_transizioni_fase,
     crea_mappa,
     crea_profondita,
     crea_protagonista,
     crea_seme,
     crea_stagione,
+    stagione_corrente,
     crea_tempo_piano,
     mappa_to_dict,
     entra_run_nuova,
@@ -133,9 +136,12 @@ class Guscio:
             solo_combattimento=[
                 SistemaRinforzi(),
                 SistemaTurnoCombattimento(self.bus),
-                SistemaCrollo(),
+                SistemaCrollo(self.bus),
             ],
-            solo_narrazione=[SistemaMovimento(), SistemaDiscesa(self.bus)],
+            # SistemaEquip: il canale indossa/togli è ACCESO (giro 2026-08-07 —
+            # era l'unico Processor del motore mai registrato: un intento equip
+            # accodato marciva nel World per sempre).
+            solo_narrazione=[SistemaMovimento(), SistemaDiscesa(self.bus), SistemaEquip()],
         )
 
     def _registra_handler_run(self) -> None:
@@ -145,6 +151,10 @@ class Guscio:
         coppie: list[tuple[type, object]] = []
         coppie += collega_transizioni_fase(self.bus)
         coppie += collega_combattimento(self.bus)
+        # La mappa si rigenera da sé alla discesa (la topologia è roba sua, non del
+        # guscio): la scala del nuovo piano la legge dalla stagione congelata, che è
+        # l'unico contenuto di cui una run in corso possa fidarsi.
+        coppie.append((DiscesaPiano, collega_discesa_mappa(self.bus, _stanze_del_piano)))
         for tipo, handler in ((MortePersonaggio, self._su_morte), (DiscesaPiano, self._su_discesa)):
             self.bus.registra(tipo, handler)
             coppie.append((tipo, handler))
@@ -159,14 +169,29 @@ class Guscio:
 
     # --- Detection dei terminali (in-run, sul bus): solo segnale, MAI switch ---
 
+    # (helper di modulo definito in fondo al file: `_stanze_del_piano`)
+
     def _su_morte(self, _evento: MortePersonaggio) -> None:
         """Terminale di perdita (6a). Solo un flag: il teardown è nella shell (E-4)."""
         self._terminale = Terminale.SCONFITTA
 
-    def _su_discesa(self, _evento: DiscesaPiano) -> None:
-        """Piano-completato (6b): nell'MVP (un piano) la `DiscesaPiano` è la vittoria
-        della run (G §6.7). Solo un flag, nessuno switch in volo (E-4)."""
-        self._terminale = Terminale.PIANO_COMPLETATO
+    def _su_discesa(self, evento: DiscesaPiano) -> None:
+        """Terminale di vittoria (6b) — ma **solo scendendo dall'ULTIMO piano** (G §6.7).
+
+        Prima qui non c'era condizione: con una stagione a un piano solo, la prima
+        `DiscesaPiano` *era* la fine della run, e il codice lo dava per scontato. Con
+        più piani quella scorciatoia trasformava il secondo piano in codice
+        irraggiungibile: si scendeva, e la run finiva sul posto.
+
+        La stagione congelata è l'autorità su "quanti piani ci sono" — non una costante,
+        non la libreria su disco (che può essere cambiata sotto i piedi di una run già
+        avviata). `evento.piano` è il livello RAGGIUNTO: superare l'ultimo significa
+        essere usciti dal dungeon, cioè aver vinto. Solo un flag, nessuno switch in volo
+        (E-4)."""
+        stagione = stagione_corrente()
+        piani = len(stagione.piani) if stagione is not None else 1
+        if evento.piano > piani:
+            self._terminale = Terminale.PIANO_COMPLETATO
 
     # --- Ingresso run: protagonista NASCE o si DESERIALIZZA, solo qui (E-5) ----
 
@@ -174,8 +199,8 @@ class Guscio:
         self,
         uuid: str = "carl",
         *,
-        destrezza: int = 10,
-        hp: int = 30,
+        destrezza: int | None = None,
+        hp: int | None = None,
         seed: int = 0,
         n_stanze: int | None = None,
         stagione=None,
@@ -342,3 +367,20 @@ class Guscio:
             self._abbandona_run()
             raise
         return self.concludi()
+
+
+def _stanze_del_piano(livello: int) -> int | None:
+    """La scala del piano `livello` dalla stagione **congelata nella run**.
+
+    Non dalla libreria su disco: una run in corso non deve cambiare forma perché
+    qualcuno ha ritoccato un asset. `None` → la scala di calibrazione (nessun contenuto
+    che dica quanto è grande questo piano).
+
+    Offline la scala è derivata dal cast (`len(cast)`), che è anche la lunghezza del
+    copione: una stanza per turno scriptato."""
+    stagione = stagione_corrente()
+    if stagione is None or not stagione.piani:
+        return None
+    indice = min(livello, len(stagione.piani)) - 1
+    piano = stagione.piani[max(0, indice)]
+    return piano.stanze if piano.stanze is not None else len(piano.cast) or None

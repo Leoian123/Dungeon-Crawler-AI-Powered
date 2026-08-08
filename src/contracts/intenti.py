@@ -89,6 +89,35 @@ class PlayerSiMuove(IntentoEsplorazione):
 
 
 @dataclass(frozen=True)
+class PlayerEquipaggia(IntentoEsplorazione):
+    """Il giocatore indossa/impugna un oggetto che possiede (ADR-1 D3).
+
+    `fonte` è l'**id di dominio durevole** dell'oggetto (mai un id esper, mai un
+    puntatore vivo — GR2-16): è ciò con cui il motore ritroverà i suoi modificatori per
+    toglierli, e ciò che sopravvive a un round-trip di salvataggio.
+
+    È un `IntentoEsplorazione` per una ragione di regole, non di comodità: in MVP ci si
+    equipaggia **solo in NARRAZIONE** e gratis (D3). Il phase-gate strutturale è la
+    guardia — nessun `if fase ==` nel sistema. Il costo dello swap *mid-combat* è già
+    previsto come dato per-item (`swappable`), ma il suo consumatore è post-MVP.
+    """
+
+    fonte: str
+
+
+@dataclass(frozen=True)
+class PlayerToglie(IntentoEsplorazione):
+    """Il giocatore si toglie un oggetto equipaggiato (ADR-1 D3).
+
+    Identificato per `fonte` come l'equip: togliere è `rimuovi_per_fonte`, **mai** una
+    divisione inversa del bonus (ADR-1 D1 / Gr2 §4.1). Mettere e togliere sono entrambi
+    banali proprio perché nessuno dei due "disfa" un calcolo.
+    """
+
+    fonte: str
+
+
+@dataclass(frozen=True)
 class PlayerDiscende(IntentoEsplorazione):
     """Intento di discesa: il giocatore attiva una `DiscesaPiano` (G §8.1).
 

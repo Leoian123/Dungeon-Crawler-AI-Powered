@@ -25,16 +25,18 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
+from typing import Callable
 
 import esper
 
-from contracts import PlayerSiMuove, TipoAzione
+from contracts import DiscesaPiano, PlayerSiMuove, TipoAzione
 
 from .calibrazione import MAPPA_STANZE
 from .intenti_coda import consuma_messaggi
 from .mob import EntitaMob
 from .phased import SistemaSoloNarrazione
 from .piano import Piano, valida_piano
+from .seme import master_seed
 
 
 @dataclass
@@ -85,6 +87,41 @@ def crea_mappa(rng: random.Random, n_stanze: int | None = None) -> int:
 def mappa_corrente() -> tuple[int, Mappa] | None:
     trovate = esper.get_component(Mappa)
     return trovate[0] if trovate else None
+
+
+def rigenera_mappa(livello: int, n_stanze: int | None = None) -> int:
+    """Sostituisce la topologia con quella del piano `livello` (G §8.1).
+
+    Scendere non è cambiare stanza: è **un altro piano**, quindi un'altra mappa. Senza
+    questo, il secondo piano riuserebbe la topologia del primo — comprese le stanze già
+    visitate e la scala già usata — e "scendere" sarebbe solo un contatore che sale.
+
+    Il seed è **derivato** da `master_seed` + livello, mai dall'orologio: due run con lo
+    stesso seme producono gli stessi piani nello stesso ordine, che è la condizione del
+    replay (FNC §9). La vecchia mappa viene eliminata: un World con due `Mappa` avrebbe
+    due verità spaziali e `mappa_corrente` ne sceglierebbe una a caso."""
+    for ent, _ in list(esper.get_component(Mappa)):
+        esper.delete_entity(ent, immediate=True)
+    return crea_mappa(random.Random(f"{master_seed()}:piano:{livello}"), n_stanze)
+
+
+def collega_discesa_mappa(bus, stanze_per_livello=None) -> Callable[[DiscesaPiano], None]:
+    """Registra la rigenerazione della mappa su `DiscesaPiano` (canale bus, in-run).
+    Ritorna l'handler registrato: è il valore con cui il guscio deregistra al teardown.
+
+    Vive qui e non nel guscio perché **la mappa possiede la propria topologia**: il
+    guscio osserva i terminali, non ricostruisce lo spazio di gioco. `stanze_per_livello`
+    è una funzione `livello → n_stanze | None` che l'host fornisce dal contenuto (il
+    motore non conosce la libreria); assente → la scala di calibrazione.
+
+    ⚠️ Registrato in-run, va **deregistrato al teardown**: il bus è process-global e
+    sopravvive alla run (E/ACV §5.2)."""
+    def _su_discesa(evento: DiscesaPiano) -> None:
+        n = stanze_per_livello(evento.piano) if stanze_per_livello is not None else None
+        rigenera_mappa(evento.piano, n)
+
+    bus.registra(DiscesaPiano, _su_discesa)
+    return _su_discesa
 
 
 # --- Lettura di scena (la verità della stanza corrente) ------------------------
@@ -235,6 +272,18 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     opzioni: list[OpzioneScena] = []
     if scala_presente():
         opzioni.append(OpzioneScena(tipo=TipoAzione.SCENDI, etichetta="Scendi la scala"))
+    # RIPOSA compare solo quando è VERA (stanza sicura + downtime lecito, J §5):
+    # come SCENDI/MUOVI, la compone il motore dalla scena, mai l'AI dal testo.
+    from .tempo import puo_downtime  # locale: nessun ciclo mappa↔tempo
+
+    try:
+        downtime = puo_downtime()
+    except Exception:
+        # World parziale (harness senza fase/protagonista): comporre la scena è
+        # una LETTURA e non deve esplodere — semplicemente niente riposo.
+        downtime = False
+    if downtime:
+        opzioni.append(OpzioneScena(tipo=TipoAzione.RIPOSA, etichetta="Riposa"))
     for stanza in uscite():
         opzioni.append(
             OpzioneScena(tipo=TipoAzione.MUOVI, etichetta=f"Vai: stanza {stanza}", stanza=stanza)

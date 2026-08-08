@@ -92,23 +92,36 @@ class ActionPoint:
 
 def crea_protagonista(
     *,
-    destrezza: int,
+    destrezza: int | None = None,
     id_dominio: str = "carl",
-    punti_vita: int = _HP_DEFAULT,
+    punti_vita: int | None = None,
 ) -> int:
     """Crea l'entità persistente del protagonista. Non è effimera (§6.3).
 
     `destrezza` e `punti_vita` (HP iniziale) entrano nel vettore `Primarie`: la destrezza
     su `DESTREZZA`, l'HP iniziale su `COSTITUZIONE` (così il massimo derivato `max_hp =
     costituzione_eff`, 1→1 segnaposto §5, coincide con l'HP di partenza → "integro"). Le
-    altre primarie vengono dal profilo-base SEGNAPOSTO `PRIMARIE_BASE_CARL`."""
+    altre primarie vengono dal profilo-base SEGNAPOSTO `PRIMARIE_BASE_CARL`.
+
+    `None` = il valore §11 della calibrazione (`CARL.destrezza`/`HP_DEFAULT`): i knob
+    della console valgono sul percorso di gioco reale, non solo negli harness — un
+    literal qui era il motivo per cui alzare `CARL.costituzione` non faceva nulla
+    (audit 2026-08-07)."""
     valori = dict(PRIMARIE_BASE_CARL)
+    if destrezza is None:
+        destrezza = PRIMARIE_BASE_CARL[StatId.DESTREZZA]
+    if punti_vita is None:
+        punti_vita = _HP_DEFAULT
     valori[StatId.DESTREZZA] = destrezza
     valori[StatId.COSTITUZIONE] = punti_vita
+    from .equip import Zaino  # locale: il ciclo equip↔scheda resta a senso unico
+
     ent = esper.create_entity(
         Protagonista(id_dominio=id_dominio),
         Primarie(valori=valori),
         Scheda(vivo=True, punti_vita=punti_vita),
+        # L'inventario nasce VUOTO col protagonista: il drop è il suo produttore.
+        Zaino(),
         # AP posseduto e persistente: il Combattente effimero del combattimento non lo porta
         # (single-owner, guida §6.1). Sopravvive a CombatResolved; il loop lo rinfresca.
         ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),

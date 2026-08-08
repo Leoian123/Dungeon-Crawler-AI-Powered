@@ -9,7 +9,8 @@ sovrascrive). Riapplicare lo stesso tipo NON affianca una copia: **compete per r
 (`applica_status`). Tipi diversi coesistono e ticcano in parallelo (G-8).
 
 Tick = **un solo proprietario per tipo**, nel bucket **sempre-attivo** (G-5): un
-`SistemaVeleno` possiede tutti i `Veleno`, ecc. Cadenza in combattimento =
+`SistemaStatus(tipo=Veleno)` possiede tutti i `Veleno`, ecc. — e si ottiene SEMPRE da
+`sistemi_status()`, che li deriva dalla tabella. Cadenza in combattimento =
 **per-turno-dell'entità** (G-24): si avanza solo lo status dell'entità attiva
 (`TurnoAttivo`), così il burn-rate è invariante al numero di nemici.
 
@@ -124,30 +125,35 @@ class SpecStatus:
     `blocco`: il membro del vocabolario AI-facing (None = status interno, mai
     emettibile da AI/asset — es. Confusione). `trasmissibile`: capacità OFFENSIVA,
     l'innato la applica col colpo; False = PASSIVA (cura il portatore).
-    `delta_per_rango`: HP mossi per tick d'afflizione (− danno, + cura, 0 = l'effetto
-    sta altrove, come il salto-turno dello Stordito). `con_sistema`: False = nessun
-    tick deterministico (Confusione è AI-risolta, post-MVP). `persistente`: entra
-    nel registry dei tag del save."""
+    `con_sistema`: False = nessun tick deterministico (Confusione è AI-risolta,
+    post-MVP). `persistente`: entra nel registry dei tag del save.
+
+    ⚠️ **Qui non ci sono magnitudini.** `delta_per_rango` e `durata_afflizione` vivono in
+    `calibrazione` come foglie §11 generate dall'enum `Blocco`, e `PROFILO_STATUS` le
+    monta insieme a questa riga. Erano campi di questa dataclass — gli ultimi numeri di
+    bilanciamento fuori dal catalogo: invisibili alla console di calibrazione e non
+    tarabili senza toccare il codice. Questa riga dice *come si comporta* uno status;
+    *quanto* fa male lo dice §11."""
 
     componente: type[Status]
     valenza: Valenza
     risoluzione: Risoluzione
     trasmissibile: bool = True
-    delta_per_rango: int = 0
     blocco: Blocco | None = None
     con_sistema: bool = True
     persistente: bool = True
 
 
+# La tabella porta il **comportamento** (chi trasmette, chi ha un system, chi persiste);
+# le MAGNITUDINI stanno in `calibrazione` (§11) e si leggono al montaggio del profilo.
+# Erano letterali qui: gli ultimi numeri di bilanciamento fuori dal catalogo, invisibili
+# alla console e non tarabili senza toccare il codice.
 SPEC_STATUS: tuple[SpecStatus, ...] = (
-    SpecStatus(Veleno, Valenza.DANNOSO, Risoluzione.MOTORE,
-               delta_per_rango=-1, blocco=Blocco.VELENO),
-    SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE,
-               delta_per_rango=-1, blocco=Blocco.BRUCIA),
+    SpecStatus(Veleno, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.VELENO),
+    SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.BRUCIA),
     SpecStatus(Rigenerazione, Valenza.BENEFICO, Risoluzione.MOTORE,
-               trasmissibile=False, delta_per_rango=+1, blocco=Blocco.RIGENERAZIONE),
-    SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE,
-               blocco=Blocco.STORDITO),  # niente delta: l'effetto è il salto-turno
+               trasmissibile=False, blocco=Blocco.RIGENERAZIONE),
+    SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.STORDITO),
     SpecStatus(Confusione, Valenza.DANNOSO, Risoluzione.AI,
                trasmissibile=False, con_sistema=False, persistente=False),
 )
@@ -173,12 +179,16 @@ class ProfiloStatus:
 
 
 def _profili_status() -> dict[type[Status], ProfiloStatus]:
-    from .calibrazione import DURATA_AFFLIZIONE, DURATA_BLOCCO_DEFAULT
+    """Monta il profilo: comportamento dalla tabella, **numeri dal catalogo §11**.
+
+    Uno status senza foglia (`Confusione`, che non ha un `Blocco` AI-facing) ripiega sui
+    default — non è un buco: è uno status a risoluzione AI, senza tick deterministico."""
+    from .calibrazione import DELTA_PER_RANGO, DURATA_AFFLIZIONE, DURATA_BLOCCO_DEFAULT
 
     return {
         s.componente: ProfiloStatus(
             s.trasmissibile,
-            s.delta_per_rango,
+            DELTA_PER_RANGO.get(nome_status(s.componente), 0),
             DURATA_AFFLIZIONE.get(nome_status(s.componente), DURATA_BLOCCO_DEFAULT),
         )
         for s in SPEC_STATUS
@@ -317,6 +327,15 @@ class SistemaStatus(SistemaSempreAttivo):
         comp.durata -= 1
         if comp.durata <= 0:
             esper.remove_component(entita, self.tipo_status)
+            if self.bus is not None:
+                # La FINE si narra come l'inizio: prima il giocatore leggeva
+                # «Sei avvelenato!» e i tick, mai quando il veleno smetteva.
+                from contracts import StatusSvanito
+
+                self.bus.pubblica(StatusSvanito(
+                    bersaglio=_nome_diegetico(entita),
+                    status=self.tipo_status.__name__.lower(),
+                ))
 
     def applica_effetto(self, entita: int, comp: Status) -> None:
         """Effetto al tick: `delta_per_rango × rango` HP (0 = nessun effetto)."""
@@ -345,25 +364,16 @@ def sistemi_status(bus=None) -> list[SistemaStatus]:
     ]
 
 
-# Alias storici (compatibilità con test e registrazioni esplicite): il tick vero
-# lo fanno le istanze di `sistemi_status`; il comportamento resta in tabella.
-
-class SistemaVeleno(SistemaStatus):
-    tipo_status = Veleno
-
-
-class SistemaBrucia(SistemaStatus):
-    tipo_status = Brucia
-
-
-class SistemaRigenerazione(SistemaStatus):
-    tipo_status = Rigenerazione
-
-
-class SistemaStordito(SistemaStatus):
-    tipo_status = Stordito
-    # Nessun delta HP in tabella: l'effetto (saltare il turno) lo consulta il loop
-    # di combattimento; qui solo il decorso dell'afflizione (durata).
+# ⛔ **Gli alias storici sono stati RITIRATI** (`SistemaVeleno`, `SistemaBrucia`,
+# `SistemaRigenerazione`, `SistemaStordito`). Erano sottoclassi nominate che facevano lo
+# stesso lavoro di `sistemi_status()`, tenute per compatibilità — e convivevano con la
+# derivazione: chi ne registrava una **insieme** al risultato di `sistemi_status()`
+# faceva ticcare **due volte** lo stesso status, dimezzandone la durata in silenzio.
+# Nessun test lo avrebbe visto, perché entrambe le strade "funzionano" da sole.
+#
+# Se ti serve il system di un tipo specifico: `SistemaStatus(bus, tipo=Veleno)`, oppure
+# — quasi sempre la cosa giusta — `sistemi_status(bus)`, che li deriva tutti dalla
+# tabella e non può produrne due per lo stesso status.
 
 
 # NB: `Confusione` (unsafe, AI-risolto) NON ha un sistema-tick deterministico nell'MVP:

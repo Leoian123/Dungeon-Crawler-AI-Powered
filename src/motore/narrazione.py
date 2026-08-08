@@ -31,6 +31,7 @@ from pydantic import ValidationError
 
 from contracts import (
     AnomalyTriggered,
+    ClasseProva,
     Durata,
     EncounterStarted,
     EntitaGenerata,
@@ -54,14 +55,16 @@ from .catalogo import (
     DURATA_BLOCCO_DEFAULT,
     REGISTRY_BLOCCHI,
     Budget,
+    classe_da_grado,
     prepara_contesto,
     rango_grado,
 )
 from .combattimento import PianoIncontro, SpecNemico
 from .derivate import max_hp
+from .mappa import mob_corrente
 from .mob import EntitaMob, Repertorio
 from .mosse import MOSSE_DEFAULT
-from .prove import risolvi_prova
+from .prove import prova_riuscita
 from .scheda import Scheda
 from .statistiche import REGISTRY_STAT, Primarie, Visibilita, stat_eff
 from .status import Rigenerazione, Stordito, Veleno
@@ -455,14 +458,34 @@ def materializza_turno(risultato: RisultatoTurno, bus=None) -> int:
 
 # --- Disimpegno: prova su stat PRIMA di ingaggiare (FNC §5.3) ------------------
 
-def tenta_disimpegno(destrezza: int, classe, rng: random.Random) -> bool:
+def classe_disimpegno() -> ClasseProva:
+    """La classe che il mob **della scena** impone a chi si vuole disimpegnare.
+
+    Gemella di `_classe_fuga` in combattimento, ma su un'altra sorgente: qui lo scontro
+    non è aperto, quindi il grado lo detta il mob registrato nella stanza. Senza mob (o
+    senza `EntitaMob`) ripiega su `BRONZO` = comportamento storico invariato."""
+    ent = mob_corrente()
+    if ent is None:
+        return ClasseProva.BRONZO
+    em = esper.try_component(ent, EntitaMob)
+    return ClasseProva.BRONZO if em is None else classe_da_grado(em.grado)
+
+
+def tenta_disimpegno(destrezza: int, classe) -> bool:
     """Disimpegno in NARRAZIONE: una prova su stat *prima* di ingaggiare. Il **motore
-    tira** (seeded); se riesce, il combattimento NON si apre (FNC §5.3).
+    confronta a margine** (nessun tiro, G §7.1); se riesce, il combattimento NON si
+    apre (FNC §5.3).
 
     Distinto dalla *fuga dal combattimento* a scontro iniziato (FNC §4): qui non c'è
     ancora nessuno scontro da cui fuggire. Riusa la meccanica delle prove (G §7).
+
+    **Non è gratis anche quando riesce, ed è ciò che gli toglie la dominanza.** Il
+    disimpegno spende la durata della sua azione (`DURATA_AZIONE[SCAPPA]`), quindi il
+    tempo di piano avanza e con esso gira il dado-evento d'imboscata (J §8): il rischio
+    non sparisce, resta dov'è già modellato. Il chiamante non riceve più un RNG perché
+    non c'è nulla da pescare qui.
     """
-    return risolvi_prova(destrezza, classe, rng)
+    return prova_riuscita(destrezza, classe)
 
 
 # --- Confine narrazione→combattimento: EncounterStarted al tick (G-25) ---------

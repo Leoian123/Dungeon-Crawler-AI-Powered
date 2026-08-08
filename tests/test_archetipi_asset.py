@@ -134,7 +134,9 @@ def test_storici_risolvono_senza_asset_col_profilo_di_calibrazione(tmp_path) -> 
     dalla calibrazione (che resta la loro autorità) anche senza profilo nell'asset."""
     risolta = risolvi_stagione("stagione-1")  # libreria ufficiale del repo
     slugs = {a.slug for a in risolta.archetipi}
-    assert slugs <= {"slime", "scheletro", "goblin"} and "slime" in slugs
+    # Gli storici ci sono tutti; la stagione può averne ALTRI (il `felino` è arrivato
+    # col dodger di F7, e porta il proprio profilo nell'asset invece di ereditarlo).
+    assert {"slime", "scheletro", "goblin"} <= slugs
     slime = next(a for a in risolta.archetipi if a.slug == "slime")
     atteso = REGISTRY_ARCHETIPI["slime"]
     assert slime.profilo.pv_base == atteso.pv_base

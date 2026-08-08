@@ -98,15 +98,39 @@ class TempoVista(BaseModel):
     etichetta: str       # forma diegetica ("un pochino", "20–30 minuti")
 
 
+class GradoEsito(str, Enum):
+    """Quanto bene (o male) è andata una prova — **derivato dal margine**, non scelto.
+
+    Vive qui e non in `schema.py` perché **non è AI-facing**: l'AI inquadra la prova
+    (sceglie la `ClasseProva`), il motore la risolve e *deriva* questo grado dallo
+    scarto fra stat effettiva e soglia. L'AI lo riceve per vestirlo di prosa, mai per
+    negoziarlo — è l'altra metà di "risolvi prima, narra dopo".
+
+    I gradi esistono perché una prova deterministica senza sfumature sarebbe un
+    interruttore: il margine dice *di quanto* ce l'hai fatta, ed è lì che sta la
+    texture che il dado dava gratis (G §7.1, "gradi di successo dal margine")."""
+
+    FALLIMENTO_GRAVE = "fallimento_grave"
+    FALLIMENTO = "fallimento"
+    SUCCESSO = "successo"
+    SUCCESSO_PIENO = "successo_pieno"
+
+
 class ProvaVista(BaseModel):
     """La prova del turno, SOLO se esiste. `esito=None` = inquadrata, non risolta;
-    l'esito, quando c'è, l'ha tirato il MOTORE (seeded), mai l'AI."""
+    l'esito, quando c'è, l'ha **calcolato** il MOTORE (a margine, senza tiro), mai l'AI.
+
+    `margine` e `grado` sono il dettaglio che rende raccontabile l'esito ("di un soffio"
+    vs "senza nemmeno provarci"); `esito` resta il booleano di sempre, come lettura di
+    compatibilità per gli host già scritti."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     classe: str
     stat: str
     esito: bool | None = None
+    margine: int | None = None
+    grado: GradoEsito | None = None
 
 
 class MessaggioGM(BaseModel):

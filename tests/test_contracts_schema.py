@@ -45,6 +45,25 @@ def _tipi_concreti(annotazione: object) -> set[type]:
     return trovati
 
 
+# --- Lo schema esportato è SNELLO: niente docstring in viaggio -----------------
+
+def test_lo_schema_ai_non_trasporta_docstring() -> None:
+    """Le docstring (con i riferimenti alle spec interne) sono per chi legge il
+    codice: esportate come `description` pesavano ~40% dei token di input di OGNI
+    chiamata al provider (audit 2026-08-07). Se un giorno serve una descrizione
+    PENSATA per l'AI, si dichiara con `Field(description=...)` e si aggiorna
+    questo test elencando le eccezioni volute — mai per docstring di ritorno."""
+    import json
+
+    from contracts import Ideazione, InquadramentoProva
+
+    for modello in (TurnoNarrazione, Ideazione, InquadramentoProva, Flavor):
+        testo = json.dumps(modello.model_json_schema())
+        assert '"description"' not in testo, (
+            f"{modello.__name__}: una docstring è tornata nello schema AI-facing"
+        )
+
+
 # --- F-3: EntitaGenerata senza campi numerici (né livello) --------------------
 
 def test_F3_entita_generata_senza_campi_numerici() -> None:
@@ -127,8 +146,10 @@ def test_F4_schema_chiuso_extra_vietati() -> None:
 # --- F-1: forma di TurnoNarrazione e Flavor; durata su Turno, non su Flavor ----
 
 def test_F1_turno_narrazione_ha_i_campi_giusti() -> None:
+    # `beneficio` (gate anti-arbitraggio): classificazione su enum chiuso col default
+    # NESSUNO — l'AI classifica il vantaggio reclamato, il costo lo applica il motore.
     assert set(TurnoNarrazione.model_fields) == {
-        "prosa", "entita", "opzioni", "durata",
+        "prosa", "entita", "opzioni", "durata", "beneficio",
     }
     assert "livello" not in TurnoNarrazione.model_fields
 

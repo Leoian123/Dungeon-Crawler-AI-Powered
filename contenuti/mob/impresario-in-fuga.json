@@ -1,0 +1,12 @@
+{
+  "slug": "impresario-in-fuga",
+  "versione": 1,
+  "tags": ["sotto-il-palco", "truffa", "boss"],
+  "nome": "l'Impresario in Fuga",
+  "archetipo": "goblin",
+  "grado": "oro",
+  "blocchi": [],
+  "descrizione": "Il goblin che ha venduto i biglietti per un'idra che non esiste, sorpreso mentre riempie una valigia di crediti.",
+  "prosa_stanza": "Sotto il palco, dove il compensato diventa impalcatura, un goblin in smoking sta chiudendo una valigia troppo piena. Ti vede. Non scappa: sorride, e ti chiede se hai conservato lo scontrino.",
+  "durata": "un_attimo"
+}

@@ -35,8 +35,11 @@ _MOTORE = Path(__file__).resolve().parents[1] / "src" / "motore"
 
 def test_GR2_12_forma_azione() -> None:
     campi = {f.name for f in dataclasses.fields(Azione)}
-    # `mossa` è flavour per la cronaca (chiave diegetica), non una quarta giuntura.
-    assert campi == {"sorgente", "bersaglio", "effetti", "costo", "mossa"}
+    # `mossa` è flavour per la cronaca (chiave diegetica), non una quarta giuntura;
+    # `consenso_azzardo` è un FLAG di rifiuto — di default `False`, e senza di lui il
+    # risolutore salta i primitivi che pescano (azzardo opt-in, F10). Nessuno dei due
+    # aggiunge una giuntura: le tre restano selezione / costo / lista di effetti.
+    assert campi == {"sorgente", "bersaglio", "effetti", "costo", "mossa", "consenso_azzardo"}
 
     # L'attacco base è l'UNICA istanza dell'MVP: effetti=[Danno], costo={"AP": 1}.
     az = Azione(sorgente=1, bersaglio=2, effetti=[Danno(quantita_da=QuantitaDa.ATK_EFF)])

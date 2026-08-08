@@ -22,6 +22,7 @@ from motore import (
     componi_opzioni_scena,
     crea_mappa,
     genera_topologia,
+    livello_corrente,
     mappa_corrente,
     mappa_da_dict,
     mappa_to_dict,
@@ -133,10 +134,39 @@ def test_sessione_arruola_il_mob_della_stanza(run_pulita) -> None:
     assert esper.has_component(mob, Combattente)
 
 
+def _stagione_leggera():
+    """Due piani di sole comparse bronzo: il test verifica il CABLAGGIO del ciclo
+    (esplora → combatti → scala → Scendi), non la taratura del contenuto ufficiale.
+    Col copione keyed il mob appartiene alla STANZA (D5), quindi la rotta del bot
+    incontra il cast reale del piano: legare questo test alla Falsa Idra lo
+    trasformerebbe in un test di bilanciamento."""
+    from contracts import BudgetDesign, Grado, MobAsset, PianoRisolto, StagioneRisolta
+    from main import risolvi_stagione
+
+    def _piano(n: int) -> PianoRisolto:
+        cast = [
+            MobAsset(slug=f"comparsa-{n}-{i}", nome=f"Comparsa {n}.{i}",
+                     archetipo="slime", grado=Grado.BRONZO,
+                     prosa_stanza=f"La stanza {i} del piano {n} borbotta di slime.")
+            for i in range(3)
+        ]
+        return PianoRisolto(
+            slug=f"leggero-{n}", versione=1, titolo=f"Leggero {n}", tema="cablaggio",
+            budget=BudgetDesign(gradi=[Grado.BRONZO], blocchi=[], archetipi=["slime"]),
+            cast=cast,
+        )
+
+    ufficiale = risolvi_stagione("stagione-1")
+    return StagioneRisolta(
+        slug="s-cablaggio", versione=1, numero=1, titolo="Cablaggio", mondo="X",
+        piani=[_piano(1), _piano(2)], archetipi=list(ufficiale.archetipi),
+    )
+
+
 def test_sessione_vince_esplorando_fino_alla_scala(run_pulita) -> None:
     """Il ciclo che prima era irraggiungibile: esplora → combatti → muovi → scala →
     Scendi → DiscesaPiano (vittoria MVP), tutto dalle porte, via la scena."""
-    sessione = costruisci_sessione(seed=1)
+    sessione = costruisci_sessione(seed=1, stagione=_stagione_leggera())
     eventi: list[DiscesaPiano] = []
     sessione.bus.registra(DiscesaPiano, eventi.append)
     try:
@@ -161,7 +191,14 @@ def test_sessione_vince_esplorando_fino_alla_scala(run_pulita) -> None:
                 )
                 sessione.coda.accoda(PlayerChoseOption(idx))
             snap = sessione.avanza()
-        assert eventi and eventi[0].piano == 2  # vittoria: la discesa è avvenuta
-        assert sessione.guscio._terminale is not None  # PIANO_COMPLETATO rilevato
+        assert eventi and eventi[0].piano == 2  # la discesa è avvenuta
+        # ⚠️ Scendere NON è più vincere: con una stagione a più piani il terminale
+        # scatta solo uscendo dall'ULTIMO. Qui si è arrivati al piano 2 di 2, quindi
+        # la run CONTINUA — ed è il punto: prima questo ramo era irraggiungibile.
+        assert sessione.guscio.terminale is None, (
+            "la run si è chiusa alla prima discesa: il secondo piano è tornato "
+            "irraggiungibile"
+        )
+        assert livello_corrente() == 2
     finally:
         sessione.bus.deregistra(DiscesaPiano, eventi.append)

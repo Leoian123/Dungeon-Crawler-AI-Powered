@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 
 from contracts import MortePersonaggio, PlayerChoseOption
-from main import CronacaBus, costruisci_sessione
+from main import CronacaBus, _riga_terminale, costruisci_sessione
 
 
 def _costruisci_app(sessione):
@@ -59,6 +59,9 @@ def _costruisci_app(sessione):
             self.prosa_corrente = ""  # ultima prosa mostrata
             self._in_conferma = False  # finestra di conferma dell'azione libera
             self._occupato = False     # il GM sta lavorando: input sospeso
+            self._msg_visto = None     # ultimo MessaggioGM già considerato (dedup avvisi)
+            self._avvisi_fallback = 0  # quanti turni degradati sono stati segnalati
+            self._terminale_annunciato = False  # la riga di chiusura si scrive UNA volta
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -174,11 +177,33 @@ def _costruisci_app(sessione):
             rl = self.query_one("#log", RichLog)
             for r in righe:
                 rl.write(r)
+            # Il degrado non resta muto (audit 2026-08-07): se il turno è il pacchetto
+            # neutro di fallback, il giocatore lo LEGGE — prima lo si scopriva solo
+            # riconoscendo a occhio «Sagoma indistinta».
+            msg = getattr(self.sessione, "ultimo_messaggio", None)
+            if msg is not None and msg is not self._msg_visto:
+                self._msg_visto = msg
+                if getattr(msg, "fallback", False):
+                    self._avvisi_fallback += 1
+                    rl.write(
+                        "[yellow]⚠ Il GM non ha risposto (rete, refusal o proposta "
+                        "respinta dal gate): turno neutro di ripiego. Il consumo "
+                        "dettagliato appare all'uscita.[/]"
+                    )
             menu = self.query_one("#menu", Horizontal)
             await menu.remove_children()
             if self._morto:
                 rl.write("[b red]💀 Sei morto — permadeath, run terminata.[/]")
                 await menu.mount(Button("Esci (Q)", id="esci", variant="error"))
+                return
+            # Il TERMINALE si verbalizza (giro 2026-08-07): la vittoria della run
+            # era completamente muta — l'ultima riga letta era una discesa verso
+            # un piano inesistente.
+            if snap.terminale is not None:
+                if not self._terminale_annunciato:
+                    self._terminale_annunciato = True
+                    rl.write(f"[b green]{_riga_terminale(snap.terminale)}[/b green]")
+                await menu.mount(Button("Esci (Q)", id="esci", variant="success"))
                 return
             bottoni = [
                 Button(o.etichetta, id=f"opz-{o.indice}", variant="primary")
@@ -254,7 +279,45 @@ def _scegli_provider(argv: list[str]) -> tuple[object | None, str]:
         modello=MODELLO_VELOCE, max_tokens=512, timeout=15.0, consumo=consumo
     )
     provider = ProviderPerSchema({TurnoNarrazione: forte}, predefinito=veloce)
+    # Il tally viaggia col provider: l'host lo mostra a fine sessione (e può
+    # leggerlo quando un turno degrada) senza cambiare la firma di questa funzione.
+    provider.consumo = consumo
     return provider, f"GM live — {MODELLO_DEFAULT} (turni) + {MODELLO_VELOCE} (rifiniture)"
+
+
+def _scegli_sessione(argv: list[str], provider, directory=None):
+    """Nuova partita, o RIPRESA con `--riprendi [uuid]` (senza uuid: l'ultimo save).
+
+    Due buchi chiusi qui (giro 2026-08-07): il tasto Salva scriveva in una
+    tempdir usa-e-getta (il default di `costruisci_sessione` è una cartella
+    demo) e NESSUN host chiamava mai `carica_sessione` — la persistenza era
+    raggiungibile solo in scrittura. `directory` None → la cartella salvataggi
+    vera dell'installazione."""
+    from main import DIRECTORY_SALVATAGGI, carica_sessione, elenca_crawler
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    if "--riprendi" in argv:
+        indice = argv.index("--riprendi")
+        uuid = None
+        if len(argv) > indice + 1 and not argv[indice + 1].startswith("-"):
+            uuid = argv[indice + 1]
+        if uuid is None:
+            vive = [v for v in elenca_crawler(directory) if not v.corrotta]
+            if not vive:
+                raise SystemExit(
+                    "[gioca] nessuna partita da riprendere: la cartella salvataggi è vuota"
+                )
+            uuid = max(vive, key=lambda v: v.timestamp).uuid
+        sessione = carica_sessione(uuid=uuid, directory=directory, provider=provider)
+        if sessione is None:
+            raise SystemExit(f"[gioca] save illeggibile o corrotto: {uuid}")
+        print(f"[gioca] ripresa: {sessione.etichetta} — piano "
+              f"{sessione.scheda().livello}")
+        return sessione
+    seed = 1
+    if "--seed" in argv:
+        seed = int(argv[argv.index("--seed") + 1])
+    return costruisci_sessione(seed=seed, provider=provider, directory=directory)
 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point)
@@ -263,15 +326,17 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
     except (AttributeError, ValueError):
         pass
     argv = list(sys.argv[1:] if argv is None else argv)
-    seed = 1
-    if "--seed" in argv:
-        seed = int(argv[argv.index("--seed") + 1])
     provider, etichetta = _scegli_provider(argv)
     print(f"[gioca] {etichetta}")
-    sessione = costruisci_sessione(seed=seed, provider=provider)
+    sessione = _scegli_sessione(argv, provider)
     app = _costruisci_app(sessione)
     app.sub_title = etichetta  # il giocatore VEDE con quale GM sta giocando
     app.run()
+    # Il tally non si butta più via: una riga a fine sessione dice quanto si è
+    # speso e PERCHÉ eventuali turni sono degradati (trasporto vs generazione).
+    consumo = getattr(provider, "consumo", None)
+    if consumo is not None:
+        print(f"[gioca] {consumo.riassunto()}")
     return 0
 
 
