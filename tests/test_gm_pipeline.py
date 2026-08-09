@@ -84,19 +84,48 @@ def _pipeline(prov, arch=None, mem=None, **kw):
 # --- Budget di chiamate e forma del prompt --------------------------------------
 
 def test_conteggio_e_ordine_chiamate(mondo_isolato) -> None:
-    # REVEAL: niente ideazione (non c'è azione da inquadrare) — 3 chiamate secche.
+    # REVEAL: niente ideazione (nessuna azione) e niente limatura (la prosa gated
+    # è DEFINITIVA: riscriverla con la corsia veloce degradava il registro) —
+    # 2 chiamate secche: gating + distillazione-memoria.
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="limata", memoria="riga memoria"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="riga memoria"))
     esito, _a, _m = _pipeline(prov)
     schemi = [s for _p, s in prov.chiamate]
-    assert schemi == [TurnoNarrazione, Flavor, Flavor]
+    assert schemi == [TurnoNarrazione, Flavor]
     assert schemi.count(TurnoNarrazione) == 1  # UNA sola chiamata gating (G-22)
     # Struttura I/O per il caching (F §7/H §13): il prefisso statico viaggia nel
-    # canale `sistema` (byte-identico per stadio), MAI duplicato nel corpo; le
-    # rifiniture (limatura/distillazione) prendono il prefisso CORTO.
-    assert prov.sistemi == [PREFISSO_GM, PREFISSO_RIFINITURA, PREFISSO_RIFINITURA]
+    # canale `sistema` (byte-identico per stadio), MAI duplicato nel corpo; la
+    # distillazione prende il prefisso CORTO.
+    assert prov.sistemi == [PREFISSO_GM, PREFISSO_RIFINITURA]
     assert all(PREFISSO_GM not in p for p, _s in prov.chiamate)
-    assert esito.messaggio.prosa == "limata" and not esito.da_cache
+    # La prosa del reveal esce INTEGRA dal modello forte (nessuna riscrittura).
+    assert esito.messaggio.prosa == _turno()["prosa"] and not esito.da_cache
+
+
+def test_prompt_evento_canonico_e_filo_di_continuita(mondo_isolato) -> None:
+    """Il prompt della gating ha la FORMA CANONICA (contesto→filo→evento→compito)
+    e il turno successivo riprende il filo: la coda della prosa precedente viaggia
+    in [filo/prima] — il registro smette di ripartire da zero a ogni stanza."""
+    _arma_run()
+    prov = FakeProvider(coda_reveal(_turno(), memoria="riga"))
+    _e1, arch, mem = _pipeline(prov)
+    prompt_reveal = prov.chiamate[0][0]
+    assert "[evento]" in prompt_reveal and "MAI vista" in prompt_reveal
+    assert "[istruzione]" in prompt_reveal
+    # Primo turno: nessuna SEZIONE filo (l'istruzione può citare il marcatore).
+    assert "[filo/prima] …" not in prompt_reveal
+    # L'ordine canonico: il contesto precede l'evento, l'evento precede il compito.
+    assert prompt_reveal.index("[fascicolo/tempo]") < prompt_reveal.index("[evento]")
+    assert prompt_reveal.index("[evento]") < prompt_reveal.index("[istruzione]")
+
+    # Turno successivo (azione): il filo porta la coda della prosa del reveal.
+    for voce in coda_azione(_turno()):
+        prov.accoda(voce)
+    _e2, _a, _m = _pipeline(prov, arch=arch, mem=mem, azione="seguo le impronte")
+    prompt_gating = prov.chiamate[-3][0]  # [idea, GATING, limatura, distilla]
+    assert "[filo/prima] …" in prompt_gating
+    coda_attesa = _turno()["prosa"][-40:]
+    assert coda_attesa in prompt_gating, "la coda della prosa precedente non è nel filo"
 
 
 def test_prefisso_forte_sopra_soglia_cache() -> None:
@@ -222,7 +251,7 @@ def test_azioni_diverse_a_tick_fermo_non_collidono(mondo_isolato) -> None:
 
 def test_cache_rilegge_senza_chiamate(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="limata", memoria="riga"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="riga"))
     esito1, arch, mem = _pipeline(prov)
     n = len(prov.chiamate)
     esito2, _a, _m = _pipeline(prov, arch=arch, mem=mem)
@@ -300,7 +329,7 @@ def test_prova_solo_se_esiste_e_tira_il_motore(mondo_isolato) -> None:
 
 def test_avanzamento_monotono_e_completo(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="l", memoria="m"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="m"))
     tappe: list[tuple[str, float]] = []
     esito, arch, mem = _pipeline(prov, avanzamento=lambda e, f: tappe.append((e, f)))
     frazioni = [f for _e, f in tappe]
@@ -392,7 +421,7 @@ def test_il_turno_post_scontro_non_e_inghiottito_dalla_cache(mondo_isolato) -> N
     from contracts import FattiScontro
 
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r1"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="r1"))
     esito1, arch, mem = _pipeline(prov)               # il reveal congela il record
     assert esito1.da_cache is False
 
@@ -412,7 +441,7 @@ def test_resoconto_una_sola_chiamata_e_zero_tempo(mondo_isolato) -> None:
     Flavor (rotta scontro.resoconto), zero ideazione/gating (prima generava
     un'entità mai materializzata), zero tick (il tempo l'ha bruciato il loop)."""
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="r"))
     _e1, arch, mem = _pipeline(prov)
     n = len(prov.chiamate)
 
@@ -434,7 +463,7 @@ def test_resoconto_una_sola_chiamata_e_zero_tempo(mondo_isolato) -> None:
 
 def test_resoconto_congelato_e_riletto_a_zero_chiamate(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="r"))
     _e1, arch, mem = _pipeline(prov)
     prov.accoda(dict(testo="chiusura"))
     fatti = FattiScontro(vittoria=True, turni=3, hp_persi=0, nemico="X")
@@ -448,7 +477,7 @@ def test_resoconto_congelato_e_riletto_a_zero_chiamate(mondo_isolato) -> None:
 
 def test_resoconto_degrada_a_template_deterministico(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="r"))
     _e1, arch, mem = _pipeline(prov)
     # FIFO vuota: il resoconto degrada al template dai FATTI (mai un turno muto).
     fatti = FattiScontro(vittoria=True, turni=5, hp_persi=7, nemico="Il Regista")
@@ -460,7 +489,7 @@ def test_resoconto_degrada_a_template_deterministico(mondo_isolato) -> None:
 
 def test_resoconto_distingue_la_fuga(mondo_isolato) -> None:
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="reveal", memoria="r"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="r"))
     _e1, arch, mem = _pipeline(prov)
     prov.accoda(dict(testo="via di corsa"))
     fatti = FattiScontro(vittoria=False, turni=2, hp_persi=3, nemico="X", fuga=True)
@@ -477,7 +506,7 @@ def test_la_rivisita_di_una_stanza_ripulita_lo_dice(mondo_isolato) -> None:
     from motore import dissolvi_mob
 
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="reveal col mob", memoria="r"))
+    prov = FakeProvider(coda_reveal(_turno(), memoria="r"))
     esito1, arch, mem = _pipeline(prov)
     nome = _turno()["entita"]["nome"]
 
@@ -502,7 +531,7 @@ def test_la_memoria_non_registra_entita_mai_materializzate(mondo_isolato) -> Non
     mai nel mondo — un fatto falso propagato alla finestra di memoria, congelato
     in Archivio e ricostruito al load."""
     _arma_run()
-    prov = FakeProvider(coda_reveal(_turno(), limata="reveal"))  # distilla degradata
+    prov = FakeProvider(coda_reveal(_turno()))  # distilla degradata
     _e1, arch, mem = _pipeline(prov)
     nome = _turno()["entita"]["nome"]
     assert nome in mem.finestra()[-1], "il reveal materializza: il nome VA in memoria"

@@ -170,6 +170,23 @@ STILE_CINEMA = "\n".join([
     "e non un corridoio di testi.",
     "[stile] Chiudi sempre sul mondo, mai sul giocatore: l'ultima immagine "
     "appartiene alla scena (ciò che resta, ciò che osserva, ciò che aspetta).",
+    "[stile] CONTINUITÀ: se il prompt porta una sezione [filo/prima], la tua "
+    "scena RIPRENDE da lì — stesso mondo, stessa aria, un passo avanti. Mai "
+    "ripetere quelle frasi, mai ripartire da zero come se nulla fosse accaduto.",
+    # Esemplari ORIGINALI del registro (few-shot): non sono contenuto di gioco,
+    # sono la TARATURA della voce — statici, viaggiano in cache col prefisso.
+    "[esempio/apertura] La stanza 4 puzza di colla e di applausi vecchi. Da "
+    "qualche parte sopra di te, un riflettore si accende con un TONF che senti "
+    "nello sterno, e il cerchio di luce si mette a cercarti — pigro, teatrale, "
+    "come se avesse tutto il tempo del mondo. Ce l'ha. Nel cono di polvere "
+    "illuminata, qualcosa di grosso smette di masticare. Si volta. Ha ancora "
+    "addosso il cartellino del turno di notte.",
+    "[esempio/sistema] «Complimenti, crawler! Hai scoperto la Stanza dei Premi. "
+    "I premi sono stati rimossi per motivi di budget. La stanza no.»",
+    "[esempio/chiusura] Il Coro delle Ossa smette di cantare una vertebra alla "
+    "volta. L'ultima nota resta appesa al soffitto insieme alla polvere. Sul "
+    "pavimento, tra i cocci, qualcosa luccica con l'entusiasmo di chi ha appena "
+    "cambiato proprietario. Da molto lontano, il pubblico fa «ooooh».",
 ])
 
 PREFISSO_GM = "\n".join([
@@ -259,22 +276,78 @@ _ISTRUZIONE_IDEAZIONE = (
 # del MOTORE (flag `reveal`), mai dell'AI.
 _ISTRUZIONE_COMPOSIZIONE_REVEAL = (
     "[istruzione] Metti in scena la stanza: questa è un'APERTURA — 250-400 parole, "
-    "regia piena secondo la guida di stile (inquadratura → movimento → creatura). "
+    "regia piena secondo la guida di stile (inquadratura → movimento → creatura), "
+    "in CONTINUITÀ con [filo/prima] se presente (il crawler arriva DA lì). "
     "Scegli archetipo/grado/blocchi DENTRO il budget; dai alla creatura un corpo e "
     "un'identità: compila `aspetto` (IL dettaglio visivo che resta negli occhi) e "
     "`tratto` (l'abitudine o il verso che la distingue) — evita i cliché e i sosia "
     "di ciò che la memoria del fascicolo ha già visto; dichiara la durata "
-    "(vocabolario chiuso). Nessun preambolo, nessun riassunto in coda."
+    "(vocabolario chiuso). Nessun preambolo, nessun riassunto in coda. Questo testo "
+    "è DEFINITIVO: va in scena così com'è."
 )
 
 _ISTRUZIONE_COMPOSIZIONE_AZIONE = (
     "[istruzione] Narra il turno: la prosa DEVE contestualizzare l'azione del giocatore "
-    "in un dove e un come; scegli archetipo/grado/blocchi DENTRO il budget; "
+    "in un dove e un come, in CONTINUITÀ con [filo/prima] se presente (è la scena "
+    "in cui l'azione accade); scegli archetipo/grado/blocchi DENTRO il budget; "
     "dichiara la durata (vocabolario chiuso) e il beneficio che l'azione "
     "reclama (nessuno|recupero|lavoro|addestramento|svolta — 'svolta' per ogni pretesa "
     "di avanzamento permanente). Coerente con l'idea sopra, se presente. Prosa "
     "ASCIUTTA: poche frasi dense, niente preamboli."
 )
+
+
+# --- Il PROMPT EVENTO canonico: ogni turno è composto dalle stesse parti --------
+#
+# La forma è FISSA e nominata (2026-08-09, contro il "sloppy senza filo"): ogni
+# rotta che narra costruisce il corpo del prompt con le stesse sezioni, nello
+# stesso ordine — il modello impara la geografia del prompt una volta sola.
+#
+#   contesto  → le sezioni [fascicolo/*] (piano, tempo, mappa, scheda, memoria)
+#   filo      → [filo/prima]: la coda della prosa precedente (continuità)
+#   guida     → [ideazione]: l'idea consultiva, se esiste
+#   evento    → [evento]: la NATURA di questo turno (reveal / azione / chiusura)
+#   compito   → [istruzione]: cosa produrre, in che forma
+#
+# È testo (str): nessun componente vivo lo attraversa; il budget soft resta
+# appeso da `costruisci_prompt` (dominio della gating), a valle di queste parti.
+
+@dataclass(frozen=True)
+class PromptEvento:
+    """Le parti nominate del prompt di un turno. `componi()` le salda nell'ordine
+    canonico, saltando le vuote — la struttura non cambia mai, i pezzi sì."""
+
+    contesto: str
+    filo: str = ""
+    guida: str = ""
+    evento: str = ""
+    compito: str = ""
+
+    def componi(self) -> str:
+        parti = [self.contesto, self.filo, self.guida, self.evento, self.compito]
+        return "\n".join(p for p in parti if p)
+
+
+def _coda_prosa(testo: str, max_chars: int = 320) -> str:
+    """La CODA della prosa (ultime frasi, ~max_chars): quanto basta a riprendere
+    il filo senza ripagare il turno intero. Deterministica, taglio su frase."""
+    testo = " ".join(testo.split())
+    if len(testo) <= max_chars:
+        return testo
+    coda = testo[-max_chars:]
+    # Riparti dalla prima frase completa dentro la finestra (se ce n'è una).
+    for sep in (". ", "! ", "? "):
+        i = coda.find(sep)
+        if i != -1:
+            return coda[i + len(sep):]
+    return coda
+
+
+def _filo(f: Fascicolo) -> str:
+    if not f.scena_precedente:
+        return ""
+    return (f"[filo/prima] …{f.scena_precedente}\n"
+            "[filo] Riprendi da qui: stesso mondo, un passo avanti — non ripetere.")
 
 
 # --- Il fascicolo di turno: sola LETTURA dei componenti informativi -------------
@@ -299,6 +372,9 @@ class Fascicolo:
     # Voci dalla MEMORIA NARRATIVA (porta, Fase 6): documenti recuperati per
     # rilevanza — contesto lungo oltre la finestra dei riassunti-turno.
     memoria_lunga: tuple[str, ...] = ()
+    # La CODA della prosa dell'ultimo turno mostrato (già troncata): il filo che
+    # ogni scena riprende — vedi `_filo` e la sezione [filo/prima].
+    scena_precedente: str = ""
 
 
 def componi_fascicolo(
@@ -336,6 +412,7 @@ def componi_fascicolo(
         azione=azione,
         esito_scontro=esito_scontro,
         piano_etichetta=etichetta,
+        scena_precedente=_coda_prosa(memoria.ultima_prosa) if memoria.ultima_prosa else "",
     )
 
 
@@ -422,10 +499,17 @@ class MemoriaTurni:
     si RICOSTRUISCE dall'Archivio (la chat non si salva: è derivata)."""
 
     righe: deque = field(default_factory=lambda: deque(maxlen=8))
+    # La prosa dell'ULTIMO turno mostrato: il filo di continuità (sezione
+    # [filo/prima]). Derivata come il resto: al load si rilegge dall'Archivio.
+    ultima_prosa: str = ""
 
     def registra(self, riga: str) -> None:
         if riga:
             self.righe.append(riga)
+
+    def registra_prosa(self, prosa: str) -> None:
+        if prosa:
+            self.ultima_prosa = prosa
 
     def finestra(self, n: int = 3) -> tuple[str, ...]:
         return tuple(list(self.righe)[-n:])
@@ -439,6 +523,7 @@ class MemoriaTurni:
         )
         for r in record:
             memoria.registra(r.contenuto.get("memoria", ""))
+            memoria.registra_prosa(r.contenuto.get("prosa", ""))
         return memoria
 
 
@@ -701,15 +786,20 @@ _ISTRUZIONE_RESOCONTO_FUGA = (
 
 
 def _prompt_resoconto(fascicolo: Fascicolo) -> str:
-    """Il prompt del resoconto: fascicolo (porta già `[fascicolo/esito-scontro]`)
-    + i momenti salienti raccolti dal bus + l'istruzione per esito."""
+    """Il prompt del resoconto nella FORMA CANONICA (`PromptEvento`): contesto
+    (porta già `[fascicolo/esito-scontro]`) → filo → evento (i momenti salienti)
+    → compito (istruzione per esito)."""
     e = fascicolo.esito_scontro
-    righe = [sezione_fascicolo(fascicolo)]
+    evento = ["[evento] Lo scontro si è appena chiuso: questo turno ne narra la chiusura."]
     if e is not None and e.momenti:
-        righe += [f"[scontro/momenti] {m}" for m in e.momenti]
+        evento += [f"[scontro/momenti] {m}" for m in e.momenti]
     fuga = e is not None and e.fuga
-    righe.append(_ISTRUZIONE_RESOCONTO_FUGA if fuga else _ISTRUZIONE_RESOCONTO_VITTORIA)
-    return "\n".join(righe)
+    return PromptEvento(
+        contesto=sezione_fascicolo(fascicolo),
+        filo=_filo(fascicolo),
+        evento="\n".join(evento),
+        compito=_ISTRUZIONE_RESOCONTO_FUGA if fuga else _ISTRUZIONE_RESOCONTO_VITTORIA,
+    ).componi()
 
 
 def _resoconto_fallback(e: FattiScontro) -> str:
@@ -897,6 +987,9 @@ async def esegui_turno_gm(
                          f"{nome_mob} non c'è più: restano solo i segni di ciò "
                          f"che è successo qui.",
             })
+        # Anche la rilettura muove il filo: la stanza riletta È l'ultima scena
+        # mostrata — il turno successivo riprende da lì.
+        memoria.registra_prosa(messaggio.prosa)
         return EsitoTurnoGM(messaggio=messaggio, risultato=None, da_cache=True)
 
     # Il design ATTIVO (stagione congelata nella run): colora il canale sistema
@@ -921,6 +1014,7 @@ async def esegui_turno_gm(
         _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
         riga_memoria = _memoria_scontro(esito_scontro, fascicolo)
         memoria.registra(riga_memoria)
+        memoria.registra_prosa(prosa)  # il filo riparte dalla chiusura
         if memoria_narrativa is not None:
             # Il primo produttore della memoria narrativa: lo scontro è un EVENTO
             # durevole della run — deterministico, dai fatti, zero chiamate.
@@ -979,13 +1073,22 @@ async def esegui_turno_gm(
     # --- Stadio 2: composizione — LA chiamata gating (gate+fallback invariati).
     # `procura_turno` possiede prompt+gate+retry di dominio: riceve il provider
     # della corsia FORTE, non l'engine (la rotta `gm.gating` dichiara lo stesso
-    # retry: lucchetto di sincronia in test_master_engine).
+    # retry: lucchetto di sincronia in test_master_engine). Il corpo è il
+    # PROMPT EVENTO canonico: contesto → filo → guida → evento → compito.
     _nota(avanzamento, "Il GM scrive il turno…", 0.35)
-    voce = "\n".join(x for x in [
-        sezione_fascicolo(fascicolo),
-        _sezione_ideazione(idea),
-        _ISTRUZIONE_COMPOSIZIONE_REVEAL if reveal else _ISTRUZIONE_COMPOSIZIONE_AZIONE,
-    ] if x)
+    if reveal:
+        evento = "[evento] Il crawler varca una stanza MAI vista: apri la scena."
+        compito = _ISTRUZIONE_COMPOSIZIONE_REVEAL
+    else:
+        evento = "[evento] Il crawler ha agito: questo turno risponde alla sua azione."
+        compito = _ISTRUZIONE_COMPOSIZIONE_AZIONE
+    voce = PromptEvento(
+        contesto=sezione_fascicolo(fascicolo),
+        filo=_filo(fascicolo),
+        guida=_sezione_ideazione(idea),
+        evento=evento,
+        compito=compito,
+    ).componi()
     risultato = await procura_turno(
         engine.provider_di(Corsia.FORTE), budget, fascicolo.proiezione, voce=voce,
         ingresso_combattimento=ingresso_combattimento, sistema=sistema,
@@ -1019,22 +1122,30 @@ async def esegui_turno_gm(
             esito=esito.riuscita, margine=esito.margine, grado=esito.grado,
         )
 
-    # --- Stadio 2-limatura + distillazione: IN PARALLELO (un round-trip in meno).
-    # Entrambe lavorano sulla bozza uscita dal gate (fatti identici): la limatura
-    # produce la prosa per il giocatore, la distillazione la riga di memoria.
+    # --- Stadio 2-limatura + distillazione. La limatura gira SOLO sui turni-azione
+    # (rifonde i dati di contesto nella bozza asciutta): al reveal la prosa gated
+    # È il testo definitivo — farla riscrivere alla corsia veloce degradava il
+    # registro del modello forte (2026-08-09: la causa tecnica del "imita male").
     _nota(avanzamento, "Rifinitura e memoria…", 0.8)
     etichetta = ETICHETTA_TEMPO[durata]
     prosa = risultato.turno.prosa
+    limata = None
     # Le rifiniture viaggiano col prefisso CORTO: niente lore/cast per riscrivere
     # una bozza (il prefisso pieno resta su gating/ideazione/prova, dov'è cache).
-    limata_f, memoria_f = await asyncio.gather(
-        engine.genera("gm.limatura",
-                      _prompt_limatura(prosa, fascicolo, etichetta, prova_vista),
-                      sistema=PREFISSO_RIFINITURA),
-        engine.genera("gm.distilla", _prompt_distilla(prosa, fascicolo),
-                      sistema=PREFISSO_RIFINITURA),
-    )
-    limata = limata_f.testo if limata_f is not None else None
+    if azione:
+        limata_f, memoria_f = await asyncio.gather(
+            engine.genera("gm.limatura",
+                          _prompt_limatura(prosa, fascicolo, etichetta, prova_vista),
+                          sistema=PREFISSO_RIFINITURA),
+            engine.genera("gm.distilla", _prompt_distilla(prosa, fascicolo),
+                          sistema=PREFISSO_RIFINITURA),
+        )
+        limata = limata_f.testo if limata_f is not None else None
+    else:
+        memoria_f = await engine.genera(
+            "gm.distilla", _prompt_distilla(prosa, fascicolo),
+            sistema=PREFISSO_RIFINITURA,
+        )
     riga_memoria = memoria_f.testo if memoria_f is not None else None
     if limata:
         prosa = limata
@@ -1074,6 +1185,7 @@ async def esegui_turno_gm(
             risultato, fascicolo, prova_vista, materializzato=reveal
         )
     memoria.registra(riga_memoria)
+    memoria.registra_prosa(prosa)  # il filo di continuità per il turno successivo
 
     snapshot = (
         ", ".join(fascicolo.proiezione.descrittori) or "ignoto",

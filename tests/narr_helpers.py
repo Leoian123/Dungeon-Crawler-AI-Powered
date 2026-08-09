@@ -50,12 +50,13 @@ def _voce_flavor(v):
     return dict(testo=v) if isinstance(v, str) else v
 
 
-def coda_reveal(turno, *, limata=None, memoria=None) -> list:
-    """FIFO di un turno-REVEAL: [gating, limatura, distillazione].
+def coda_reveal(turno, *, memoria=None) -> list:
+    """FIFO di un turno-REVEAL: [gating, distillazione].
 
-    Nessuno stadio di ideazione: al reveal non c'è azione da inquadrare (skip
-    della dieta token 2026-08)."""
-    return [turno, _voce_flavor(limata), _voce_flavor(memoria)]
+    Niente ideazione (nessuna azione da inquadrare) e niente limatura: al reveal
+    la prosa gated è DEFINITIVA — riscriverla con la corsia veloce degradava il
+    registro del modello forte (2026-08-09)."""
+    return [turno, _voce_flavor(memoria)]
 
 
 def coda_azione(turno, *, idea=IDEA_QUIETE, prova=_ASSENTE, limata=None, memoria=None) -> list:

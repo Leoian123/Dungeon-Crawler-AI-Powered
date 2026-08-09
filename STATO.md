@@ -78,12 +78,21 @@ iniettato: il motore non importa mai `provider` — lint AST); `MasterEngine.avv
 tiene compatibile qualunque provider nudo. Rotte attive: le 5 della pipeline GM +
 `scontro.apertura`/`scontro.resoconto`/`scontro.epitaffio`.
 
-**Il turno di narrazione è una coroutine a stadi** (`motore/gm.py`, `esegui_turno_gm`):
+**Il turno di narrazione è una coroutina a stadi** (`motore/gm.py`, `esegui_turno_gm`):
 ideazione (consultiva, ≤1, **solo sui turni-azione** — al reveal non gira: dieta
 token 2026-08) → composizione (**una sola chiamata gating**, 1 retry max, istruzione
 **per momento**: reveal cinematografico 250-400 parole / azione asciutta) →
-inquadramento-prova ≤1 → limatura (stadio di QUALITÀ: preserva lunghezza e registro)
-+ distillazione-memoria in parallelo. Il turno **post-scontro senza azione** è il
+inquadramento-prova ≤1 → limatura **solo sui turni-azione** (rifonde i dati nella
+bozza asciutta; al reveal la prosa gated è DEFINITIVA — farla riscrivere alla corsia
+veloce degradava il registro del modello forte, fix 2026-08-09) + distillazione-memoria.
+Il corpo del prompt è il **PROMPT EVENTO canonico** (`PromptEvento`): sezioni nominate
+in ordine fisso — contesto (`[fascicolo/*]`) → filo (`[filo/prima]`: la coda della
+prosa precedente, derivata da `MemoriaTurni.ultima_prosa` e ricostruita al load) →
+guida (`[ideazione]`) → evento (la natura del turno) → compito (`[istruzione]`) —
+così ogni scena RIPRENDE dalla precedente invece di ripartire da zero. Il prefisso
+statico porta anche **esemplari originali del registro DCC** (`[esempio/*]` in
+`STILE_CINEMA`, few-shot in cache); estratti d'autore, se forniti, entrano dal canale
+già esistente `stagione.stile` (righe `[stagione/stile]`, congelate per run). Il turno **post-scontro senza azione** è il
 ramo RESOCONTO: una sola chiamata `Flavor` che veste i FATTI deterministici
 (`FattiScontro` + momenti salienti raccolti dal bus), zero tick spesi, fallback a
 template — niente più entità generate e mai materializzate. Un'unità `await`
