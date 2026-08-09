@@ -728,19 +728,26 @@ class IstanzaCombattimento:
         voci.append(OpzioneVista(indice=len(voci), etichetta="Fuggi", tipo=TipoAzione.SCAPPA))
         return tuple(voci)
 
-    def agisci(self, indice: int) -> None:
+    def agisci(self, indice: int) -> str | None:
         """Un comando del giocatore = il SUO turno + le risposte dei nemici, in un
         colpo solo (feel: il click non "esegue il turno del mob" in silenzio).
         L'ULTIMA voce (Fuggi) marca il turno come tentativo di disimpegno (FNC §4);
         le altre chiedono la mossa scelta: prova e risoluzione le tira il MOTORE
-        dentro il suo sistema-turno."""
+        dentro il suo sistema-turno.
+
+        Ritorna `None` se il turno è stato speso, altrimenti il MOTIVO del
+        rifiuto: un click non resta MAI muto (l'host lo scrive in chat)."""
         mosse = self._mosse()
-        if self._conclusa or not (0 <= indice <= len(mosse)):
-            return
+        if self._conclusa:
+            return "Lo scontro è già concluso: la scena sta per riprendere."
+        if not (0 <= indice <= len(mosse)):
+            return "Scelta non valida."
         if indice == len(mosse):
             richiedi_fuga()
         elif not richiedi_mossa(mosse[indice]):
-            return  # scelta rifiutata dal motore: nessun turno speso
+            # Porta del motore: mossa non pagabile → il turno NON si spende.
+            return (f"{etichetta_mossa(mosse[indice])} non è pagabile adesso "
+                    "(mana o ricarica): il turno non si spende.")
         tick()  # il turno del protagonista (mossa scelta, o tentativo di fuga)
         self._turni += 1
         # Il giro dei nemici, fino a tornare al protagonista (guardia difensiva).
@@ -864,6 +871,10 @@ class SessioneGioco:
         self.uuid = ""
         self.etichetta = ""  # il nome del crawler: etichetta dello slot di save
         self.ultimo_messaggio: MessaggioGM | None = None
+        # Il motivo dell'ultimo click RIFIUTATO in combattimento (mossa non
+        # pagabile, scontro concluso…): l'host lo scrive in chat — un click non
+        # resta mai muto. Si azzera a ogni `avanza()`.
+        self.ultimo_rifiuto: str | None = None
         # Callback (etichetta, frazione 0..1) per la barra di attesa dell'host: la
         # pipeline la chiama a ogni stadio; l'host la imposta, il motore non sa di UI.
         self.on_avanzamento = None
@@ -1118,6 +1129,7 @@ class SessioneGioco:
            in COMBATTIMENTO attendono la fine dello scontro — la separazione
            esplorazione/combattimento è il phase-gate, non un filtro del port."""
         self._guardia_aperta()
+        self.ultimo_rifiuto = None
         travasa(self.coda)
         for intento in consuma_messaggi(PlayerChoseOption):
             self._agisci(intento.opzione)
@@ -1357,7 +1369,9 @@ class SessioneGioco:
 
     def _agisci_combattimento(self, indice: int) -> None:
         if self._istanza is not None:
-            self._istanza.agisci(indice)  # l'istanza deterministica possiede lo scontro
+            # L'istanza deterministica possiede lo scontro; un rifiuto (mossa non
+            # pagabile, indice fuori scena) diventa feedback per l'host.
+            self.ultimo_rifiuto = self._istanza.agisci(indice)
         elif indice >= 0:
             tick()  # difesa: scontro aperto fuori dal port (test/harness)
 

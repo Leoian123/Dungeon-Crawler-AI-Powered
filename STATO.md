@@ -93,7 +93,12 @@ cancellabile: se cade prima della scrittura, nessuno stato è mutato; la
 **Lo scontro è narrato ai bordi** (Sit.1/Probl.3): `prosa_apertura_scontro` (trailer
 non bloccante: la riga deterministica esce subito, la prosa arriva quando arriva) e
 `epitaffio` (permadeath, dai fatti, senza Archivio) sono porte async della sessione;
-la TUI le cabla in `_agisci`.
+la TUI le cabla in `_agisci`. **Nessun click muto**: `IstanzaCombattimento.agisci`
+ritorna il motivo di un rifiuto (mossa non pagabile, scelta invalida, scontro
+concluso) e la sessione lo espone (`ultimo_rifiuto`, azzerato a ogni `avanza`).
+La TUI è **una sola finestra-chat** (2026-08-09): narrazione (blocco pieno con
+separatore), cronaca meccanica (⚔ gialla) e sistema/flavor (corsivi) scorrono
+nello stesso log, distinti dal registro tipografico.
 
 **Memoria narrativa** (porta, decisione 2026-08-08 "porta ora, vettoriale dopo"):
 `contracts/memoria.py` (`DocumentoMemoria` + Protocol `MemoriaNarrativa`, recupero

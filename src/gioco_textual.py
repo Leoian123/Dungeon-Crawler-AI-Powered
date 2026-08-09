@@ -32,8 +32,10 @@ def _costruisci_app(sessione):
 
     class Gioco(App):
         TITLE = "Dungeon Crawler — fetta verticale"
+        # UNA finestra-chat (decisione 2026-08-09): narrazione, cronaca di scontro
+        # e messaggi di sistema scorrono nello stesso log, distinti dal REGISTRO
+        # tipografico (stili Rich: il "font" del terminale) — vedi _chat_*.
         CSS = """
-        #prosa { padding: 1 2; border: round $accent; height: auto; min-height: 3; }
         #stato { padding: 0 2; }
         #log { height: 1fr; border: round $primary; padding: 0 1; margin: 1 0; }
         #menu { height: auto; padding: 0 2 1 2; }
@@ -69,7 +71,6 @@ def _costruisci_app(sessione):
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
-            yield Static("", id="prosa")
             yield Static("", id="stato")
             yield RichLog(id="log", wrap=True, markup=True)
             with Horizontal(id="attesa"):
@@ -109,6 +110,34 @@ def _costruisci_app(sessione):
         def _on_morte(self, _ev: object) -> None:
             self._morto = True  # permadeath: terminale di run (non "sconfitta")
 
+        # --- La chat unica: tre registri tipografici -------------------------
+        # Il "font diverso" del terminale è lo stile Rich: la narrazione del GM
+        # scorre piena (registro di default, con un respiro sopra), la cronaca
+        # meccanica (colpi, eventi) è gialla e marcata ⚔, i messaggi di sistema
+        # (avvisi, prove, salvataggi) corsivi/colorati. Un solo widget: #log.
+
+        def _log(self):
+            return self.query_one("#log", RichLog)
+
+        def _chat_narrazione(self, testo: str) -> None:
+            from rich.markup import escape
+
+            rl = self._log()
+            rl.write("")
+            rl.write("[dim]─── il GM ───────────────────────────────[/]")
+            rl.write(escape(testo))
+
+        def _chat_cronaca(self, riga: str) -> None:
+            from rich.markup import escape
+
+            self._log().write(f"[yellow]⚔ {escape(riga)}[/]")
+
+        def _chat_flavor(self, testo: str) -> None:
+            """Prosa breve non-gating (apertura scontro, epitaffio): corsiva."""
+            from rich.markup import escape
+
+            self._log().write(f"[italic]{escape(testo)}[/]")
+
         async def on_button_pressed(self, event: Button.Pressed) -> None:
             if self._occupato:
                 return  # il GM sta lavorando: l'input riprende a barra spenta
@@ -144,12 +173,12 @@ def _costruisci_app(sessione):
                 # giocabile — questa prosa arriva quando arriva (mai bloccante).
                 testo = await self.sessione.prosa_apertura_scontro()
                 if testo:
-                    self.query_one("#log", RichLog).write(f"[i]{testo}[/i]")
+                    self._chat_flavor(testo)
             if self._morto and not self._epitaffio_scritto:
                 self._epitaffio_scritto = True
                 testo = await self.sessione.epitaffio()
                 if testo:
-                    self.query_one("#log", RichLog).write(f"[i]{testo}[/i]")
+                    self._chat_flavor(testo)
 
         # --- Zaino ed equip: la demo del canale loot→zaino→indosso (porte vere) ---
 
@@ -265,14 +294,23 @@ def _costruisci_app(sessione):
 
         async def _mostra(self, snap, righe) -> None:
             self.fase_corrente = snap.fase
-            if snap.prosa:
-                self.prosa_corrente = snap.prosa
-                self.query_one("#prosa", Static).update(snap.prosa)
             stato = "  ·  ".join(snap.stato) if snap.stato else "—"
             self.query_one("#stato", Static).update(f"[b]\\[{snap.fase}][/b]  {stato}")
             rl = self.query_one("#log", RichLog)
+            # La cronaca meccanica PRIMA della prosa: i fatti (colpi, eventi) si
+            # leggono nell'ordine in cui il motore li ha risolti, poi il GM narra.
             for r in righe:
-                rl.write(r)
+                self._chat_cronaca(r)
+            # Un click rifiutato in combattimento non resta mai muto: il motivo
+            # (mossa non pagabile, scontro concluso) arriva dalla sessione.
+            rifiuto = getattr(self.sessione, "ultimo_rifiuto", None)
+            if rifiuto:
+                from rich.markup import escape
+
+                rl.write(f"[yellow italic]✋ {escape(rifiuto)}[/]")
+            if snap.prosa:
+                self.prosa_corrente = snap.prosa
+                self._chat_narrazione(snap.prosa)
             # Il degrado non resta muto (audit 2026-08-07): se il turno è il pacchetto
             # neutro di fallback, il giocatore lo LEGGE — prima lo si scopriva solo
             # riconoscendo a occhio «Sagoma indistinta».

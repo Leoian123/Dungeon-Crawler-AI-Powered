@@ -14,6 +14,7 @@ import esper
 import pytest
 
 from contracts import Blocco, ColpoInferto, Grado, MobAsset, PlayerChoseOption
+from motore.scheda import Mana
 from motore import (
     MOSSE_DEFAULT,
     Repertorio,
@@ -168,3 +169,27 @@ def test_click_su_indice_fuori_menu_non_spende_il_turno(run_pulita, tmp_path) ->
     snap = sessione.avanza()
     assert snap.fase == "combattimento"
     assert sessione.scheda().hp == hp_prima, "un indice illegale non deve costare un turno"
+    # …ma il click NON resta muto: la sessione espone il motivo (2026-08-09).
+    assert sessione.ultimo_rifiuto == "Scelta non valida."
+
+
+def test_click_rifiutato_da_sempre_un_feedback(run_pulita, tmp_path) -> None:
+    """Nessun click muto in combattimento: la mossa non pagabile risponde col
+    suo motivo e il turno non si spende; un click valido azzera il feedback."""
+    sessione = costruisci_sessione(
+        nome="Muto", seed=1, directory=tmp_path, stagione=_stagione(_mob_resistente())
+    )
+    snap = _apri_scontro(sessione)
+    pent = protagonista()[0]
+    esper.component_for_entity(pent, Mana).attuale = 0  # niente mana: Dardo non pagabile
+    hp_prima = sessione.scheda().hp
+    sessione.coda.accoda(PlayerChoseOption(_indice(snap, "Dardo arcano")))
+    snap = sessione.avanza()
+    assert sessione.ultimo_rifiuto is not None
+    assert "Dardo arcano" in sessione.ultimo_rifiuto
+    assert "non si spende" in sessione.ultimo_rifiuto
+    assert sessione.scheda().hp == hp_prima, "il rifiuto non deve costare il turno"
+    # Un click VALIDO (attacco base) azzera il feedback: niente code fantasma.
+    sessione.coda.accoda(PlayerChoseOption(_indice(snap, "Attacca")))
+    sessione.avanza()
+    assert sessione.ultimo_rifiuto is None
