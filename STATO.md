@@ -11,8 +11,10 @@
 > appartiene (e sparisce dal registro del debito); non si appende una voce di diario.
 > Quando emerge un difetto o una decisione da prendere, entra nel registro §4.2 con la
 > sua priorità. Ultima revisione: **2026-08-10** (branch `narrative-system`) — suite
-> **898 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
-> territoriale «Pianoterra dei Morti» (stagione «Nascondino con il Morto»).
+> **925 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
+> territoriale «Pianoterra dei Morti» (stagione «Nascondino con il Morto»);
+> l'authoring AI dei roster (`genera_stagione`) è verificato LIVE (dry-run 8/8
+> boss, cache attiva, zero guasti).
 >
 > **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
 > `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive
@@ -75,22 +77,35 @@ FORTE/VELOCE, retry, phase-gate per chiamata, flag gating) e il dispatcher la es
 con tally per rotta (chiamate/degradi). Un percorso nuovo = una riga di registro + un
 costruttore di prompt (+ gate/fallback propri se tocca stato), mai una pipeline
 nuova. Il binding corsia→modello è del composition root (`provider/root.py`,
-iniettato: il motore non importa mai `provider` — lint AST); `MasterEngine.avvolgi`
-tiene compatibile qualunque provider nudo. Rotte attive: le 5 della pipeline GM +
-`scontro.apertura`/`scontro.resoconto`/`scontro.epitaffio`.
+iniettato: il motore non importa mai `provider` — lint AST). Due vie di cablaggio:
+`scegli_corsie` dà i backend **per corsia** (è la via che fa valere la
+`Corsia` dichiarata dalle rotte: la usa l'authoring, con un profilo a timeout
+da batch); `scegli_provider` resta la porta storica per-schema degli host di
+gioco; `MasterEngine.avvolgi` tiene compatibile qualunque provider nudo.
+**Nessuna chiamata AI nel repo bypassa il Master-Engine.** Rotte attive: le 5
+della pipeline GM + `scontro.apertura`/`scontro.resoconto`/`scontro.epitaffio` +
+`authoring.boss`/`authoring.tabella`/`authoring.spawn` + `png.dialogo` +
+`banco.nemico`.
 
 **Il turno di narrazione è una coroutina a stadi** (`motore/gm.py`, `esegui_turno_gm`):
-ideazione (consultiva, ≤1, **solo sui turni-azione** — al reveal non gira: dieta
-token 2026-08) → composizione (**una sola chiamata gating**, 1 retry max, istruzione
+ideazione (consultiva, ≤1, **solo sui turni-azione** — al reveal non gira) →
+composizione (**una sola chiamata gating**, 1 retry max, istruzione
 **per momento**: reveal cinematografico 250-400 parole / azione asciutta) →
 inquadramento-prova ≤1 → limatura **solo sui turni-azione** (rifonde i dati nella
 bozza asciutta; al reveal la prosa gated è DEFINITIVA — farla riscrivere alla corsia
-veloce degradava il registro del modello forte, fix 2026-08-09) + distillazione-memoria.
+veloce degraderebbe il registro del modello forte) + distillazione-memoria.
 Il corpo del prompt è il **PROMPT EVENTO canonico** (`PromptEvento`): sezioni nominate
 in ordine fisso — contesto (`[fascicolo/*]`) → filo (`[filo/prima]`: la coda della
 prosa precedente, derivata da `MemoriaTurni.ultima_prosa` e ricostruita al load) →
 guida (`[ideazione]`) → evento (la natura del turno) → compito (`[istruzione]`) —
-così ogni scena RIPRENDE dalla precedente invece di ripartire da zero. Il prefisso
+così ogni scena RIPRENDE dalla precedente invece di ripartire da zero. Sui
+piani-mondo il fascicolo del reveal porta anche il **MOB ATTESO della stanza**
+(`[fascicolo/mob-atteso]`): la lore AUTORATA del custode (imperativa, col
+`riferimento` obbligato) o del riempitivo pescato con lo **stesso seed del
+copione offline** (`master_seed:copione:…` — offline e live convergono sullo
+stesso mob per stanza) — il GM mette in scena un mob che esiste invece di
+re-inventarlo; la riga è dinamica e vive SOLO nel prompt utente, mai nel
+prefisso cacheato. Il prefisso
 statico porta anche **esemplari originali del registro DCC** (`[esempio/*]` in
 `STILE_CINEMA`, few-shot in cache); estratti d'autore, se forniti, entrano dal canale
 già esistente `stagione.stile` (righe `[stagione/stile]`, congelate per run). Il turno **post-scontro senza azione** è il
@@ -103,20 +118,27 @@ cancellabile: se cade prima della scrittura, nessuno stato è mutato; la
 **Lo scontro è narrato ai bordi** (Sit.1/Probl.3): `prosa_apertura_scontro` (trailer
 non bloccante: la riga deterministica esce subito, la prosa arriva quando arriva) e
 `epitaffio` (permadeath, dai fatti, senza Archivio) sono porte async della sessione;
-la TUI le cabla in `_agisci`. **Nessun click muto**: `IstanzaCombattimento.agisci`
+la TUI le cabla in `_agisci`. Entrambe ricevono la **lore dell'avversario** come
+`[scena/nemico]` (descrizione/aspetto/tratto dell'`EntitaMob` ingaggiato, catturati
+all'apertura dell'istanza; nell'epitaffio con guardia sul nome — mai lore stantia di
+un altro scontro): il prompt non porta più il solo nome. **Nessun click muto**: `IstanzaCombattimento.agisci`
 ritorna il motivo di un rifiuto (mossa non pagabile, scelta invalida, scontro
 concluso) e la sessione lo espone (`ultimo_rifiuto`, azzerato a ogni `avanza`).
-La TUI è **una sola finestra-chat** (2026-08-09): narrazione (blocco pieno con
+La TUI è **una sola finestra-chat**: narrazione (blocco pieno con
 separatore), cronaca meccanica (⚔ gialla) e sistema/flavor (corsivi) scorrono
 nello stesso log, distinti dal registro tipografico.
 
-**Memoria narrativa** (porta, decisione 2026-08-08 "porta ora, vettoriale dopo"):
+**Memoria narrativa** (porta — decisione "porta ora, vettoriale dopo"):
 `contracts/memoria.py` (`DocumentoMemoria` + Protocol `MemoriaNarrativa`, recupero
 deterministico per contratto) con `MemoriaSuArchivio` sul sidecar esistente
 (persistenza gratis, ricostruzione al load). Alimenta `[fascicolo/memoria-lunga]`
-(≤3 voci, solo se rilevanti alla query = azione/nemico). Produttori: il resoconto
-di scontro (EVENTO), il mob memorabile ORO+/anomalia (PERSONAGGIO, con
-`aspetto`/`tratto` — i campi solo-testo dell'identità cinematografica, Sit.2).
+(≤3 voci, solo se rilevanti alla query = azione / nemico dell'esito / **mob atteso
+del reveal** — anche il momento in cui un nemico entra in scena ha memoria).
+Produttori: il resoconto di scontro (EVENTO); il mob memorabile (PERSONAGGIO, con
+`aspetto`/`tratto`) = ORO+/anomalia **o reclutato dal cast** — col `riferimento`
+l'id è ancorato allo SLUG (`mob-<slug>`, stabile fra stanze e zone: il boss
+ricorrente aggiorna lo stesso documento, e l'istruzione del reveal lo tratta da
+RITORNO); il dialogo PNG (INTERAZIONE, `dialogo-<slug>`, scritto dai fatti).
 
 **Il sistema degli incontri è cucito** (Sit.5): `motore/incontri.py` compone
 l'imboscata (con territorio: dalla tabella di spawn della zona; altrimenti dal
@@ -126,7 +148,7 @@ e `riposa` passano il compositore, `RiposoConcluso.interrotto` è valorizzato,
 anche su un incontro non suo. Nella suite il dado è spento di default
 (`conftest`), riacceso dai lucchetti dedicati.
 
-### 2.1-bis Territorio: il piano-mondo procedurale (2026-08-10)
+### 2.1-bis Territorio: il piano-mondo procedurale
 
 **La scelta di fondo**: procedurale seeded con ancore autorate — la run
 attraversa una **spina campionata** (quartiere→distretto→città→provincia→paese→
@@ -156,25 +178,38 @@ fascicolo, mai stato.
 - **Contenuto**: stagione-1 = «Nascondino con il Morto», piano
   `pianoterra-dei-morti` (non-morti d'epoca/cult): Il Lich Cinefilo (celestiale),
   Leon della Casa del Male + Evil Ash (paese), La Regina Scaduta e DJ Rigor
-  Mortis (segnaposto provincia/città), 6 riempitivi, tabelle a tema. La
-  falsa-idra e sotto-il-palco sono CANCELLATI; i lucchetti girano su stagioni
-  sintetiche (`tests/contenuti_sintetici.py` — perimetro: forma, non contenuto).
+  Mortis (segnaposto provincia/città), 6 riempitivi, tabelle a tema. I
+  lucchetti girano su stagioni sintetiche (`tests/contenuti_sintetici.py` —
+  perimetro: forma, non contenuto).
 - **GL-2 a 3 clausole**: spina attraversabile (per seed, con custode per ogni
   zona); battibilità = TTK/G-L1 a corredo del grado (la vincibilità nuda resta
   §4.1); **clausola del nascondino** — nella tana esiste sempre un cammino
   partenza→scala che EVITA il Lich (lucchetto BFS): la tagline è meccanica.
-- **`genera_stagione.py`** (authoring AI): rotte `authoring.boss/tabella/spawn`
-  (FORTE, fuori-run, gating=lint); batch ~15 chiamate one-shot; il boss dichiara
-  il TIER, mai il grado; scarti RIPORTATI (umano nel loop); `--applica` scrive
-  con gate finale `risolvi_stagione` e ROLLBACK completo — il diff git è la
-  promozione. Da lanciare con la chiave per riempire i roster (10 province,
-  40 città).
+- **`genera_stagione.py`** (authoring AI, **verificato live**): rotte
+  `authoring.boss/tabella/spawn` (FORTE, fuori-run, gating=lint), cablate via
+  `scegli_corsie` con profilo **da batch** (stesso modello forte del gioco,
+  timeout 240s: una risposta da 5 boss con prosa non è un turno). Il contesto
+  condiviso (canone few-shot + vocabolari) viaggia nel blocco `sistema=`
+  cacheato, byte-identico per tutta la sessione; vietati/feedback/mob-disponibili
+  (dinamici) SOLO nel prompt utente. I lotti di un giro partono in parallelo
+  (`gather`) con gate seriale post-gather (dedup slug) e **un giro di top-up**
+  per i tier sotto quota, col motivo dello scarto nel prompt; ogni scarto resta
+  RIPORTATO (umano nel loop), mai fallback-contenuto. Il boss dichiara il TIER,
+  mai il grado; `--applica` scrive con gate finale `risolvi_stagione` e ROLLBACK
+  completo — il diff git è la promozione. CLI argparse
+  (`--provincia/--citta/--stagione/--piano/--sovrascrivi/--fake/--live`),
+  launcher `genera_stagione.bat`. Dry-run live: 8/8 boss accettati, 2 tabelle,
+  2 spawn, zero guasti, `cache_letti > 0`. **Resta da lanciare a quote piene**
+  (10 province, 40 città) per riempire i roster.
 
 - **Gate a 4 strati** (`narrazione.valida_turno`): schema Pydantic → registry archetipi
   (chiusura per-run, congelata nella stagione) → budget (gradi/blocchi/archetipi
   ammessi, con `gradi_per_profondita` che lega la finestra alla discesa) →
   `riferimento` al cast del piano. Ciò che non passa → fallback atomico deterministico
   (prosa neutra + Sagoma indistinta), **mai** stato scritto da output non validato.
+  Le regole condivise (catalogo+budget+mosse) vivono in **una sola implementazione**
+  (`motivi_fuori_budget`, con motivi leggibili): la riusano `valida_turno`, il
+  `gate_boss` dell'authoring e la diagnosi del banco — niente copie che divergono.
 - **Firma di turno = chiave d'Archivio** (`firma_turno`, H §8): `seed:piano:stanza:fase`
   (+ tick **e hash SHA-256 del testo dell'azione** per la fase azione — il tick da solo
   non discrimina quando un'azione spende 0 tick). Congela-una-volta-rileggi-sempre: la
@@ -209,8 +244,34 @@ Lucchetti principali: `test_gm_pipeline` (budget chiamate, firma, cache, memoria
 derivata, resoconto, soglia di cache), `test_master_engine` (rotte, corsie, guardia
 di fase, sincronia retry), `test_narrazione_gate`, `test_tributo_beneficio` (gate
 avversariale con provider "già compromesso"), `test_contracts_schema`,
-`test_contracts_purity` (contracts = stdlib+Pydantic e basta), `test_provider_root`,
-`test_memoria_narrativa`, `test_incontri`, `test_scontro_narrato`.
+`test_contracts_purity` (contracts = stdlib+Pydantic e basta), `test_provider_root`
+(incluso il cablaggio effettivo delle corsie, non la sola dichiarazione),
+`test_genera_stagione` (cache/parallelo/top-up), `test_memoria_narrativa`,
+`test_nemici_in_gioco` (mob atteso + recupero al reveal), `test_incontri`,
+`test_scontro_narrato`.
+
+### 2.1-ter PNG: canale pronto nel motore, pilotaggio GM (spento lato giocatore)
+
+Un PNG è un mob a tutti gli effetti senza ostilità: `EntitaMob.ruolo`
+(`RuoloMob.OSTILE|PNG`, default OSTILE — i save precedenti deserializzano
+invariati) lo esenta dal **despawn di zona** e dal registro nemici della mappa
+(`mappa_da_dict` non lo ricollega a `mob_stanza`: mai menu Combatti, mai varco
+chiuso); lo trova `png_in_stanza_corrente()` (scansione ECS, nessun registro
+nuovo da persistere). `motore/png.py`: `materializza_png` (stessa
+`istanzia_entita` del mob: profilo calibrato, override, mosse) e `dialoga` sulla
+rotta `png.dialogo` — **sola prosa** (`Flavor`), phase-gated a NARRAZIONE
+(parlare in combattimento è strutturalmente impossibile), degrado deterministico,
+**zero mutazioni dall'output LLM**: l'unica scrittura è il documento INTERAZIONE
+della memoria, derivato dalla battuta del giocatore. Asset demo:
+`contenuti/mob/archivista-del-sesto.json` (tag `png`, non referenziato dal cast:
+inerte finché non arruolato).
+
+**Chi lo pilota (decisione utente 2026-08-10): il GM lato server, mai un menu
+del giocatore.** Il canale è volutamente senza chiamanti: l'aggancio futuro è la
+pipeline GM / l'host web (il GM decide quando un PNG entra in scena e ne conduce
+il dialogo; il giocatore al più risponde). Fuori scope dichiarato: spawn
+automatico, commercio, quest. Lucchetti: `test_png` (materializzazione,
+esenzioni, roundtrip del ruolo, phase-gate, zero-mutazioni, memoria).
 
 ### 2.2 Combattimento
 
@@ -272,10 +333,11 @@ authoring successive.
   scala del gioco allarga la banda da sé. Punto scoperto residuo: il
   `mitigazione_cent` esplicito di `PezzoArmatura` (gli oggetti non hanno ancora un
   canale-asset — arriva col loot).
-- **Due piani pubblicati**: la *Falsa Idra* (9 teste, tre archetipi + il dodger) e
-  *Sotto il Palco* (il retro del baraccone, 4 mob). La mappa si **rigenera alla
-  discesa** (seeded da `master_seed + livello`, mai dall'orologio); il terminale di
-  vittoria è condizionato alla stagione congelata, non alla libreria su disco.
+- **Un piano pubblicato**: *Pianoterra dei Morti* (piano-mondo territoriale,
+  §2.1-bis) nella stagione «Nascondino con il Morto». Le mappe sono **per zona**
+  (seed `master_seed:piano:L:zona:{chiave}`) sul territorio, e si rigenerano alla
+  discesa (seeded, mai dall'orologio) sui piani piatti; il terminale di vittoria è
+  condizionato alla stagione congelata, non alla libreria su disco.
 - **Tutti i numeri §11 vivono in `motore/calibrazione.py`** (catalogo + override), con
   la console (`calibra.bat`, TUI/CLI/web) come superficie di taratura. I default del
   protagonista (`CARL.*`, `HP_DEFAULT`) arrivano al gioco reale lungo tutta la catena
@@ -329,7 +391,7 @@ scontro aperto; `rng_state` davvero serializzato e ripristinato.
 
 ### 2.6 Verifica
 
-**755 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
+**925 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
 `src/host_web`, che su questo branch non esiste — skip **esplicito**, mai verde per
 vacuità). La suite è headless, senza rete, con contesto esper isolato per test
 (ESP §0.1). Oltre ai lucchetti citati nei sistemi: membrana e purezza import (con
@@ -363,7 +425,7 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
 
 | Branch | Contenuto | Ruolo |
 |---|---|---|
-| **`narrative-system`** ★ | `headless-game-engine` + l'asse AI: dieta token, Master-Engine (rotte), composition root del provider, prosa cinematografica + cache, scontro narrato (apertura/resoconto/epitaffio), porta memoria narrativa, sistema incontri/imboscata. | **Il branch di lavoro corrente** (da 2026-08-08): la "ciccia" AI del gioco. Confluirà in `headless-game-engine` quando accettato. |
+| **`narrative-system`** ★ | `headless-game-engine` + l'asse AI: Master-Engine (rotte), composition root del provider (corsie), prosa cinematografica + cache, scontro narrato, porta memoria narrativa, incontri/imboscata, **territorio procedurale** («Pianoterra dei Morti»), **authoring AI dei roster** (`genera_stagione`, live-verificato), canale PNG. | **Il branch di lavoro corrente**: la "ciccia" AI del gioco. Confluirà in `headless-game-engine` quando accettato. |
 | `headless-game-engine` | Il **motore di gioco** e nient'altro: `contracts` + `motore` + `guscio` + composition root + contenuti + i suoi test. Unica dipendenza viva: **Pydantic**. | **Il prodotto.** È qui che il motore si porta avanti fino a diventare vendibile. |
 | `react-ecosystem` | Tutto il motore **+** host HTTP (`src/host_web`, FastAPI) **+** SPA React (`web/`). | **Il laboratorio.** Ci si gioca e si vede l'evoluzione. Il motore che matura qui viene travasato nel prodotto; la presentazione resta. |
 | `main` | Allineato a `6d4ab35`. | **Indietro** rispetto a entrambi. Va portato avanti quando il motore è accettato. |
@@ -371,7 +433,7 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
 
 > **La regola del travaso:** dal laboratorio al prodotto passano solo `src/contracts`,
 > `src/motore`, `src/guscio`, `src/main.py`, gli strumenti del motore a sole stdlib
-> (`banco_nemici.py`, `calibratore_web.py`), gli host opt-in (`gioco_textual.py`,
+> (`banco_nemici.py`, `calibratore_web.py`, `genera_stagione.py`), gli host opt-in (`gioco_textual.py`,
 > `calibratore.py`), `contenuti/` e i test **non** `test_host_web_*`. Non passano mai:
 > `src/host_web/`, `web/`, e le dipendenze che si portano dietro. Se un giorno un test
 > del motore avesse bisogno di `httpx`, quello è il segnale che qualcosa di host è
@@ -386,37 +448,34 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
 
 I gate di release sono chiusi, ma **il gioco consegnato gioca la matrice "nudo"**: il
 TTK è tarato a parità di `CORREDO_RIFERIMENTO` e **non esiste alcun canale in partita
-per ottenere quel corredo**; il mana speso **non si recupera mai** (`RIPOSA` è solo
-contratto); la fuga contro i due mob ORO del piano 2 è deterministicamente impossibile
-a DEX base. Combinato: **il piano 2 pubblicato è win-or-die per il personaggio di
-partenza.** Nessun singolo pezzo è un bug — insieme sono il divario fra "i gate
-passano" e "il gioco è coerente".
+per ottenere quel corredo** — la progressione dichiarata (in assenza di XP, l'equip)
+non è raggiungibile giocando. Nessun singolo pezzo è un bug — insieme sono il divario
+fra "i gate passano" e "il gioco è coerente".
 
-> **Misurato in partita (2026-08-07, 40 run automatiche via porte, offline):** quattro
-> politiche — combatti-sempre, fuga sotto 12 HP, fuga sotto 20 HP, scappa-sempre —
-> su 10 seed ciascuna: **zero vittorie, 40 permadeath**. Combattendo sempre si muore
-> al 6° scontro del piano 1 senza vedere la scala; scappando si arriva al piano 2 e
-> si muore lì (colpi d'opportunità + fuga negata contro gli ORO). Il budget di danno
-> dell'intera run è i 30 HP di partenza, e ogni stanza ne costa 1–5 comunque la
-> giochi: la vittoria è oggi **matematicamente irraggiungibile**, non solo difficile. È il lavoro da fare **prima** di qualsiasi taratura
-fine dei numeri §11 (tararli sul gioco nudo significherebbe tararli due volte).
+> **Misurato in partita (40 run automatiche via porte, offline, sul contenuto
+> pre-territorio):** quattro politiche — combatti-sempre, fuga sotto 12/20 HP,
+> scappa-sempre — su 10 seed ciascuna: **zero vittorie, 40 permadeath**. Il budget
+> di danno dell'intera run è i 30 HP di partenza e ogni stanza ne costa 1–5
+> comunque la giochi: senza sostentamento la vittoria è **matematicamente
+> irraggiungibile**, non solo difficile. Il contenuto da allora è cambiato
+> (piano-mondo territoriale, riposo acceso) ma il buco strutturale — nessun
+> equip/loot in partita — è lo stesso; la ri-misura è il passo 3 qui sotto.
+> È il lavoro da fare **prima** di qualsiasi taratura fine dei numeri §11
+> (tararli sul gioco nudo significherebbe tararli due volte).
 
-Ordine proposto (ogni passo sblocca il successivo):
+Il **riposo vero** è già in gioco (l'opzione `RIPOSA` è di scena, recupero HP/mana
+dalle foglie §11, seam dell'imboscata collegato — vedi §2.1: il mana non è a
+esaurimento irreversibile). Restano, in ordine (ogni passo sblocca il successivo):
 
-1. **Riposo vero** — ✅ CHIUSO (2026-08-08, branch `narrative-system`): l'opzione
-   `RIPOSA` è di scena, il recupero HP/mana passa dalle foglie §11 e **il seam
-   dell'imboscata è collegato** (`componi_imboscata_scena` → `fast_forward`/
-   `passa_turno`, con `RiposoConcluso.interrotto` e recupero parziale sui tick
-   reali — vedi §2.1). Il mana non è più a esaurimento irreversibile.
-2. **Equip acceso** — registrare `SistemaEquip` nel bucket di narrazione, dare un
+1. **Equip acceso** — registrare `SistemaEquip` nel bucket di narrazione, dare un
    produttore a `PlayerEquipaggia/Toglie`, e rendere `ComponenteEquip` persistente
    **insieme** all'hook di re-equip (ADR-1 F5 — il lucchetto che oggi vieta il tag
    esiste esattamente per pretendere questa contemporaneità).
-3. **Loot minimo (ADR-2 ridotto)** — un canale-asset per gli oggetti e un drop
+2. **Loot minimo (ADR-2 ridotto)** — un canale-asset per gli oggetti e un drop
    deterministico-seeded alla vittoria, quanto basta perché `CORREDO_RIFERIMENTO` sia
    *raggiungibile* scendendo. `CATALOGO_OGGETTI` diventa la lettura del canale, come
    già dichiarato.
-4. **Ri-misura** — win-rate e TTK del piano 2 col personaggio che si sostenta;
+3. **Ri-misura** — win-rate e TTK sul piano-mondo col personaggio che si sostenta;
    POI la taratura fine dei numeri §11 (che resta l'ultimo miglio dell'MVP).
 
 ### 4.2 Registro del debito (unico, in ordine di priorità dentro ogni gruppo)
@@ -431,7 +490,7 @@ Ordine proposto (ogni passo sblocca il successivo):
   espungere quando §4.1 decide): `RiposoConcluso`/`RIPOSA`, `PlayerEquipaggia/Toglie`,
   `PlayerTentaProva`, `TiroAzzardo`/`EsitoAzzardo.etichetta`, `SistemaRinforzi`
   registrato ma senza componenti in produzione.
-- **`main.py` ~1.620 righe**: il composition root ha assorbito la libreria contenuti.
+- **`main.py` ~2.200 righe**: il composition root ha assorbito la libreria contenuti.
   Va spaccato in pacchetto (taglio di file, non refactor): `libreria/`, `authoring/`,
   `sessione.py`.
 
@@ -445,14 +504,15 @@ Ordine proposto (ogni passo sblocca il successivo):
 - `main._collezione` riscandisce e ri-valida l'intera libreria per ogni asset risolto
   (O(P·M) al boot): invisibile oggi, quadratico con una libreria vera.
 
-**C. Economia LLM** (la dieta token 2026-08 ha chiuso i punti storici: caching
-attivo, retry di troncatura a limite crescente, `opzioni` rimosso, ideazione solo
-sui turni-azione, prompt ancillari sfoltiti — tutto in §2.1)
-- **Misura live mancante**: la baseline `ConsumoProvider` prima/dopo la dieta non è
-  ancora stata registrata su una run reale (attesa ~35-45% in meno per sessione,
-  `cache_letti > 0` dalla seconda chiamata) — serve una sessione con chiave.
-- Il tally per rotta del Master-Engine esiste ma nessun host lo mostra ancora
-  (il riassunto di sessione stampa solo il totale `ConsumoProvider`).
+**C. Economia LLM** (caching attivo, retry di troncatura a limite crescente,
+`opzioni` rimosso, ideazione solo sui turni-azione, prompt ancillari sfoltiti —
+tutto in §2.1; il caching in AUTHORING è misurato live: `cache_letti > 0`, §2.1-bis)
+- **Misura live della sessione di GIOCO mancante**: la baseline `ConsumoProvider`
+  di una run reale non è ancora registrata (attesa ~35-45% in meno per sessione)
+  — serve una sessione di gioco con chiave.
+- Il tally per rotta del Master-Engine esiste ma nessun host di gioco lo mostra
+  ancora (il riassunto stampa solo il totale `ConsumoProvider`; il banco nemici
+  invece il consumo per modello lo stampa già).
 
 **D. Test e taratura**
 - `test_banco_nemici` è diventato uno **specchio della formula** (ricalcola l'atteso con
@@ -473,7 +533,9 @@ sui turni-azione, prompt ancillari sfoltiti — tutto in §2.1)
   non riproduzione esatta (≠ cache delle stanze).
 - **Dono NieR (cross-giocatore)** — alla vittoria, promozione dell'Archivio nello store
   condiviso. Richiede il replay completo.
-- **AI master** — compone primitivi chiusi (skill/oggetti/PNG) senza coniare atomi o numeri.
+- **AI master** — compone primitivi chiusi (skill/oggetti/PNG) senza coniare atomi o
+  numeri. Il substrato PNG del motore esiste già (§2.1-ter: ruolo, esenzioni, rotta
+  dialogo); qui resta la parte GENERATIVA e il pilotaggio GM server-side.
 - **Testo libero (`Altro`)** — classificazione "intento → evento tipizzato" su menu chiuso.
 
 ### 4.4 Il nodo aperto vero: scegliere la UI (ex-nodo C, riaperto di fatto)
@@ -513,6 +575,9 @@ va ritoccata per rispecchiare la realtà del branch headless:
 # Giocare con la UI Textual (host opt-in) / calibrare dal browser — launcher a un click
 ./gioca.bat
 ./calibra.bat
+
+# Authoring AI del piano-mondo (dry-run; --applica scrive, il diff git è la promozione)
+./genera_stagione.bat
 
 # Giocare un incontro headless (driver di riferimento)
 PYTHONPATH="src;vendor" .venv/Scripts/python.exe -m main   # Windows/PowerShell: usa ; nel PYTHONPATH
