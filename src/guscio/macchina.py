@@ -221,7 +221,12 @@ class Guscio:
         crea_tempo_piano()
         if stagione is not None:
             crea_stagione(stagione)  # il design della run: congelato al confine (E-5)
-        crea_mappa(random.Random(seed), n_stanze)  # topologia seeded (G-18 garantito)
+        # Territorio (2026-08-10): un piano-mondo monta la mappa della PRIMA zona
+        # della spina; i piani piatti (e i legacy) restano sulla topologia storica.
+        from motore.territorio import avvia_territorio
+
+        if not avvia_territorio(livello=1):
+            crea_mappa(random.Random(seed), n_stanze)  # topologia seeded (G-18)
         crea_protagonista(destrezza=destrezza, punti_vita=hp, id_dominio=uuid)
         self.coda = avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE, **self._sistemi_run())
         self._registra_handler_run()

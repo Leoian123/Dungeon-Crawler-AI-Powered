@@ -117,6 +117,13 @@ def collega_discesa_mappa(bus, stanze_per_livello=None) -> Callable[[DiscesaPian
     ⚠️ Registrato in-run, va **deregistrato al teardown**: il bus è process-global e
     sopravvive alla run (E/ACV §5.2)."""
     def _su_discesa(evento: DiscesaPiano) -> None:
+        # Un piano-mondo scende nella PRIMA zona della sua spina; i piani piatti
+        # rigenerano la topologia storica. Import locale: mappa↔territorio non
+        # si importano in testa (la mappa resta l'autorità DENTRO la zona).
+        from .territorio import avvia_territorio
+
+        if avvia_territorio(livello=evento.piano):
+            return
         n = stanze_per_livello(evento.piano) if stanze_per_livello is not None else None
         rigenera_mappa(evento.piano, n)
 

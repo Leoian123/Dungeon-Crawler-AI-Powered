@@ -285,6 +285,23 @@ from .piano import (
 from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
 from .catalogo import GRADO_DA_TIER, grado_da_tier
 from .incontri import componi_imboscata_scena, nome_nemico_incontro
+from .territorio import (
+    ORDINE_SPINA,
+    StatoTerritorio,
+    Zona,
+    avvia_territorio,
+    boss_sconfitto,
+    registra_boss_sconfitto,
+    rigenera_mappa_zona,
+    spina_del_piano,
+    stanza_boss_di,
+    stanza_passaggio_di,
+    stato_territorio,
+    territorio_attivo,
+    zona_corrente,
+    zona_da_chiave,
+    zona_successiva,
+)
 from .memoria_narrativa import TIPO_RECORD_MEMORIA, MemoriaSuArchivio
 from .seme import SemeRun, crea_seme, master_seed
 from .tempo import (
@@ -586,6 +603,21 @@ __all__ = [
     "VoceSpawnAttiva",
     "GRADO_DA_TIER",
     "grado_da_tier",
+    "ORDINE_SPINA",
+    "StatoTerritorio",
+    "Zona",
+    "avvia_territorio",
+    "boss_sconfitto",
+    "registra_boss_sconfitto",
+    "rigenera_mappa_zona",
+    "spina_del_piano",
+    "stanza_boss_di",
+    "stanza_passaggio_di",
+    "stato_territorio",
+    "territorio_attivo",
+    "zona_corrente",
+    "zona_da_chiave",
+    "zona_successiva",
     "crea_stagione",
     "design_piano_corrente",
     "lint_profilo",

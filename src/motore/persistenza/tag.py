@@ -32,6 +32,7 @@ from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
 from ..piano import ProfonditaPiano, TempoPiano
 from ..scheda import ActionPoint, Mana, Protagonista, Scheda
+from ..territorio import StatoTerritorio
 from ..seme import SemeRun
 from ..statistiche import Primarie
 from ..status import STATUS_PERSISTENTI, nome_status
@@ -74,6 +75,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     # La stagione attiva (aggregato di contenuto congelato): il design della run
     # viaggia col save — le run non vedono mai le modifiche di libreria.
     StagioneAttiva: "stagione",
+    # Lo stato del TERRITORIO (2026-08-10): posizione nella spina + boss battuti
+    # + zone viste. La SPINA non si salva: si rideriva dal seed al load.
+    StatoTerritorio: "territorio",
 }
 _TIPO_PER_TAG: dict[str, type] = {tag: tipo for tipo, tag in _TAG_PER_TIPO.items()}
 
