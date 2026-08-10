@@ -22,10 +22,14 @@ from motore import ActionPoint, mappa_corrente, protagonista, tick
 
 
 def test_ciclo_completo_nuova_esci_elenca_carica(run_pulita, tmp_path) -> None:
-    sessione = costruisci_sessione(nome="Donut", seed=1, directory=tmp_path)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(
+        nome="Donut", seed=1, directory=tmp_path, stagione=stagione_sintetica(1)
+    )
     snap = asyncio.run(sessione.prossima_narrazione())
     prosa_originale = snap.prosa
-    assert "Slime" in prosa_originale
+    assert prosa_originale, "il reveal deve produrre prosa dal copione"
     uuid = sessione.uuid
     assert sessione.salva() == "Partita salvata."
     messaggio = sessione.esci()
@@ -67,8 +71,15 @@ def test_copione_allineato_dopo_il_reload(run_pulita, tmp_path) -> None:
     l'Archivio (zero consumi FIFO), ma il copione offline ripartiva dalla PRIMA
     stanza del piano — ogni stanza nuova riceveva la prosa shiftata di N (un
     secondo Slime in stanza 2). Oracolo: la stessa run senza reload."""
-    # Baseline: tre stanze di fila, stessa discesa, nessun reload.
-    base = costruisci_sessione(nome="Base", seed=1, directory=tmp_path / "base")
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    # Baseline: tre stanze di fila, stessa discesa, nessun reload. Stagione
+    # SINTETICA piatta: il test misura l'allineamento del copione, non il
+    # contenuto pubblicato (che dal 2026-08-10 è territoriale).
+    base = costruisci_sessione(
+        nome="Base", seed=1, directory=tmp_path / "base",
+        stagione=stagione_sintetica(1, n_stanze=3),
+    )
     attese = [asyncio.run(base.prossima_narrazione()).prosa]
     for stanza in (1, 2):
         mappa_corrente()[1].stanza_corrente = stanza  # harness: sposta senza menu
@@ -77,7 +88,10 @@ def test_copione_allineato_dopo_il_reload(run_pulita, tmp_path) -> None:
     base.esci()
 
     # Run gemella: save/load dopo due stanze, poi la terza.
-    sessione = costruisci_sessione(nome="Reload", seed=1, directory=tmp_path / "gioco")
+    sessione = costruisci_sessione(
+        nome="Reload", seed=1, directory=tmp_path / "gioco",
+        stagione=stagione_sintetica(1, n_stanze=3),
+    )
     prose = [asyncio.run(sessione.prossima_narrazione()).prosa]
     mappa_corrente()[1].stanza_corrente = 1
     prose.append(asyncio.run(sessione.prossima_narrazione()).prosa)

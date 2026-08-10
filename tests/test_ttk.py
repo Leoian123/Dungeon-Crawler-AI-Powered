@@ -113,10 +113,17 @@ def test_ttk_per_profilo(run_pulita, tmp_path, archetipo: str, grado: Grado) -> 
         sessione.bus.deregistra(ColpoInferto, colpi_giocatore.append)
 
 
-def test_giro_falsa_idra_giocabile_con_tattica(run_pulita, tmp_path) -> None:
+def test_giro_completo_giocabile_con_tattica(run_pulita, tmp_path) -> None:
     """Il giro completo: combatti finché stai bene, fuggi se sotto il 40% —
-    la tattica minima di un giocatore. Deve arrivare in fondo VIVO."""
-    sessione = costruisci_sessione(nome="Giro", seed=1, directory=tmp_path)
+    la tattica minima di un giocatore. Deve arrivare in fondo VIVO. Stagione
+    SINTETICA piatta a 8 stanze (il lucchetto è la TATTICA, non il contenuto
+    pubblicato — che dal 2026-08-10 è territoriale)."""
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(
+        nome="Giro", seed=1, directory=tmp_path,
+        stagione=stagione_sintetica(1, n_stanze=8),
+    )
     snap = asyncio.run(sessione.prossima_narrazione())
     stanze_viste = 1
     for stanza in range(8):

@@ -28,7 +28,7 @@ from motore import (
 from provider import FakeProvider
 from tests.narr_helpers import coda_azione, coda_reveal
 
-from main import _turni_scriptati
+from tests.narr_helpers import turno as turno_sintetico
 
 
 def _doc(id: str, titolo: str, testo: str, tipo=TipoDocumento.EVENTO, tags=()) -> DocumentoMemoria:
@@ -125,7 +125,7 @@ def test_la_memoria_lunga_entra_nel_prompt_solo_se_rilevante(mondo_isolato) -> N
     lunga = MemoriaSuArchivio(arch)
     lunga.salva(_doc("patto-slime", "Il patto con lo slime",
                      "Il crawler ha risparmiato lo slime della stanza 1."))
-    turno = _turni_scriptati()[0].model_dump()
+    turno = turno_sintetico().model_dump()
 
     prov = FakeProvider(coda_reveal(turno) + coda_azione(turno))
     mem = MemoriaTurni()
@@ -149,7 +149,7 @@ def test_mob_memorabile_scrive_un_personaggio(mondo_isolato, monkeypatch) -> Non
     bud = costruisci_budget(gradi=(Grado.BRONZO, Grado.ORO))
     monkeypatch.setattr(gm_mod, "prepara_contesto", lambda livello, rng, piano=None: bud)
 
-    turno = _turni_scriptati()[0].model_dump()
+    turno = turno_sintetico().model_dump()
     turno["entita"]["grado"] = "oro"
     turno["entita"]["aspetto"] = "una corona di denti da latte"
     turno["entita"]["tratto"] = "canticchia jingle pubblicitari"
@@ -168,7 +168,7 @@ def test_mob_ordinario_non_intasa_la_memoria(mondo_isolato) -> None:
     _arma_run()
     arch = Archivio(master_seed=7, model_id="test")
     lunga = MemoriaSuArchivio(arch)
-    turno = _turni_scriptati()[0].model_dump()  # grado bronzo, nessuna anomalia
+    turno = turno_sintetico().model_dump()  # grado bronzo, nessuna anomalia
     _pipeline(FakeProvider(coda_reveal(turno)), arch, MemoriaTurni(), lunga)
     assert not arch.record_di_tipo(TIPO_RECORD_MEMORIA)
 
@@ -177,7 +177,7 @@ def test_il_resoconto_scrive_un_evento(mondo_isolato) -> None:
     _arma_run()
     arch = Archivio(master_seed=7, model_id="test")
     lunga = MemoriaSuArchivio(arch)
-    turno = _turni_scriptati()[0].model_dump()
+    turno = turno_sintetico().model_dump()
     prov = FakeProvider(coda_reveal(turno))
     mem = MemoriaTurni()
     _pipeline(prov, arch, mem, lunga)  # reveal: la stanza esiste

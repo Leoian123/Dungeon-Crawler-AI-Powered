@@ -1,0 +1,13 @@
+{
+  "slug": "la-regina-scaduta",
+  "versione": 1,
+  "tags": ["nascondino", "boss-di-provincia", "non-morti", "era-vittoriana"],
+  "nome": "La Regina Scaduta",
+  "archetipo": "zombie",
+  "grado": "platino",
+  "blocchi": ["veleno"],
+  "descrizione": "Un'epoca intera le è morta addosso e lei non se n'è accorta. Crinolina ammuffita, guanti fino al gomito, etichetta ferrea: ti uccide, ma con le presentazioni. Boss di provincia segnaposto del canone — il resto della corte lo genera lo show.",
+  "prosa_stanza": "La provincia ha un salone da tè, e il salone ha un trono. La Regina Scaduta versa da una teiera vuota in tazze incrinate, per ospiti che sono soltanto pose di ossa. «Siete in ritardo di un secolo», osserva, senza acredine. Poi posa la teiera, e la corte si alza tutta insieme.",
+  "durata": "un_pochino",
+  "mosse": ["attacco", "morso_velenoso"]
+}

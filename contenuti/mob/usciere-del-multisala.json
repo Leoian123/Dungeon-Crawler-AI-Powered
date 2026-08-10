@@ -1,0 +1,13 @@
+{
+  "slug": "usciere-del-multisala",
+  "versione": 1,
+  "tags": ["nascondino", "non-morti", "riempitivo", "cinema"],
+  "nome": "Usciere del Multisala",
+  "archetipo": "scheletro",
+  "grado": "argento",
+  "blocchi": ["rigenerazione"],
+  "descrizione": "Il personale di sala del Lich Cinefilo. Torcia d'ordinanza, papillon d'ossa, tolleranza zero per chi parla durante lo spettacolo. Strappa i biglietti. E ciò che li tiene in mano.",
+  "prosa_stanza": "Un fascio di torcia ti taglia la faccia. «Biglietto», dice l'Usciere del Multisala, tendendo una mano d'ossa con la pinzatrice ancora infilata tra le falangi. Non hai un biglietto. Lui lo sa. Il papillon gli pende storto mentre inclina la testa, e da qualche parte, in fondo al corridoio, qualcuno inizia a contare fino a dieci.",
+  "durata": "turno",
+  "mosse": ["attacco", "attacco_pesante"]
+}

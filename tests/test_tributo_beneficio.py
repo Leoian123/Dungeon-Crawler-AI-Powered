@@ -36,9 +36,8 @@ from motore import (
     tempo_piano_corrente,
 )
 from motore import calibrazione as cal
-from main import _turni_scriptati
 from provider import FakeProvider
-from tests.narr_helpers import coda_azione
+from tests.narr_helpers import coda_azione, turno as turno_sintetico
 
 
 def _arma_run(seed: int = 7) -> None:
@@ -55,7 +54,7 @@ def _arma_run(seed: int = 7) -> None:
 def _turno_compromesso(beneficio: str, durata: str = "turno") -> dict:
     """Un candidato in-budget la cui classificazione è GIÀ quella che il giocatore
     voleva estorcere: il caso peggiore del gaslighting, dato per riuscito."""
-    d = _turni_scriptati()[0].model_dump()
+    d = turno_sintetico().model_dump()
     d["beneficio"] = beneficio
     d["durata"] = durata
     return d
@@ -147,7 +146,7 @@ def test_tabelle_complete_per_ogni_classe() -> None:
 def test_beneficio_ha_default_retrocompatibile() -> None:
     """Archivi e provider storici non dichiarano `beneficio`: il default è NESSUNO
     (chi non reclama non paga), mai un errore di validazione."""
-    d = _turni_scriptati()[0].model_dump()
+    d = turno_sintetico().model_dump()
     d.pop("beneficio", None)
     turno = TurnoNarrazione.model_validate(d)
     assert turno.beneficio is ClasseBeneficio.NESSUNO

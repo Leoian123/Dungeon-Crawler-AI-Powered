@@ -173,22 +173,87 @@ def test_GL2_qualunque_topologia_diventa_completabile(seed: int) -> None:
 # mappa completabile alla scala che il suo cast impone. Con una stagione a un piano
 # solo la distinzione era accademica; con due (o più) non lo è più.
 
-def test_GL2_ogni_piano_della_stagione_e_completabile() -> None:
-    """Per OGNI piano della stagione ufficiale, alla sua scala, la topologia generata
-    ha una `DiscesaPiano` raggiungibile. Se un piano nuovo entra nella libreria con una
-    scala che il generatore non regge, è qui che si scopre — non giocando."""
-    from main import risolvi_stagione
-    from motore import genera_topologia
+@pytest.mark.parametrize("seed", [3, 11, 42])
+def test_GL2_ogni_piano_della_stagione_e_completabile(mondo_isolato, seed: int) -> None:
+    """G-L2 sul contenuto pubblicato — RIDEFINITA per i piani-mondo (2026-08-10),
+    tre clausole:
+
+    1. **spina ATTRAVERSABILE** (strutturale, per N seed): ogni zona della spina
+       genera una mappa in cui la stanza del passaggio è raggiungibile, e ogni
+       zona HA il suo boss (nominato o istanziato dalle tabelle);
+    2. i boss sono del GRADO del loro tier (già per costruzione al freeze) — la
+       battibilità in banda TTK a parità di corredo del grado è materia di
+       `test_ttk`/G-L1 (G-L2 verifica il DESIGN, non la vincibilità nuda, che
+       resta il ciclo di sostentamento §4.1);
+    3. **clausola del NASCONDINO**: nella tana esiste un cammino partenza→scala
+       che EVITA la stanza del Lich — combatterlo è opt-in, mai un pedaggio.
+
+    I piani PIATTI (senza territorio) restano sul check storico di topologia."""
+    from main import _stagione_a_attiva, risolvi_stagione
+    from motore import (
+        avvia_territorio,
+        boss_della_zona,
+        crea_profondita,
+        crea_seme,
+        crea_stagione,
+        crea_tempo_piano,
+        genera_topologia,
+        grado_da_tier,
+        mappa_corrente,
+        rigenera_mappa_zona,
+        spina_del_piano,
+        stanza_boss_di,
+        stanza_passaggio_di,
+    )
 
     stagione = risolvi_stagione("stagione-1")
-    assert len(stagione.piani) >= 2, "il multi-piano dev'essere esercitato, non ipotizzato"
-    for livello, piano in enumerate(stagione.piani, start=1):
+    piatti = [p for p in stagione.piani if p.territorio is None]
+    for livello, piano in enumerate(piatti, start=1):
         topologia = genera_topologia(random.Random(f"seed:{livello}"), piano.n_stanze)
-        assert piano_completabile(topologia), (
-            f"piano {livello} ({piano.slug}, {piano.n_stanze} stanze): nessuna scala "
-            "raggiungibile"
+        assert piano_completabile(topologia), f"{piano.slug}: nessuna scala raggiungibile"
+
+    if all(p.territorio is None for p in stagione.piani):
+        return  # stagione interamente piatta: il check storico basta
+
+    crea_profondita()
+    crea_seme(seed)
+    crea_tempo_piano()
+    crea_stagione(_stagione_a_attiva(stagione))
+    assert avvia_territorio(1), "il piano 1 pubblicato dichiara un territorio"
+    spina = spina_del_piano(1)
+    assert len(spina) == 6
+    for zona in spina:
+        rigenera_mappa_zona(1, zona)
+        _e, mappa = mappa_corrente()
+        boss = boss_della_zona(1, zona)
+        assert boss is not None, f"{zona.chiave}: zona senza custode"
+        assert boss.grado is grado_da_tier(zona.tier), (
+            f"{zona.chiave}: boss {boss.slug} fuori tier"
         )
-        assert any(d in raggiungibili(topologia) for d in topologia.discese)
+        # La stanza del passaggio (o della scala, nella tana) è raggiungibile.
+        bersaglio = stanza_passaggio_di(zona, mappa.piano)
+        assert bersaglio in raggiungibili(mappa.piano), (
+            f"{zona.chiave}: passaggio irraggiungibile"
+        )
+    # Clausola del nascondino: nella tana, partenza→scala EVITANDO il Lich.
+    tana = spina[-1]
+    rigenera_mappa_zona(1, tana)
+    _e, mappa = mappa_corrente()
+    n = len(mappa.piano.adiacenze)
+    assert mappa.piano.discese == {n - 1}
+    stanza_lich = stanza_boss_di(tana, mappa.piano)
+    da_visitare, visti = [mappa.piano.partenza], {mappa.piano.partenza}
+    while da_visitare:
+        stanza = da_visitare.pop()
+        for uscita in mappa.piano.adiacenze[stanza]:
+            if uscita == stanza_lich or uscita in visti:
+                continue
+            visti.add(uscita)
+            da_visitare.append(uscita)
+    assert (n - 1) in visti, (
+        "la scala del piano DEVE essere raggiungibile senza combattere il Lich "
+        "(la tagline è meccanica: ti nascondi e lo aggiri)"
+    )
 
 
 def test_GL2_la_mappa_rigenerata_alla_discesa_e_completabile(mondo_isolato: str) -> None:
@@ -228,7 +293,8 @@ def test_GL2_la_mappa_rigenerata_alla_discesa_e_completabile(mondo_isolato: str)
 #   - **`test_ttk.py`** (per-profilo, forte): chiude nella banda 2-8 colpi *a parità di
 #     corredo atteso*, ed è il lucchetto del feel.
 
-@pytest.mark.parametrize("archetipo", ["slime", "scheletro", "goblin", "felino"])
+@pytest.mark.parametrize("archetipo", ["slime", "scheletro", "goblin", "felino",
+                                       "zombie", "lich"])
 @pytest.mark.parametrize("grado", list(Grado))
 def test_GL1_ogni_archetipo_per_ogni_grado_termina(
     run_pulita, tmp_path, archetipo: str, grado: Grado
@@ -237,14 +303,16 @@ def test_GL1_ogni_archetipo_per_ogni_grado_termina(
 
     Nudo di proposito — è il caso peggiore, quello in cui il giocatore non ha il
     corredo che il grado richiederebbe. Se anche lì si chiude (vincendo, fuggendo o
-    morendo), G-L1 vale ovunque."""
+    morendo), G-L1 vale ovunque. Gli archetipi si risolvono per la strada di
+    libreria (`archetipi_sintetici`), non dalla stagione pubblicata: la matrice
+    copre TUTTO il vocabolario del repo, qualunque stagione sia in cartellone."""
     import asyncio
 
     from contracts import BudgetDesign, CombatResolved, MobAsset, MortePersonaggio
     from contracts import PianoRisolto, PlayerChoseOption, StagioneRisolta
-    from main import costruisci_sessione, risolvi_stagione
+    from main import costruisci_sessione
+    from tests.contenuti_sintetici import archetipi_sintetici
 
-    ufficiale = risolvi_stagione("stagione-1")
     mob = MobAsset(slug="bersaglio", nome="Bersaglio", archetipo=archetipo, grado=grado,
                    prosa_stanza="Una sagoma ti squadra.")
     piano = PianoRisolto(
@@ -253,7 +321,7 @@ def test_GL1_ogni_archetipo_per_ogni_grado_termina(
     )
     stagione = StagioneRisolta(
         slug="s-gl1", versione=1, numero=1, titolo="GL1", mondo="X",
-        piani=[piano], archetipi=list(ufficiale.archetipi),
+        piani=[piano], archetipi=archetipi_sintetici((archetipo,)),
     )
     sessione = costruisci_sessione(nome="Nudo", seed=5, directory=tmp_path, stagione=stagione)
 

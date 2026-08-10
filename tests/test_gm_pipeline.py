@@ -47,9 +47,9 @@ from motore import (
     tempo_piano_corrente,
 )
 from motore import calibrazione as cal
-from main import _turni_scriptati, costruisci_sessione
+from main import costruisci_sessione
 from provider import FakeProvider
-from tests.narr_helpers import coda_azione, coda_post_scontro, coda_reveal
+from tests.narr_helpers import coda_azione, coda_post_scontro, coda_reveal, turno
 
 
 def _arma_run(seed: int = 7) -> None:
@@ -64,7 +64,9 @@ def _arma_run(seed: int = 7) -> None:
 
 
 def _turno() -> dict:
-    return _turni_scriptati()[0].model_dump()
+    # Candidato SINTETICO (slime bronzo, in-budget nel mondo minimo): la pipeline
+    # non dipende dal contenuto pubblicato (perimetro: forma, non contenuto).
+    return turno().model_dump()
 
 
 def _idea(intenzione: str = "quiete") -> dict:

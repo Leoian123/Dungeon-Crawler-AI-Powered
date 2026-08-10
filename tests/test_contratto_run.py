@@ -79,7 +79,11 @@ def test_la_run_conclusa_attraversa_la_membrana(run_pulita, tmp_path) -> None:
         sessione.coda.accoda(PlayerDiscende())
         return sessione.avanza()
 
-    sessione = costruisci_sessione(nome="Sceso", seed=1, directory=tmp_path)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(
+        nome="Sceso", seed=1, directory=tmp_path, stagione=stagione_sintetica(2)
+    )
     snap = asyncio.run(sessione.prossima_narrazione())
     assert snap.run_conclusa is False
 
@@ -102,7 +106,11 @@ def test_ogni_porta_risponde_con_lo_STESSO_stato_di_run(run_pulita, tmp_path) ->
     from contracts import PlayerDiscende
     from motore import livello_corrente, mappa_corrente
 
-    sessione = costruisci_sessione(nome="Coerente", seed=1, directory=tmp_path)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(
+        nome="Coerente", seed=1, directory=tmp_path, stagione=stagione_sintetica(2)
+    )
     snap = asyncio.run(sessione.prossima_narrazione())
     assert (snap.terminale, snap.profondita) == (sessione.terminale, livello_corrente())
 
