@@ -375,6 +375,8 @@ class Fascicolo:
     # La CODA della prosa dell'ultimo turno mostrato (già troncata): il filo che
     # ogni scena riprende — vedi `_filo` e la sezione [filo/prima].
     scena_precedente: str = ""
+    # La riga di TERRITORIO (zona corrente, custode del varco): "" = piano piatto.
+    territorio_riga: str = ""
 
 
 def componi_fascicolo(
@@ -399,6 +401,22 @@ def componi_fascicolo(
         etichetta = f"«{piano.titolo}»"
         if stagione is not None:
             etichetta += f" (stagione {stagione.numero})"
+    # Territorio: la zona corrente e il suo custode entrano nel fascicolo (sono
+    # DINAMICI per la run: mai nel prefisso di sistema, che è cache).
+    riga_territorio = ""
+    from .territorio import boss_della_zona, boss_sconfitto, zona_corrente
+
+    zona = zona_corrente()
+    if zona is not None:
+        indirizzo = "/".join(map(str, zona.percorso)) or "la tana del piano"
+        riga_territorio = f"zona: {zona.tier.value} ({indirizzo})"
+        custode = boss_della_zona(livello_corrente(), zona)
+        if custode is not None:
+            stato_custode = "BATTUTO" if boss_sconfitto(zona) else "ancora in piedi"
+            riga_territorio += (
+                f"; custode del varco: {custode.nome} ({stato_custode}) — "
+                "il passaggio si apre solo battendolo"
+            )
     return Fascicolo(
         tick=tempo_piano_corrente(),
         livello=livello_corrente(),
@@ -413,6 +431,7 @@ def componi_fascicolo(
         esito_scontro=esito_scontro,
         piano_etichetta=etichetta,
         scena_precedente=_coda_prosa(memoria.ultima_prosa) if memoria.ultima_prosa else "",
+        territorio_riga=riga_territorio,
     )
 
 
@@ -433,6 +452,8 @@ def sezione_fascicolo(f: Fascicolo) -> str:
     righe = []
     if f.piano_etichetta:
         righe.append(f"[fascicolo/piano] {f.piano_etichetta}")
+    if f.territorio_riga:
+        righe.append(f"[fascicolo/territorio] {f.territorio_riga}")
     righe += [
         f"[fascicolo/tempo] tick di piano: {f.tick}",
         f"[fascicolo/mappa] stanza {f.stanza}; visitate {f.visitate}/{f.totale}; "

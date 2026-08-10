@@ -1887,6 +1887,9 @@ class ProviderCopione(FakeProvider):
         self.sistemi.append(sistema)
         if schema is not TurnoNarrazione:
             return None                        # stadi ancillari: degrado dichiarato
+        territoriale = self._turno_territoriale()
+        if territoriale is not None:
+            return territoriale
         turni = self._turni_per_livello.get(livello_corrente())
         trovata = mappa_corrente()
         if not turni or trovata is None:
@@ -1895,6 +1898,50 @@ class ProviderCopione(FakeProvider):
         if stanza >= len(turni):
             return None    # geometria più larga del cast: fallback onesto, mai shift
         return turni[stanza]
+
+    @staticmethod
+    def _turno_territoriale() -> TurnoNarrazione | None:
+        """Il copione di un piano-mondo si COMPUTA dalla zona, on-demand: stanza
+        boss → IL custode (`boss_della_zona`); stanza ordinaria → riempitivo
+        pescato SEEDED per-stanza dalla tabella di spawn. Niente liste
+        precompilate: la stessa lettura vale dopo un load o in qualunque ordine
+        di visita (la rilettura resta compito dell'Archivio). `None` = piano
+        piatto: si usa il copione keyed storico."""
+        import random as _random
+
+        from motore import (
+            boss_della_zona,
+            master_seed,
+            pesca_spawn,
+            stanza_boss_di,
+            zona_corrente,
+        )
+
+        zona = zona_corrente()
+        trovata = mappa_corrente()
+        if zona is None or trovata is None:
+            return None
+        mappa = trovata[1]
+        livello = livello_corrente()
+        stanza = mappa.stanza_corrente
+        if stanza == stanza_boss_di(zona, mappa.piano):
+            mob = boss_della_zona(livello, zona)
+        else:
+            rng = _random.Random(
+                f"{master_seed()}:copione:{livello}:{zona.chiave}:{stanza}"
+            )
+            mob = pesca_spawn(rng)
+        if mob is None:
+            return None  # tabella vuota: fallback onesto del gate
+        return TurnoNarrazione(
+            prosa=mob.prosa_stanza,
+            entita=EntitaGenerata(
+                archetipo=mob.archetipo, grado=mob.grado,
+                blocchi=list(mob.blocchi), nome=mob.nome,
+                descrizione=mob.descrizione, riferimento=mob.slug,
+            ),
+            durata=mob.durata,
+        )
 
 
 def _fake_da_piano(piano) -> ProviderCopione:

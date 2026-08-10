@@ -202,6 +202,17 @@ def mob_del_cast(slug: str) -> MobAttivo | None:
             for voce in voci:
                 if voce.mob.slug == slug:
                     return voce.mob
+        # Il boss PROCEDURALE della zona corrente (istanziato dalle tabelle,
+        # deterministico): riferibile quanto un membro del roster. Import
+        # locale: design è a monte di territorio.
+        from .piano import livello_corrente
+        from .territorio import boss_della_zona, zona_corrente
+
+        zona = zona_corrente()
+        if zona is not None:
+            candidato = boss_della_zona(livello_corrente(), zona)
+            if candidato is not None and candidato.slug == slug:
+                return candidato
     return None
 
 

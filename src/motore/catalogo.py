@@ -18,7 +18,7 @@ completa (G §13.1). Il punto di G è "la forma ora, i numeri dopo".
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from contracts import Blocco, ClasseProva, Durata, Frequenza, Grado, TierTerritorio
 
@@ -202,9 +202,19 @@ def prepara_contesto(livello: int, rng: random.Random, *, piano=None) -> Budget:
     contenuto autorato. L'ANOMALIA non è cappata dal design: resta il tiro del
     dungeon coi set interi (anche il delirio è del motore, non dell'autore).
     Senza piano (save legacy, harness, banco): il segnaposto storico, invariato.
+
+    ECCEZIONE del territorio (2026-08-10): su un piano-mondo l'anomalia NON
+    regala il CELESTIALE — quel grado è l'identità del boss di piano, non un
+    jackpot del dado. Sui piani piatti il delirio storico resta intero.
     """
     if rng.random() < PROB_ANOMALIA:
-        return _budget_anomalo(livello)
+        anomalo = _budget_anomalo(livello)
+        if piano is not None and getattr(piano, "territorio", None) is not None:
+            return replace(
+                anomalo,
+                gradi_ammessi=anomalo.gradi_ammessi - {Grado.CELESTIALE},
+            )
+        return anomalo
     if piano is None:
         return _budget_normale(livello)
     return Budget(

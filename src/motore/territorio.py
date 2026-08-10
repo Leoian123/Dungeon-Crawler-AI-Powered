@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import PlayerAttraversa, TierTerritorio, TransizioneZona
+from contracts import Durata, PlayerAttraversa, TierTerritorio, TransizioneZona
 
 from .design import MobAttivo, TerritorioAttivo, design_piano_corrente
 from .intenti_coda import consuma_messaggi
@@ -233,12 +233,51 @@ def avvia_territorio(livello: int = 1) -> bool:
     return True
 
 
+def _slug_sicuro(testo: str) -> str:
+    """Un nome libero → slug kebab-case (per i boss istanziati dalle tabelle)."""
+    import re as _re
+
+    pulito = _re.sub(r"[^a-z0-9]+", "-", testo.lower()).strip("-")
+    return pulito[:60] or "boss-senza-nome"
+
+
+def boss_procedurale(livello: int, zona: Zona) -> MobAttivo | None:
+    """Il boss ISTANZIATO dalle tabelle procedurali (tier distretto/quartiere):
+    nome × gimmick × archetipo pescati seeded dalla chiave di zona; il grado lo
+    impone il tier (simmetria 6↔6); i numeri, come sempre, la calibrazione.
+    Deterministico, zero chiamate: stessa zona → stesso boss, per sempre."""
+    from .catalogo import grado_da_tier
+
+    territorio = territorio_attivo()
+    if territorio is None:
+        return None
+    tabella = next(
+        (t for t in territorio.procedurali if t.tier == zona.tier.value), None
+    )
+    if tabella is None:
+        return None
+    rng = random.Random(f"{master_seed()}:piano:{livello}:boss:{zona.chiave}")
+    nome = rng.choice(list(tabella.nomi))
+    gimmick = rng.choice(list(tabella.gimmick))
+    archetipo = rng.choice(list(tabella.archetipi))
+    return MobAttivo(
+        slug=f"boss-{_slug_sicuro(nome)}",
+        nome=nome,
+        archetipo=archetipo,
+        grado=grado_da_tier(zona.tier),
+        blocchi=[],
+        descrizione=gimmick,
+        prosa_stanza=(f"{nome} custodisce il varco. {gimmick} "
+                      "Non sembra dell'umore di lasciarti passare."),
+        durata=Durata.TURNO,
+    )
+
+
 def boss_della_zona(livello: int, zona: Zona) -> MobAttivo | None:
     """IL boss che custodisce questa zona.
 
     Tier nominati: pescato SEEDED dal roster del piano (stessa zona → stesso
-    boss, per sempre). Tier procedurali: istanziato dalle tabelle (Fase 3) —
-    per ora `None` (il gate d'attraversamento usa il flag, non l'identità)."""
+    boss, per sempre). Tier procedurali: istanziato dalle tabelle."""
     territorio = territorio_attivo()
     if territorio is None:
         return None
@@ -246,7 +285,39 @@ def boss_della_zona(livello: int, zona: Zona) -> MobAttivo | None:
     if roster:
         rng = random.Random(f"{master_seed()}:piano:{livello}:boss:{zona.chiave}")
         return rng.choice(list(roster))
-    return None  # tier procedurale: arriva con le tabelle (Fase 3)
+    return boss_procedurale(livello, zona)
+
+
+# --- Tabelle di spawn: la pesca pesata dei riempitivi ---------------------------
+
+def _tabella_spawn(territorio: TerritorioAttivo, tier: TierTerritorio):
+    """La tabella del tier, o la più vicina SCENDENDO (un quartiere popola anche
+    la città che non dichiara la sua), o la prima disponibile."""
+    if tier.value in territorio.spawn:
+        return territorio.spawn[tier.value]
+    for candidato in reversed(ORDINE_SPINA[: ORDINE_SPINA.index(tier)]):
+        if candidato.value in territorio.spawn:
+            return territorio.spawn[candidato.value]
+    for voci in territorio.spawn.values():
+        return voci
+    return ()
+
+
+def pesca_spawn(rng: random.Random) -> MobAttivo | None:
+    """UN riempitivo dalla tabella della zona corrente, pescato PESATO
+    (`PESO_FREQUENZA`, foglia §11 — la frequenza è categoria del contratto).
+    `None` senza territorio: il chiamante usa la via storica (cast)."""
+    from .calibrazione import PESO_FREQUENZA
+
+    territorio = territorio_attivo()
+    zona = zona_corrente()
+    if territorio is None or zona is None:
+        return None
+    voci = _tabella_spawn(territorio, zona.tier)
+    if not voci:
+        return None
+    pesi = [PESO_FREQUENZA[v.frequenza] for v in voci]
+    return rng.choices([v.mob for v in voci], weights=pesi, k=1)[0]
 
 
 def stanza_corrente_e_del_boss() -> bool:

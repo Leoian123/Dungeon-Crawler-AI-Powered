@@ -52,7 +52,22 @@ def componi_imboscata_scena() -> int:
     rng = _rng_imboscata(tick)
 
     piano = design_piano_corrente()
-    if piano is not None and piano.cast:
+    # Col territorio l'agguato pesca dalla TABELLA DI SPAWN della zona corrente
+    # (pesata per frequenza, stessa disciplina del copione); mai un boss.
+    from .territorio import pesca_spawn
+
+    dalla_tabella = pesca_spawn(rng)
+    if dalla_tabella is not None:
+        mob = dalla_tabella
+        eg = EntitaGenerata(
+            archetipo=mob.archetipo,
+            grado=mob.grado,
+            blocchi=[],
+            nome=mob.nome,
+            descrizione=mob.descrizione,
+            riferimento=mob.slug,
+        )
+    elif piano is not None and piano.cast:
         mob = rng.choice(list(piano.cast))
         eg = EntitaGenerata(
             archetipo=mob.archetipo,
