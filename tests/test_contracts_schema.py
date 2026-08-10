@@ -54,9 +54,18 @@ def test_lo_schema_ai_non_trasporta_docstring() -> None:
     questo test elencando le eccezioni volute — mai per docstring di ritorno."""
     import json
 
-    from contracts import Ideazione, InquadramentoProva
+    from contracts import (
+        BossGenerato,
+        Ideazione,
+        InquadramentoProva,
+        LottoBossGenerati,
+        TabellaProceduraleGen,
+        TabellaSpawnGenerata,
+    )
 
-    for modello in (TurnoNarrazione, Ideazione, InquadramentoProva, Flavor):
+    for modello in (TurnoNarrazione, Ideazione, InquadramentoProva, Flavor,
+                    BossGenerato, LottoBossGenerati, TabellaProceduraleGen,
+                    TabellaSpawnGenerata):
         testo = json.dumps(modello.model_json_schema())
         assert '"description"' not in testo, (
             f"{modello.__name__}: una docstring è tornata nello schema AI-facing"

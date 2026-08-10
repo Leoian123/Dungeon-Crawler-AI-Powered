@@ -15,7 +15,15 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-from contracts import Flavor, Ideazione, InquadramentoProva, TurnoNarrazione
+from contracts import (
+    Flavor,
+    Ideazione,
+    InquadramentoProva,
+    LottoBossGenerati,
+    TabellaProceduraleGen,
+    TabellaSpawnGenerata,
+    TurnoNarrazione,
+)
 
 from ..fase import Fase
 
@@ -79,5 +87,15 @@ for _rotta in (
     # Epitaffio: la voce dello showrunner sulla schermata terminale (la run è
     # chiusa: nessuna fase da esigere, nessun Archivio da scrivere).
     Rotta("scontro.epitaffio", Flavor, Corsia.FORTE, retry=0, fase=None),
+    # --- Authoring della stagione (2026-08-10): chiamate FUORI-RUN (fase=None,
+    # non esiste un World), gating=True — il gate è la catena di lint esistente
+    # (registry F-6, mosse note, budget, risoluzione finale). Corsia FORTE: il
+    # contenuto si genera una volta e resta.
+    Rotta("authoring.boss", LottoBossGenerati, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
+    Rotta("authoring.tabella", TabellaProceduraleGen, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
+    Rotta("authoring.spawn", TabellaSpawnGenerata, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
 ):
     registra_rotta(_rotta)

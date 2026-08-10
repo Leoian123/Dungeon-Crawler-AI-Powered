@@ -443,3 +443,65 @@ class InquadramentoProva(BaseModel):
 
     classe: ClasseProva
     stat: StatId
+
+
+# --- Authoring AI della stagione (2026-08-10): schemi del «genera stagione» -----
+#
+# Chiamate di AUTHORING, non di gioco: l'AI genera il roster dei boss e le
+# tabelle di un piano-mondo, il motore li valida coi lint esistenti e li congela
+# come asset. ZERO numeri anche qui: il boss dichiara il TIER, mai il grado
+# (lo deriva il motore, simmetria 6↔6); i profili restano della calibrazione.
+
+class BossGenerato(BaseModel):
+    """UN boss proposto dall'AI di authoring: identità narrativa + selezioni da
+    vocabolari chiusi. Il grado NON c'è: lo impone il tier."""
+
+    model_config = _CHIUSO
+
+    slug: Slug
+    archetipo: ArchetipoId          # gate: dentro il budget del piano
+    tier: TierTerritorio            # il grado lo deriva il motore (GRADO_DA_TIER)
+    nome: str
+    descrizione: str
+    aspetto: str = ""
+    tratto: str = ""
+    prosa_stanza: str               # la sua scena (il copione offline)
+    mosse: list[str] = Field(default_factory=list)   # gate: mosse note
+    blocchi: list[Blocco] = Field(default_factory=list)  # gate: dentro il budget
+
+
+class LottoBossGenerati(BaseModel):
+    """Un lotto di boss (≤5 per chiamata: lotti piccoli degradano bene — un item
+    respinto non butta la chiamata intera)."""
+
+    model_config = _CHIUSO
+
+    boss: list[BossGenerato] = Field(min_length=1, max_length=5)
+
+
+class TabellaProceduraleGen(BaseModel):
+    """Il materiale per i boss dei tier procedurali (distretto/quartiere):
+    nomi × gimmick × archetipi — l'istanza la fa il motore, seeded."""
+
+    model_config = _CHIUSO
+
+    tier: TierTerritorio
+    nomi: list[str] = Field(min_length=4, max_length=16)
+    gimmick: list[str] = Field(min_length=4, max_length=16)
+    archetipi: list[ArchetipoId] = Field(min_length=1)
+
+
+class VoceSpawnGenerata(BaseModel):
+    model_config = _CHIUSO
+
+    mob: Slug                       # gate: un MobAsset esistente
+    frequenza: Frequenza = Frequenza.COMUNE  # categoria, mai un peso
+
+
+class TabellaSpawnGenerata(BaseModel):
+    """Una tabella di spawn proposta: voci = mob ESISTENTI + frequenza categoriale."""
+
+    model_config = _CHIUSO
+
+    tier: TierTerritorio
+    voci: list[VoceSpawnGenerata] = Field(min_length=1, max_length=12)
