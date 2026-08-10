@@ -92,14 +92,22 @@ def componi_imboscata_scena() -> int:
     )
 
 
-def nome_nemico_incontro(entita_incontro: int) -> str:
-    """Il nome diegetico del nemico di un incontro composto (per l'host che deve
-    aprire l'istanza su un `EncounterStarted` non suo — l'imboscata)."""
+def entita_mob_incontro(entita_incontro: int) -> EntitaMob | None:
+    """Il componente `EntitaMob` del nemico di un incontro composto (`None` se
+    assente) — la generalizzazione di `nome_nemico_incontro`: l'apertura dello
+    scontro vuole anche descrizione/aspetto/tratto."""
     pi = esper.try_component(entita_incontro, PianoIncontro)
     if pi is None:
-        return ""
+        return None
     for ent in pi.arruolate:
         em = esper.try_component(ent, EntitaMob)
         if em is not None:
-            return em.nome
-    return ""
+            return em
+    return None
+
+
+def nome_nemico_incontro(entita_incontro: int) -> str:
+    """Il nome diegetico del nemico di un incontro composto (per l'host che deve
+    aprire l'istanza su un `EncounterStarted` non suo — l'imboscata)."""
+    em = entita_mob_incontro(entita_incontro)
+    return em.nome if em is not None else ""

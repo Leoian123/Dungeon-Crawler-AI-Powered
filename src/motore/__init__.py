@@ -243,6 +243,7 @@ from .mappa import (
     mappa_to_dict,
     mob_corrente,
     muovi,
+    dettagli_mob_corrente,
     nome_mob_corrente,
     registra_mob,
     rimuovi_mob,
@@ -284,7 +285,7 @@ from .piano import (
 )
 from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
 from .catalogo import GRADO_DA_TIER, grado_da_tier
-from .incontri import componi_imboscata_scena, nome_nemico_incontro
+from .incontri import componi_imboscata_scena, entita_mob_incontro, nome_nemico_incontro
 from .territorio import (
     ORDINE_SPINA,
     SistemaAttraversamento,
@@ -675,6 +676,7 @@ __all__ = [
     "mappa_to_dict",
     "mob_corrente",
     "muovi",
+    "dettagli_mob_corrente",
     "nome_mob_corrente",
     "registra_mob",
     "riposa",
@@ -731,6 +733,7 @@ __all__ = [
     "MemoriaSuArchivio",
     "TIPO_RECORD_MEMORIA",
     "componi_imboscata_scena",
+    "entita_mob_incontro",
     "nome_nemico_incontro",
     "ROTTE",
     "Rotta",

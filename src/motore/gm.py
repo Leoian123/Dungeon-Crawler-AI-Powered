@@ -281,9 +281,11 @@ _ISTRUZIONE_COMPOSIZIONE_REVEAL = (
     "Scegli archetipo/grado/blocchi DENTRO il budget; dai alla creatura un corpo e "
     "un'identità: compila `aspetto` (IL dettaglio visivo che resta negli occhi) e "
     "`tratto` (l'abitudine o il verso che la distingue) — evita i cliché e i sosia "
-    "di ciò che la memoria del fascicolo ha già visto; dichiara la durata "
-    "(vocabolario chiuso). Nessun preambolo, nessun riassunto in coda. Questo testo "
-    "è DEFINITIVO: va in scena così com'è."
+    "di ciò che la memoria del fascicolo ha già visto; se la memoria lunga del "
+    "fascicolo contiene proprio questo mob, è un RITORNO: fallo riconoscere, non "
+    "ripresentare. "
+    "Dichiara la durata (vocabolario chiuso). Nessun preambolo, nessun riassunto in "
+    "coda. Questo testo è DEFINITIVO: va in scena così com'è."
 )
 
 _ISTRUZIONE_COMPOSIZIONE_AZIONE = (
@@ -377,6 +379,11 @@ class Fascicolo:
     scena_precedente: str = ""
     # La riga di TERRITORIO (zona corrente, custode del varco): "" = piano piatto.
     territorio_riga: str = ""
+    # Il MOB ATTESO della stanza al reveal (T2): la lore AUTORATA del custode o
+    # del riempitivo pescato seeded — il GM mette in scena un mob che ESISTE
+    # invece di re-inventarlo. "" = nessun atteso (turno-azione, piano piatto…).
+    mob_atteso_riga: str = ""
+    mob_atteso_query: str = ""              # "nome slug" per il recupero memoria
 
 
 def componi_fascicolo(
@@ -404,9 +411,16 @@ def componi_fascicolo(
     # Territorio: la zona corrente e il suo custode entrano nel fascicolo (sono
     # DINAMICI per la run: mai nel prefisso di sistema, che è cache).
     riga_territorio = ""
-    from .territorio import boss_della_zona, boss_sconfitto, zona_corrente
+    from .territorio import (
+        boss_della_zona,
+        boss_sconfitto,
+        pesca_spawn,
+        stanza_corrente_e_del_boss,
+        zona_corrente,
+    )
 
     zona = zona_corrente()
+    custode = None
     if zona is not None:
         indirizzo = "/".join(map(str, zona.percorso)) or "la tana del piano"
         riga_territorio = f"zona: {zona.tier.value} ({indirizzo})"
@@ -428,6 +442,40 @@ def componi_fascicolo(
                 f" | il piano è VASTO ({scala_mondo}; 150.000 ingressi): altri "
                 "crawler stanno giocando questa stessa partita altrove"
             )
+
+    # Il MOB ATTESO (T2): SOLO al reveal imminente (nessuna azione, stanza mai
+    # narrata, nessun mob in scena) la lore AUTORATA del custode/riempitivo entra
+    # nel fascicolo — dinamica per stanza, quindi nel prompt utente, MAI nel
+    # prefisso di sistema (che è cache). La pesca del riempitivo usa lo STESSO
+    # seed del copione offline (`master_seed:copione:...`): offline e live
+    # convergono sullo stesso mob per stanza, e nessuno stream di sessione
+    # viene toccato (replay e imboscate restano al loro posto, F-13).
+    riga_mob_atteso, query_mob_atteso = "", ""
+    if (zona is not None and not azione and not stanza_visitata()
+            and mob_corrente() is None):
+        if stanza_corrente_e_del_boss() and not boss_sconfitto(zona):
+            atteso, imperativo = custode, True
+        else:
+            rng_copione = random.Random(
+                f"{master_seed()}:copione:{livello_corrente()}:{zona.chiave}:{stanza}"
+            )
+            atteso, imperativo = pesca_spawn(rng_copione), False
+        if atteso is not None:
+            identita = (f"{atteso.nome} [{atteso.slug}] "
+                        f"({atteso.archetipo}/{atteso.grado.value})")
+            descrizione = atteso.descrizione[:300]
+            if imperativo:
+                riga_mob_atteso = (
+                    f"il custode di questa stanza è GIÀ deciso: {identita} — "
+                    f'{descrizione} Mettilo in scena: riferimento="{atteso.slug}".'
+                )
+            else:
+                riga_mob_atteso = (
+                    f"suggerito per questa stanza: {identita} — {descrizione} "
+                    f"(puoi variare DENTRO il budget; per usarlo: "
+                    f'riferimento="{atteso.slug}")'
+                )
+            query_mob_atteso = f"{atteso.nome} {atteso.slug}"
     return Fascicolo(
         tick=tempo_piano_corrente(),
         livello=livello_corrente(),
@@ -443,6 +491,8 @@ def componi_fascicolo(
         piano_etichetta=etichetta,
         scena_precedente=_coda_prosa(memoria.ultima_prosa) if memoria.ultima_prosa else "",
         territorio_riga=riga_territorio,
+        mob_atteso_riga=riga_mob_atteso,
+        mob_atteso_query=query_mob_atteso,
     )
 
 
@@ -465,6 +515,8 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append(f"[fascicolo/piano] {f.piano_etichetta}")
     if f.territorio_riga:
         righe.append(f"[fascicolo/territorio] {f.territorio_riga}")
+    if f.mob_atteso_riga:
+        righe.append(f"[fascicolo/mob-atteso] {f.mob_atteso_riga}")
     righe += [
         f"[fascicolo/tempo] tick di piano: {f.tick}",
         f"[fascicolo/mappa] stanza {f.stanza}; visitate {f.visitate}/{f.totale}; "
@@ -980,6 +1032,11 @@ async def esegui_turno_gm(
     # chiamate: il recupero è deterministico (contratto della porta).
     if memoria_narrativa is not None:
         query = azione or (esito_scontro.nemico if esito_scontro is not None else "")
+        if not query:
+            # Al reveal la query storica era vuota (nessuna azione): se il
+            # fascicolo porta un mob atteso, il suo nome+slug È la query — il
+            # momento in cui un nemico entra in scena non è più senza memoria.
+            query = fascicolo.mob_atteso_query
         if query:
             voci = tuple(
                 f"{d.titolo}: {d.testo}"[:200]
@@ -1209,16 +1266,26 @@ async def esegui_turno_gm(
         segna_visitata()
         eg = risultato.turno.entita
         if memoria_narrativa is not None and (
-            risultato.anomala or rango_grado(eg.grado) >= rango_grado(Grado.ORO)
+            risultato.anomala
+            or rango_grado(eg.grado) >= rango_grado(Grado.ORO)
+            or eg.riferimento is not None
         ):
-            # Il mob MEMORABILE (grado alto o anomalia) diventa un PERSONAGGIO
-            # della memoria narrativa: deterministico, zero chiamate (Sit.2).
+            # Il mob MEMORABILE (grado alto, anomalia, o RECLUTATO dal cast)
+            # diventa un PERSONAGGIO della memoria: deterministico, zero chiamate.
+            # Con `riferimento` l'id è ancorato allo SLUG (stabile tra stanze e
+            # zone): il boss ricorrente aggiorna lo stesso documento a ogni
+            # riapparizione — testo auto-contenuto dell'ULTIMO avvistamento, mai
+            # un log che cresce. I mob coniati dall'AI (senza identità stabile)
+            # restano sull'id-coordinate storico.
             dettagli = "; ".join(x for x in (eg.descrizione, eg.aspetto, eg.tratto) if x)
+            doc_id = (f"mob-{eg.riferimento}" if eg.riferimento
+                      else f"mob-p{fascicolo.livello}-s{fascicolo.stanza}")
             memoria_narrativa.salva(DocumentoMemoria(
-                id=f"mob-p{fascicolo.livello}-s{fascicolo.stanza}",
+                id=doc_id,
                 tipo=TipoDocumento.PERSONAGGIO,
                 titolo=eg.nome,
                 testo=f"{eg.grado.value}: {dettagli}" if dettagli else eg.grado.value,
+                tags=(eg.riferimento,) if eg.riferimento else (),
                 piano=fascicolo.livello,
                 tick=fascicolo.tick,
             ))

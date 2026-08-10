@@ -164,6 +164,22 @@ def test_mob_memorabile_scrive_un_personaggio(mondo_isolato, monkeypatch) -> Non
     assert "corona di denti" in doc[0].testo and "oro" in doc[0].testo
 
 
+def test_mob_reclutato_scrive_personaggio_per_slug(mondo_isolato) -> None:
+    """T2: un mob col `riferimento` (reclutato dal cast) è SEMPRE memorabile e
+    il documento è ancorato allo SLUG — stabile tra stanze e zone: il boss
+    ricorrente aggiorna lo stesso record invece di frammentarsi in id-coordinate."""
+    _arma_run()
+    arch = Archivio(master_seed=7, model_id="test")
+    lunga = MemoriaSuArchivio(arch)
+    turno = turno_sintetico().model_dump()   # bronzo: memorabile SOLO col riferimento
+    turno["entita"]["riferimento"] = "slime-madre"
+    _pipeline(FakeProvider(coda_reveal(turno)), arch, MemoriaTurni(), lunga)
+
+    doc = lunga.recupera("slime madre", tipi=(TipoDocumento.PERSONAGGIO,))
+    assert doc and doc[0].id == "mob-slime-madre"
+    assert "slime-madre" in doc[0].tags
+
+
 def test_mob_ordinario_non_intasa_la_memoria(mondo_isolato) -> None:
     _arma_run()
     arch = Archivio(master_seed=7, model_id="test")

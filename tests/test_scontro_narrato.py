@@ -45,6 +45,66 @@ def test_apertura_fuori_scontro_e_none(run_pulita) -> None:
     assert asyncio.run(sessione.prosa_apertura_scontro()) is None  # nessuna istanza
 
 
+def test_apertura_porta_la_lore_del_nemico(run_pulita) -> None:
+    """T2: l'apertura non riceve più SOLO il nome — descrizione/aspetto/tratto
+    dell'avversario ingaggiato entrano come [scena/nemico] nel prompt utente
+    (il prefisso cacheato resta intatto)."""
+    from contracts import Grado
+    from motore import EntitaMob
+
+    sessione = _sessione_in_scontro()
+    # L'ingaggio ordinario cattura i dettagli del mob della stanza.
+    assert sessione._dettagli_nemico is not None
+    sessione._dettagli_nemico = EntitaMob(
+        archetipo="slime", grado=Grado.BRONZO, nome="Slime Madre",
+        descrizione="Gorgoglia rancore antico.", livello=1,
+        aspetto="una corona di melma", tratto="conta i figli a voce alta",
+    )
+    fake = FakeProvider([dict(testo="!")])
+    sessione.provider = fake
+    asyncio.run(sessione.prosa_apertura_scontro())
+    prompt = fake.prompt_ricevuti[0]
+    assert ("[scena/nemico] Gorgoglia rancore antico.; aspetto: una corona di "
+            "melma; tratto: conta i figli a voce alta") in prompt
+    assert "[fascicolo" not in fake.sistemi[0]  # il prefisso resta il breve
+
+
+def test_epitaffio_porta_la_lore_del_nemico(run_pulita) -> None:
+    from contracts import Grado
+    from motore import EntitaMob
+
+    sessione = costruisci_sessione(seed=1)
+    sessione._dettagli_nemico = EntitaMob(
+        archetipo="slime", grado=Grado.BRONZO, nome="Il Regista",
+        descrizione="Dirige la tua morte come un finale di stagione.", livello=1,
+    )
+    sessione._fatti_epitaffio = FattiScontro(
+        vittoria=False, turni=3, hp_persi=30, nemico="Il Regista"
+    )
+    fake = FakeProvider([dict(testo="Sipario.")])
+    sessione.provider = fake
+    asyncio.run(sessione.epitaffio())
+    assert "[scena/nemico] Dirige la tua morte" in fake.prompt_ricevuti[0]
+
+
+def test_epitaffio_ignora_lore_di_un_altro_nemico(run_pulita) -> None:
+    from contracts import Grado
+    from motore import EntitaMob
+
+    sessione = costruisci_sessione(seed=1)
+    sessione._dettagli_nemico = EntitaMob(
+        archetipo="slime", grado=Grado.BRONZO, nome="Un Altro",
+        descrizione="Lore stantia di uno scontro precedente.", livello=1,
+    )
+    sessione._fatti_epitaffio = FattiScontro(
+        vittoria=False, turni=3, hp_persi=30, nemico="Il Regista"
+    )
+    fake = FakeProvider([dict(testo="Sipario.")])
+    sessione.provider = fake
+    asyncio.run(sessione.epitaffio())
+    assert "[scena/nemico]" not in fake.prompt_ricevuti[0]
+
+
 def test_apertura_imboscata_cambia_l_innesco(run_pulita) -> None:
     sessione = _sessione_in_scontro()
     fake = FakeProvider([dict(testo="!")])

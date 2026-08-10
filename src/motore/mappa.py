@@ -190,14 +190,21 @@ def mob_corrente() -> int | None:
     return ent
 
 
+def dettagli_mob_corrente() -> EntitaMob | None:
+    """Il componente `EntitaMob` del mob della stanza corrente (`None` se
+    assente): il gemello intero di `nome_mob_corrente` — per chi (l'apertura
+    dello scontro) vuole descrizione/aspetto/tratto oltre al nome."""
+    ent = mob_corrente()
+    if ent is None:
+        return None
+    return esper.try_component(ent, EntitaMob)
+
+
 def nome_mob_corrente() -> str:
     """Il nome diegetico del mob della stanza corrente ("" se assente): la VERITÀ
     è il componente `EntitaMob`, non un appunto dell'host (che dopo un load o un
     cache-hit sarebbe stantio — audit 2026-08)."""
-    ent = mob_corrente()
-    if ent is None:
-        return ""
-    em = esper.try_component(ent, EntitaMob)
+    em = dettagli_mob_corrente()
     return em.nome if em is not None else ""
 
 

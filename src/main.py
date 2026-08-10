@@ -92,6 +92,7 @@ from motore import (
     MasterEngine,
     MemoriaSuArchivio,
     PREFISSO_RIFINITURA,
+    entita_mob_incontro,
     nome_nemico_incontro,
     ProfiloArchetipo,
     mosse_note,
@@ -122,6 +123,7 @@ from motore import (
     messaggi_da_archivio,
     messaggi_pendenti,
     mob_corrente,
+    dettagli_mob_corrente,
     nome_mob_corrente,
     riposa,
     CATALOGO_OGGETTI,
@@ -965,6 +967,10 @@ class SessioneGioco:
         self._fatti_epitaffio: FattiScontro | None = None  # fatti della morte (Fase 5)
         self._nome_mob = ""
         self._imboscata_in_corso = False  # lo scontro aperto è un'imboscata (Sit.5)
+        # I dettagli (EntitaMob) dell'avversario dell'ULTIMO scontro aperto: la
+        # lore che apertura/epitaffio mettono nel prompt. Sovrascritto a ogni
+        # nuova istanza, MAI azzerato a scontro chiuso (l'epitaffio arriva dopo).
+        self._dettagli_nemico = None
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
@@ -1140,12 +1146,26 @@ class SessioneGioco:
         self._istanza = IstanzaCombattimento(
             self.bus, nemico=nome_nemico_incontro(evento.entita)
         )
+        self._dettagli_nemico = entita_mob_incontro(evento.entita)
 
     def _engine(self) -> MasterEngine:
         """Il canale unico delle chiamate AI, sul provider CORRENTE (che può
         cambiare dopo il load: il copione offline si deriva dal save)."""
         prov = self.provider
         return prov if isinstance(prov, MasterEngine) else MasterEngine.avvolgi(prov)
+
+    def _riga_scena_nemico(self) -> str:
+        """La riga `[scena/nemico]` dai dettagli dell'avversario corrente ("" se
+        non c'è nulla da dire): descrizione troncata + aspetto/tratto."""
+        em = self._dettagli_nemico
+        if em is None:
+            return ""
+        pezzi = [p for p in (
+            em.descrizione[:200],
+            f"aspetto: {em.aspetto}" if em.aspetto else "",
+            f"tratto: {em.tratto}" if em.tratto else "",
+        ) if p]
+        return f"[scena/nemico] {'; '.join(pezzi)}" if pezzi else ""
 
     async def prosa_apertura_scontro(self, *, imboscata: bool | None = None) -> str | None:
         """Sit.1 (Fase 5): il trailer d'apertura dello scontro — rotta
@@ -1163,12 +1183,21 @@ class SessioneGioco:
         nemico = self._istanza.nemico or self._nome_mob or "il nemico"
         innesco = ("l'agguato è scattato: nessuno ha scelto questo scontro"
                    if imboscata else "il crawler ha scelto di combattere")
-        prompt = "\n".join([
+        righe = [
             f"[scena] Lo scontro si apre: davanti al crawler c'è {nemico}; {innesco}.",
+        ]
+        # La lore del nemico (T2): prima l'apertura riceveva SOLO il nome e il
+        # modello re-inventava mob già scritti. Dinamica per scontro → nel
+        # prompt utente; PREFISSO_RIFINITURA (cache) resta intatto.
+        riga_nemico = self._riga_scena_nemico()
+        if riga_nemico:
+            righe.append(riga_nemico)
+        righe.append(
             "[istruzione] 2-4 frasi cinematiche di APERTURA (un trailer): la "
             "minaccia entra in scena con un gesto che ne mostra il carattere. "
-            "Nessun esito anticipato, nessun numero.",
-        ])
+            "Nessun esito anticipato, nessun numero."
+        )
+        prompt = "\n".join(righe)
         flavor = await self._engine().genera(
             "scontro.apertura", prompt, sistema=PREFISSO_RIFINITURA
         )
@@ -1183,13 +1212,21 @@ class SessioneGioco:
         fatti = self._fatti_epitaffio
         if fatti is None:
             return None
-        prompt = "\n".join([
+        righe = [
             f"[fine] Il crawler {self.etichetta or 'senza nome'} è morto: "
             f"{fatti.nemico or 'il dungeon'} ha chiuso lo scontro in "
             f"{fatti.turni} scambi.",
+        ]
+        # Il nemico che ti ha ucciso merita la sua descrizione (guardia sul nome:
+        # niente lore stantia di uno scontro precedente).
+        em = self._dettagli_nemico
+        if em is not None and em.nome == (fatti.nemico or "") and em.descrizione:
+            righe.append(f"[scena/nemico] {em.descrizione[:200]}")
+        righe.append(
             "[istruzione] Un EPITAFFIO da showrunner: 2-4 frasi, ironia nera e un "
-            "filo di rispetto — il pubblico saluta. Nessun numero.",
-        ])
+            "filo di rispetto — il pubblico saluta. Nessun numero."
+        )
+        prompt = "\n".join(righe)
         flavor = await self._engine().genera(
             "scontro.epitaffio", prompt, sistema=PREFISSO_RIFINITURA
         )
@@ -1459,6 +1496,7 @@ class SessioneGioco:
         self._istanza = IstanzaCombattimento(
             self.bus, nemico=nome_mob_corrente() or self._nome_mob
         )
+        self._dettagli_nemico = dettagli_mob_corrente()
         ingaggia_combattimento(
             self.bus,
             nemici=None if mob is not None else [SpecNemico(destrezza=5, punti_vita=3)],
