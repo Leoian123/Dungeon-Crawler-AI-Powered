@@ -212,8 +212,13 @@ def test_la_discesa_oltre_lultimo_piano_e_vittoria_non_un_piano_nuovo(
 ) -> None:
     from contracts import DiscesaPiano
     from main import _riga_discesa, costruisci_sessione
+    from tests.contenuti_sintetici import stagione_sintetica
 
-    costruisci_sessione(nome="Fine", seed=1, directory=tmp_path)  # stagione-1: 2 piani
+    # Stagione SINTETICA a 2 piani: la riga di discesa dipende dal numero di
+    # piani della stagione congelata, non dal contenuto pubblicato (2026-08-10).
+    costruisci_sessione(
+        nome="Fine", seed=1, directory=tmp_path, stagione=stagione_sintetica(2)
+    )
     dentro = _riga_discesa(DiscesaPiano(piano=2))
     fuori = _riga_discesa(DiscesaPiano(piano=3))
     assert "piano 2" in dentro

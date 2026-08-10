@@ -130,17 +130,21 @@ def test_mosse_fuori_catalogo_sono_errore(tmp_path) -> None:
 
 
 def test_storici_risolvono_senza_asset_col_profilo_di_calibrazione(tmp_path) -> None:
-    """La stagione ufficiale continua a funzionare: gli storici ereditano i numeri
-    dalla calibrazione (che resta la loro autorità) anche senza profilo nell'asset."""
-    risolta = risolvi_stagione("stagione-1")  # libreria ufficiale del repo
-    slugs = {a.slug for a in risolta.archetipi}
-    # Gli storici ci sono tutti; la stagione può averne ALTRI (il `felino` è arrivato
-    # col dodger di F7, e porta il proprio profilo nell'asset invece di ereditarlo).
-    assert {"slime", "scheletro", "goblin"} <= slugs
-    slime = next(a for a in risolta.archetipi if a.slug == "slime")
+    """Gli storici ereditano i numeri dalla calibrazione (che resta la loro
+    autorità) anche senza profilo nell'asset — provato per la stessa strada di
+    `risolvi_stagione`, senza dipendere dal contenuto pubblicato (2026-08-10)."""
+    from tests.contenuti_sintetici import archetipi_sintetici
+
+    risolti = archetipi_sintetici(("slime", "scheletro", "goblin", "felino"))
+    slugs = {a.slug for a in risolti}
+    assert {"slime", "scheletro", "goblin", "felino"} <= slugs
+    slime = next(a for a in risolti if a.slug == "slime")
     atteso = REGISTRY_ARCHETIPI["slime"]
     assert slime.profilo.pv_base == atteso.pv_base
     assert slime.profilo.taglia == atteso.taglia
+    # Lo slug nuovo (felino) invece porta il SUO profilo dall'asset di libreria.
+    felino = next(a for a in risolti if a.slug == "felino")
+    assert felino.profilo is not None and felino.profilo.pv_base is not None
 
 
 def test_senza_stagione_il_registry_sono_gli_storici(mondo_isolato) -> None:

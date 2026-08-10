@@ -1,14 +1,14 @@
-"""Il giro della Falsa Idra — contenuto scriptato SOLO offline (FakeProvider).
+"""Il giro del copione keyed — contenuto scriptato SOLO offline (FakeProvider).
 
-Una stanza per turno del copione, in ordine di visita, e ogni stanza RECLUTA un mob
-diverso (archetipo × grado × blocchi → profilo calibrato dal motore, registrato sulla
-mappa): è il banco di prova dell'arruolamento per-stanza. Il GM live NON è toccato: il
-copione vive nel FakeProvider di `costruisci_sessione`, e la topologia si adatta al
-copione solo offline.
+Una stanza per turno del copione, in ordine di visita, e ogni stanza RECLUTA un
+mob diverso (archetipo × grado × blocchi → profilo calibrato dal motore,
+registrato sulla mappa): è il banco di prova dell'arruolamento per-stanza. Il GM
+live NON è toccato: il copione vive nel FakeProvider di `costruisci_sessione`, e
+la topologia si adatta al copione solo offline.
 
-⚠️ Le lunghezze qui sono **derivate dal cast**, mai cablate: il cast del piano è
-contenuto, e cresce. Un numero scritto a mano trasformerebbe "aggiungere una testa"
-in "rompere cinque test", che è il modo migliore per non aggiungerla più.
+Il cast è SINTETICO e variegato (perimetro: forma, non contenuto — 2026-08-10):
+il test prova il MECCANISMO del reclutamento, non il cast di una stagione vera.
+Le lunghezze sono derivate dal cast, mai cablate.
 """
 
 from __future__ import annotations
@@ -17,40 +17,59 @@ import asyncio
 
 import esper
 
-from main import _turni_scriptati, costruisci_sessione
-from contracts import Grado, PlayerChoseOption
+from contracts import Blocco, Grado, PlayerChoseOption
+from main import costruisci_sessione, turni_da_piano
 from motore import Combattente, EntitaMob, dissolvi_mob, mappa_corrente, max_hp, mob_corrente
+from tests.contenuti_sintetici import mob_sintetico, piano_sintetico, stagione_sintetica
+
+
+def _stagione_variegata():
+    """Un piano di cast tutto diverso: archetipi, gradi e blocchi mai ripetuti in
+    coppia — le assert di distinzione provano che ogni stanza monta IL SUO mob."""
+    cast = [
+        mob_sintetico("testa-slime-b", archetipo="slime", grado=Grado.BRONZO),
+        mob_sintetico("testa-goblin-b", archetipo="goblin", grado=Grado.BRONZO),
+        mob_sintetico("testa-ossa-b", archetipo="scheletro", grado=Grado.BRONZO),
+        mob_sintetico("testa-velenosa", archetipo="slime", grado=Grado.BRONZO,
+                      blocchi=(Blocco.VELENO,)),
+        mob_sintetico("testa-goblin-a", archetipo="goblin", grado=Grado.ARGENTO),
+        mob_sintetico("testa-slime-a", archetipo="slime", grado=Grado.ARGENTO),
+    ]
+    return stagione_sintetica(piani=[piano_sintetico(1, cast=cast)], slug="s-teste")
 
 
 def test_offline_una_stanza_per_turno_del_copione(run_pulita) -> None:
-    sessione = costruisci_sessione(seed=1)
+    stagione = _stagione_variegata()
+    sessione = costruisci_sessione(seed=1, stagione=stagione)
     asyncio.run(sessione.prossima_narrazione())
     trovata = mappa_corrente()
     assert trovata is not None
     _ent, mappa = trovata
-    assert len(mappa.piano.adiacenze) == len(_turni_scriptati()) >= 8
+    assert len(mappa.piano.adiacenze) == len(turni_da_piano(stagione.piani[0]))
+    assert sessione is not None
 
 
 def test_il_copione_ha_teste_tutte_diverse() -> None:
-    turni = _turni_scriptati()
-    assert len(turni) >= 8, "il piano 1 non può impoverirsi sotto il cast storico"
+    stagione = _stagione_variegata()
+    turni = turni_da_piano(stagione.piani[0])
     nomi = [t.entita.nome for t in turni]
     assert len(set(nomi)) == len(turni)  # ogni stanza ha roba diversa
     profili = {(t.entita.archetipo, t.entita.grado, tuple(t.entita.blocchi)) for t in turni}
     assert len(profili) == len(turni)  # anche i profili meccanici sono tutti distinti
-    # La truffa è dichiarata: nessuna testa supera l'ARGENTO (il "gold" è vernice).
     assert all(t.entita.grado in {Grado.BRONZO, Grado.ARGENTO} for t in turni)
 
 
 def test_giro_completo_recluta_un_mob_diverso_per_stanza(run_pulita) -> None:
-    """Cammina il piano 0→7 via porte: ogni stanza narrata registra IL SUO mob
+    """Cammina il piano via porte: ogni stanza narrata registra IL SUO mob
     (EntitaMob dal copione, profilo calibrato); nella prima lo scontro ARRUOLA
     l'entità della stanza (mai il fallback). Le altre si attraversano
     dissolvendo il mob (harness): il giro resta un test di reclutamento."""
+    stagione = _stagione_variegata()
     attesi = [
-        (t.entita.nome, t.entita.archetipo, t.entita.grado) for t in _turni_scriptati()
+        (t.entita.nome, t.entita.archetipo, t.entita.grado)
+        for t in turni_da_piano(stagione.piani[0])
     ]
-    sessione = costruisci_sessione(seed=1)
+    sessione = costruisci_sessione(seed=1, stagione=stagione)
     visti: list[tuple] = []
     hp_massimi: dict[str, int] = {}
     ultima = len(attesi) - 1
@@ -92,4 +111,4 @@ def test_giro_completo_recluta_un_mob_diverso_per_stanza(run_pulita) -> None:
     assert visti == attesi  # una stanza per testa, nell'ordine del copione
     # Profilo CALIBRATO, non flavor: a pari archetipo un ARGENTO regge più HP
     # di un BRONZO (la calibrazione deriva i numeri da archetipo × grado).
-    assert hp_massimi["Slime Madre"] > hp_massimi["Slime Mangiascarti"]
+    assert hp_massimi["Testa Slime A"] > hp_massimi["Testa Slime B"]

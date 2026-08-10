@@ -36,7 +36,7 @@ from contracts import (
     PlayerChoseOption,
     StagioneRisolta,
 )
-from main import costruisci_sessione, risolvi_stagione
+from main import costruisci_sessione
 from motore import Primarie, acc_eff, check1, crea_protagonista, eva_eff
 from motore import calibrazione as cal
 from motore.calibrazione import primarie_da_archetipo
@@ -50,10 +50,12 @@ _ORDINARIO = "slime"
 def _stagione_con(archetipo: str, grado: Grado) -> StagioneRisolta:
     """Un piano di prova con un solo mob, ma con gli **archetipi risolti veri**.
 
-    Li prende dalla stagione ufficiale invece di inventarli: è il punto del test —
-    la schivata dev'essere raggiungibile dal CONTENUTO del repo (profilo completo
-    nell'asset per gli slug nuovi, merge con la calibrazione per gli storici), non da
-    un profilo cucito su misura qui dentro."""
+    Li risolve per la STESSA strada di `risolvi_stagione` (merge con la
+    calibrazione per gli storici, profilo dall'asset di libreria per il
+    `felino`): è il punto del test — la schivata dev'essere raggiungibile dal
+    CONTENUTO del repo, non da un profilo cucito su misura qui dentro."""
+    from tests.contenuti_sintetici import archetipi_sintetici
+
     mob = MobAsset(
         slug="bersaglio", nome="Bersaglio", archetipo=archetipo, grado=grado,
         prosa_stanza="Qualcosa ti squadra dal buio.",
@@ -63,10 +65,10 @@ def _stagione_con(archetipo: str, grado: Grado) -> StagioneRisolta:
         budget=BudgetDesign(gradi=[grado], blocchi=[], archetipi=[archetipo]),
         cast=[mob],
     )
-    ufficiale = risolvi_stagione("stagione-1")
     return StagioneRisolta(
         slug="s-dodge", versione=1, numero=1, titolo="Dodge", mondo="X",
-        piani=[piano], archetipi=list(ufficiale.archetipi),
+        piani=[piano],
+        archetipi=archetipi_sintetici(("slime", "scheletro", "goblin", "felino")),
     )
 
 

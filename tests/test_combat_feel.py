@@ -270,11 +270,15 @@ def test_crollo_registrato_in_produzione(run_pulita, tmp_path) -> None:
 
 def test_colpo_del_protagonista_non_oneshotta_bronzo(run_pulita, tmp_path) -> None:
     # La regressione madre: il bronzo NON muore al primo colpo (pv_base tarati).
-    sessione = costruisci_sessione(nome="NoOneShot", seed=1, directory=tmp_path)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(
+        nome="NoOneShot", seed=1, directory=tmp_path, stagione=stagione_sintetica(1)
+    )
     colpi: list[ColpoInferto] = []
     sessione.bus.registra(ColpoInferto, colpi.append)
     try:
-        snap = _apri_scontro(sessione)  # Slime Mangiascarti (bronzo)
+        snap = _apri_scontro(sessione)  # comparsa slime (bronzo)
         sessione.coda.accoda(PlayerChoseOption(0))
         snap = sessione.avanza()
         primo = next(c for c in colpi if c.attaccante == "")

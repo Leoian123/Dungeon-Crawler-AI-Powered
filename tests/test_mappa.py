@@ -137,30 +137,11 @@ def test_sessione_arruola_il_mob_della_stanza(run_pulita) -> None:
 def _stagione_leggera():
     """Due piani di sole comparse bronzo: il test verifica il CABLAGGIO del ciclo
     (esplora → combatti → scala → Scendi), non la taratura del contenuto ufficiale.
-    Col copione keyed il mob appartiene alla STANZA (D5), quindi la rotta del bot
-    incontra il cast reale del piano: legare questo test alla Falsa Idra lo
-    trasformerebbe in un test di bilanciamento."""
-    from contracts import BudgetDesign, Grado, MobAsset, PianoRisolto, StagioneRisolta
-    from main import risolvi_stagione
+    Il costruttore generale vive in `tests/contenuti_sintetici.py` (perimetro:
+    forma, non contenuto — i test non dipendono dalla stagione pubblicata)."""
+    from tests.contenuti_sintetici import stagione_sintetica
 
-    def _piano(n: int) -> PianoRisolto:
-        cast = [
-            MobAsset(slug=f"comparsa-{n}-{i}", nome=f"Comparsa {n}.{i}",
-                     archetipo="slime", grado=Grado.BRONZO,
-                     prosa_stanza=f"La stanza {i} del piano {n} borbotta di slime.")
-            for i in range(3)
-        ]
-        return PianoRisolto(
-            slug=f"leggero-{n}", versione=1, titolo=f"Leggero {n}", tema="cablaggio",
-            budget=BudgetDesign(gradi=[Grado.BRONZO], blocchi=[], archetipi=["slime"]),
-            cast=cast,
-        )
-
-    ufficiale = risolvi_stagione("stagione-1")
-    return StagioneRisolta(
-        slug="s-cablaggio", versione=1, numero=1, titolo="Cablaggio", mondo="X",
-        piani=[_piano(1), _piano(2)], archetipi=list(ufficiale.archetipi),
-    )
+    return stagione_sintetica(n_piani=2, n_stanze=3, slug="s-cablaggio")
 
 
 def test_sessione_vince_esplorando_fino_alla_scala(run_pulita) -> None:

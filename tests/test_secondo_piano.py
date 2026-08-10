@@ -22,6 +22,7 @@ import pytest
 from contracts import DiscesaPiano, PlayerDiscende, Terminale
 from main import costruisci_sessione, risolvi_stagione
 from motore import livello_corrente, mappa_corrente
+from tests.contenuti_sintetici import stagione_sintetica
 
 
 def _scendi(sessione):
@@ -33,11 +34,14 @@ def _scendi(sessione):
     return sessione.avanza()
 
 
-# --- 1. La stagione ha davvero più piani --------------------------------------
+# --- 1. La stagione pubblicata risolve (sanity content-agnostic) ---------------
+# I MECCANISMI multi-piano si provano qui sotto su stagioni SINTETICHE: il
+# numero di piani della stagione pubblicata è contenuto dell'utente, non un
+# vincolo del motore (perimetro: forma, non contenuto — 2026-08-10).
 
-def test_la_stagione_ufficiale_ha_piu_di_un_piano() -> None:
+def test_la_stagione_ufficiale_risolve_ed_e_giocabile() -> None:
     stagione = risolvi_stagione("stagione-1")
-    assert len(stagione.piani) >= 2
+    assert stagione.piani, "una stagione senza piani non è giocabile"
     slugs = [p.slug for p in stagione.piani]
     assert len(set(slugs)) == len(slugs), "due piani con lo stesso slug"
     for piano in stagione.piani:
@@ -47,7 +51,9 @@ def test_la_stagione_ufficiale_ha_piu_di_un_piano() -> None:
 # --- 2. Scendere dal primo piano NON conclude la run --------------------------
 
 def test_scendere_dal_primo_piano_continua_la_run(run_pulita, tmp_path) -> None:
-    sessione = costruisci_sessione(nome="Giu", seed=3, directory=tmp_path)
+    sessione = costruisci_sessione(
+        nome="Giu", seed=3, directory=tmp_path, stagione=stagione_sintetica(2)
+    )
     discese: list[DiscesaPiano] = []
     sessione.bus.registra(DiscesaPiano, discese.append)
     try:
@@ -65,8 +71,10 @@ def test_scendere_dal_primo_piano_continua_la_run(run_pulita, tmp_path) -> None:
 
 
 def test_scendere_dallultimo_piano_conclude_la_run(run_pulita, tmp_path) -> None:
-    stagione = risolvi_stagione("stagione-1")
-    sessione = costruisci_sessione(nome="Vinc", seed=3, directory=tmp_path)
+    stagione = stagione_sintetica(2)
+    sessione = costruisci_sessione(
+        nome="Vinc", seed=3, directory=tmp_path, stagione=stagione
+    )
     asyncio.run(sessione.prossima_narrazione())
 
     snap = None
@@ -81,8 +89,10 @@ def test_scendere_dallultimo_piano_conclude_la_run(run_pulita, tmp_path) -> None
 # --- 3. Il piano nuovo è una mappa nuova --------------------------------------
 
 def test_la_discesa_rigenera_la_mappa(run_pulita, tmp_path) -> None:
-    stagione = risolvi_stagione("stagione-1")
-    sessione = costruisci_sessione(nome="Mappa", seed=3, directory=tmp_path)
+    stagione = stagione_sintetica(2, n_stanze=4)
+    sessione = costruisci_sessione(
+        nome="Mappa", seed=3, directory=tmp_path, stagione=stagione
+    )
     asyncio.run(sessione.prossima_narrazione())
 
     _e1, prima = mappa_corrente()
@@ -104,7 +114,9 @@ def test_la_mappa_del_piano_due_e_seeded_non_casuale(run_pulita, tmp_path) -> No
     replay (FNC §9). Se qui comparisse un `random.Random()` senza seme, o l'orologio,
     questo test lo scoprirebbe."""
     def _adiacenze_dopo_la_discesa(directory):
-        sessione = costruisci_sessione(nome="Seed", seed=11, directory=directory)
+        sessione = costruisci_sessione(
+            nome="Seed", seed=11, directory=directory, stagione=stagione_sintetica(2)
+        )
         asyncio.run(sessione.prossima_narrazione())
         _scendi(sessione)
         _ent, mappa = mappa_corrente()
@@ -125,7 +137,7 @@ def test_il_copione_offline_copre_anche_il_secondo_piano(run_pulita, tmp_path) -
     vuoto — il tipo di buco che non fa fallire nessun test e si nota solo giocando."""
     from main import _fake_da_piani, turni_da_piano
 
-    stagione = risolvi_stagione("stagione-1")
+    stagione = stagione_sintetica(2)
     nomi_piano2 = {t.entita.nome for t in turni_da_piano(stagione.piani[1])}
     assert nomi_piano2, "il secondo piano non ha turni scriptati"
 
@@ -135,7 +147,9 @@ def test_il_copione_offline_copre_anche_il_secondo_piano(run_pulita, tmp_path) -
     for profondita, piano in enumerate(stagione.piani, start=1):
         assert len(copione._turni_per_livello[profondita]) == len(turni_da_piano(piano))
 
-    sessione = costruisci_sessione(nome="Sotto", seed=3, directory=tmp_path)
+    sessione = costruisci_sessione(
+        nome="Sotto", seed=3, directory=tmp_path, stagione=stagione
+    )
     asyncio.run(sessione.prossima_narrazione())
     _scendi(sessione)
     snap = asyncio.run(sessione.prossima_narrazione())
@@ -153,8 +167,10 @@ def test_scendere_alla_prima_scala_non_ruba_il_copione_del_piano_2(
     from main import turni_da_piano
     from motore.narrazione import PROSA_NEUTRA
 
-    stagione = risolvi_stagione("stagione-1")
-    sessione = costruisci_sessione(nome="Presto", seed=3, directory=tmp_path)
+    stagione = stagione_sintetica(2)
+    sessione = costruisci_sessione(
+        nome="Presto", seed=3, directory=tmp_path, stagione=stagione
+    )
     asyncio.run(sessione.prossima_narrazione())    # UNA sola stanza del piano 1
     _scendi(sessione)                              # discesa anticipata
     snap = asyncio.run(sessione.prossima_narrazione())
@@ -170,9 +186,10 @@ def test_offline_e_live_condividono_la_scala_del_piano(run_pulita, tmp_path) -> 
     diverse (mob senza stanza in live, misure non trasferibili)."""
     from provider import FakeProvider
 
-    stagione = risolvi_stagione("stagione-1")
+    stagione = stagione_sintetica(2)
     sessione = costruisci_sessione(
-        nome="Live", seed=3, directory=tmp_path, provider=FakeProvider()
+        nome="Live", seed=3, directory=tmp_path, provider=FakeProvider(),
+        stagione=stagione,
     )
     _ent, mappa = mappa_corrente()
     assert len(mappa.piano.adiacenze) == stagione.piani[0].n_stanze, (
@@ -190,9 +207,11 @@ def test_lazione_libera_non_shifta_il_copione(run_pulita, tmp_path) -> None:
     from main import turni_da_piano
     from motore.narrazione import PROSA_NEUTRA
 
-    stagione = risolvi_stagione("stagione-1")
+    stagione = stagione_sintetica(2)
     attesi = [t.prosa for t in turni_da_piano(stagione.piani[0])]
-    sessione = costruisci_sessione(nome="Agisce", seed=3, directory=tmp_path)
+    sessione = costruisci_sessione(
+        nome="Agisce", seed=3, directory=tmp_path, stagione=stagione
+    )
     snap0 = asyncio.run(sessione.prossima_narrazione())
     assert snap0.prosa == attesi[0]
 

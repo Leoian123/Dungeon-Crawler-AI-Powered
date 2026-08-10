@@ -20,9 +20,7 @@ from contracts import (
     Stagione,
 )
 from main import (
-    STAGIONE_DEFAULT,
     _stagione_a_attiva,
-    _turni_scriptati,
     affini,
     carica_sessione,
     costruisci_sessione,
@@ -73,22 +71,20 @@ def test_tag_e_slug_malformati_respinti() -> None:
         BudgetDesign(gradi=[Grado.BRONZO, Grado.BRONZO], archetipi=["slime"])
 
 
-# --- Parità: la Falsa Idra derivata dalla libreria = il vecchio copione ---------
+# --- Il copione deriva dal cast: ordine, prosa e binding (meccanismo) -----------
+# (Ex "parità falsa-idra": il lucchetto sul CONTENUTO demo è stato slegato il
+# 2026-08-10 — il cast pubblicato è dell'utente; qui si prova il MECCANISMO.)
 
-def test_parita_falsa_idra() -> None:
-    """Il cast storico è ancora tutto lì, nell'ordine, e derivato dalla libreria.
-
-    Sottoinsieme e non uguaglianza: il piano può ACQUISTARE teste (la Prima Donna è
-    entrata col dodger, F7) senza che questo test diventi un ostacolo ad aggiungere
-    contenuto. Ciò che non deve succedere è che ne PERDA, o che ne cambi l'ordine."""
-    turni = _turni_scriptati()
-    storici = [
-        "Slime Mangiascarti", "Goblin Bigliettaio", "Scheletro Sarto",
-        "Gemelli nel Trench", "Goblin Burattinaio", "Coro delle Ossa",
-        "Slime Madre", "Il Regista",
-    ]
-    assert [t.entita.nome for t in turni][: len(storici)] == storici
-    assert "Rolex" in turni[0].prosa
+def test_copione_derivato_dal_cast_in_ordine() -> None:
+    cast = [_mob(f"voce-{i}", grado=Grado.BRONZO) for i in range(4)]
+    piano = PianoRisolto(
+        slug="ordinato", versione=1, titolo="O", tema="t",
+        budget=_budget(), cast=cast,
+    )
+    turni = turni_da_piano(piano)
+    assert [t.entita.nome for t in turni] == [m.nome for m in cast]  # stanza N = cast[N]
+    assert [t.prosa for t in turni] == [m.prosa_stanza for m in cast]
+    assert [t.entita.riferimento for t in turni] == [m.slug for m in cast]  # binding D5
     assert all(t.entita.grado in {Grado.BRONZO, Grado.ARGENTO} for t in turni)
 
 
@@ -141,9 +137,11 @@ class _RngFisso:
 
 
 def _piano_attivo_default():
-    """Il piano 1 della stagione di default nella forma ATTIVA (quella che il
-    motore consuma: `prepara_contesto` è duck-typed su gradi/blocchi/archetipi)."""
-    return _stagione_a_attiva(risolvi_stagione(STAGIONE_DEFAULT)).piani[0]
+    """Un piano SINTETICO nella forma ATTIVA (quella che il motore consuma:
+    `prepara_contesto` è duck-typed su gradi/blocchi/archetipi)."""
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    return _stagione_a_attiva(stagione_sintetica(1)).piani[0]
 
 
 def test_prepara_contesto_dal_piano() -> None:
@@ -163,8 +161,11 @@ def test_anomalia_non_cappata_dal_design() -> None:
 
 
 def test_gate_respinge_archetipo_fuori_design() -> None:
-    turni = _turni_scriptati()
-    goblin = next(t for t in turni if t.entita.archetipo == "goblin")
+    piano_goblin = PianoRisolto(
+        slug="goblinoso", versione=1, titolo="G", tema="t",
+        budget=_budget(), cast=[_mob("guardia", archetipo="goblin")],
+    )
+    goblin = turni_da_piano(piano_goblin)[0]
     piano = _piano_attivo_default()
     from dataclasses import replace
 
@@ -179,9 +180,14 @@ def test_gate_respinge_archetipo_fuori_design() -> None:
 # --- Freeze nel save: la stagione viaggia e torna -------------------------------
 
 def test_stagione_congelata_round_trip_nel_save(run_pulita, tmp_path) -> None:
-    sessione = costruisci_sessione(nome="Freeze", seed=1, directory=tmp_path)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sintetica = stagione_sintetica(2, slug="s-freeze")
+    sessione = costruisci_sessione(
+        nome="Freeze", seed=1, directory=tmp_path, stagione=sintetica
+    )
     attiva = stagione_corrente()
-    assert attiva is not None and attiva.slug == STAGIONE_DEFAULT
+    assert attiva is not None and attiva.slug == "s-freeze"
     snap = asyncio.run(sessione.prossima_narrazione())
     prosa = snap.prosa
     uuid = sessione.uuid
@@ -191,10 +197,10 @@ def test_stagione_congelata_round_trip_nel_save(run_pulita, tmp_path) -> None:
     assert ripresa is not None
     tornata = stagione_corrente()
     assert tornata is not None
-    assert tornata.slug == STAGIONE_DEFAULT and tornata.numero == 1
+    assert tornata.slug == "s-freeze" and tornata.numero == 1
     piano = tornata.piani[0]  # la stagione ha più piani: il round-trip li porta tutti
-    assert len(tornata.piani) >= 2, "la stagione congelata deve conservare TUTTI i piani"
-    assert piano.cast[0].nome == "Slime Mangiascarti"
+    assert len(tornata.piani) == 2, "la stagione congelata deve conservare TUTTI i piani"
+    assert piano.cast[0].nome == sintetica.piani[0].cast[0].nome
     assert piano.cast[0].archetipo == "slime"  # enum RICOSTRUITO, non str
     # La stanza già narrata è RILETTA (cache): la storia non si riscrive.
     snap2 = asyncio.run(ripresa.prossima_narrazione())
