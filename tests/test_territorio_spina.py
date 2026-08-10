@@ -153,6 +153,53 @@ def test_stato_territorio_round_trippa(mondo_isolato) -> None:
     assert deserializza_componente(tag, dati) == stato
 
 
+def test_firma_con_zona_non_collide(mondo_isolato) -> None:
+    """F2c: stessa stanza in zone diverse → record d'Archivio DISTINTI; senza
+    zona la chiave è byte-identica allo storico (Archivi esistenti validi)."""
+    from motore import firma_turno
+
+    legacy = firma_turno(7, 1, 3, "reveal")
+    assert legacy == "gm:v1:7:p1:s3:reveal"  # byte-identica a ieri
+    a = firma_turno(7, 1, 3, "reveal", zona="quartiere:0/1/2/3/4")
+    b = firma_turno(7, 1, 3, "reveal", zona="distretto:0/1/2/3")
+    assert a != b != legacy and a != legacy
+    assert firma_turno(7, 1, 3, "azione", 5, azione="x", zona="q:1") != \
+        firma_turno(7, 1, 3, "azione", 5, azione="x", zona="q:2")
+
+
+def test_save_load_round_trip_territoriale(run_pulita, tmp_path) -> None:
+    """F2c: zona corrente, boss battuti e topologia della zona sopravvivono al
+    save/load; la spina si RIDERIVA identica dal seed."""
+    import asyncio
+
+    from main import carica_sessione, costruisci_sessione
+    from motore import registra_boss_sconfitto
+
+    sessione = costruisci_sessione(
+        nome="Persisto", seed=5, directory=tmp_path,
+        stagione=stagione_sintetica(piani=[piano_territoriale(1)], slug="s-persisto"),
+    )
+    asyncio.run(sessione.prossima_narrazione())
+    spina_prima = spina_del_piano(1)
+    registra_boss_sconfitto()
+    _e, mappa_prima = mappa_corrente()
+    topologia_prima = {k: sorted(v) for k, v in mappa_prima.piano.adiacenze.items()}
+    uuid = sessione.uuid
+    sessione.salva()
+    sessione.esci()
+
+    ripresa = carica_sessione(uuid=uuid, directory=tmp_path)
+    assert ripresa is not None
+    assert spina_del_piano(1) == spina_prima  # derivata pura: identica dal seed
+    stato = stato_territorio()
+    assert stato is not None
+    assert stato.zona_corrente == spina_prima[0].chiave
+    assert spina_prima[0].chiave in stato.boss_sconfitti  # il flag sopravvive
+    _e2, mappa_dopo = mappa_corrente()
+    assert {k: sorted(v) for k, v in mappa_dopo.piano.adiacenze.items()} == topologia_prima
+    assert not mappa_dopo.piano.discese  # la zona non-tana resta senza scala
+
+
 def test_discesa_da_piano_territoriale_monta_il_quartiere(mondo_isolato) -> None:
     """La discesa su un piano-mondo entra dalla prima zona della spina del piano
     NUOVO (via l'handler di mappa già cablato)."""

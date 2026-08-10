@@ -472,7 +472,7 @@ def _sezione_ideazione(idea: Ideazione | None) -> str:
 
 def firma_turno(
     seed: int, livello: int, stanza: int, fase: str, n: int | None = None,
-    azione: str = "",
+    azione: str = "", zona: str = "",
 ) -> str:
     """Chiave deterministica del "prompt seeded" (H §8). Zero RNG.
 
@@ -480,8 +480,14 @@ def firma_turno(
     (congela-una-volta-rileggi-sempre). `fase="azione"` con `n` = tick al momento
     dell'azione E `azione` = testo dichiarato: il tick da solo non basta, perché
     un'azione può spendere 0 tick (status unsafe, ingresso in combattimento) e
-    l'azione successiva nella stessa stanza colliderebbe col record congelato."""
-    base = f"gm:v1:{seed}:p{livello}:s{stanza}:{fase}"
+    l'azione successiva nella stessa stanza colliderebbe col record congelato.
+
+    `zona` (territorio, 2026-08-10): con più zone per piano gli indici di stanza
+    si RIPETONO — senza la zona nella chiave i reveal di zone diverse
+    colliderebbero sullo stesso record. Vuota = chiave byte-identica allo
+    storico (piani piatti e Archivi esistenti restano validi)."""
+    z = f":z{zona}" if zona else ""
+    base = f"gm:v1:{seed}:p{livello}{z}:s{stanza}:{fase}"
     if n is None:
         return base
     base = f"{base}:t{n}"
@@ -966,10 +972,16 @@ async def esegui_turno_gm(
                         f":f{int(esito_scontro.fuga)}:t{esito_scontro.turni}")
     else:
         fase = "reveal"
+    # La zona corrente entra nella chiave (territorio): senza, i reveal di zone
+    # diverse — stessi indici di stanza — collassano sullo stesso record.
+    from .territorio import zona_corrente
+
+    in_zona = zona_corrente()
     chiave = firma_turno(
         master_seed(), fascicolo.livello, fascicolo.stanza, fase,
         None if fase == "reveal" else fascicolo.tick,
         azione=firma_azione,
+        zona=in_zona.chiave if in_zona is not None else "",
     )
 
     # Rilettura (congela-una-volta-rileggi-sempre, H §8.2): zero chiamate.
