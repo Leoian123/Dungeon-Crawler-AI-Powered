@@ -50,6 +50,16 @@ def test_authoring_viaggia_sulla_corsia_forte() -> None:
     assert forte.chiamate and not veloce.chiamate
 
 
+def test_parser_cli_default_e_flag() -> None:
+    p = gs.costruisci_parser()
+    args = p.parse_args([])
+    assert (args.provincia, args.citta) == (10, 40)
+    assert not args.applica and not args.fake and not args.live and not args.sovrascrivi
+    assert args.stagione == gs.STAGIONE_DEFAULT_SLUG and args.piano is None
+    args = p.parse_args(["--provincia", "3", "--piano", "mondo", "--applica"])
+    assert args.provincia == 3 and args.piano == "mondo" and args.applica
+
+
 def test_boss_generato_senza_numeri_ne_grado() -> None:
     campi = set(BossGenerato.model_fields)
     assert "grado" not in campi, "il grado lo impone il tier, mai l'AI"

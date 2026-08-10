@@ -41,7 +41,7 @@ from contracts import (
     TierTerritorio,
 )
 from main import DIRECTORY_CONTENUTI, carica_asset, risolvi_stagione
-from motore import Corsia, GRADO_DA_TIER, MasterEngine, mosse_note
+from motore import Corsia, GRADO_DA_TIER, MasterEngine, mosse_note, motivi_fuori_budget
 
 STAGIONE_DEFAULT_SLUG = "stagione-1"
 
@@ -142,13 +142,20 @@ def gate_boss(b: BossGenerato, piano, tier: TierTerritorio,
     errori: list[str] = []
     if b.tier is not tier:
         errori.append(f"{b.slug}: tier {b.tier.value}, atteso {tier.value}")
-    if b.archetipo not in set(piano.budget.archetipi):
-        errori.append(f"{b.slug}: archetipo {b.archetipo} fuori budget")
-    fuori_mosse = [m for m in b.mosse if m not in mosse_note()]
-    if fuori_mosse:
-        errori.append(f"{b.slug}: mosse fuori catalogo: {', '.join(fuori_mosse)}")
-    if not set(b.blocchi) <= set(piano.budget.blocchi):
-        errori.append(f"{b.slug}: blocchi fuori budget")
+    # Regole condivise coi gate runtime (una sola implementazione): grado saltato
+    # (lo impone il tier), registry della run saltato (nessuna run attiva in
+    # authoring — il binding lo verifica il gate finale `risolvi_stagione`).
+    errori += [
+        f"{b.slug}: {motivo}"
+        for motivo in motivi_fuori_budget(
+            b.archetipo, None, b.blocchi,
+            archetipi_ammessi=frozenset(piano.budget.archetipi),
+            gradi_ammessi=None,
+            blocchi_ammessi=frozenset(piano.budget.blocchi),
+            mosse=b.mosse,
+            con_registry=False,
+        )
+    ]
     if b.slug in slug_visti:
         errori.append(f"{b.slug}: slug duplicato nel batch")
     elif not sovrascrivi and carica_asset(
@@ -383,19 +390,49 @@ def applica(
 
 # --- Entry point -----------------------------------------------------------------
 
+def costruisci_parser() -> "argparse.ArgumentParser":
+    """La CLI, uniforme al fratello `banco_nemici`. La chiave API resta SOLO
+    nell'ambiente: nessun flag la tocca (PLK §4)."""
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="genera_stagione",
+        description="Authoring AI del piano-mondo: dry-run di default, --applica scrive.",
+    )
+    p.add_argument("--provincia", type=int, default=10, help="boss di provincia da generare")
+    p.add_argument("--citta", type=int, default=40, help="boss di città da generare")
+    p.add_argument("--applica", action="store_true",
+                   help="scrive mob + piano nel repo (il diff git è la promozione)")
+    p.add_argument("--sovrascrivi", action="store_true",
+                   help="accetta anche slug già in libreria")
+    p.add_argument("--fake", action="store_true",
+                   help="provider offline scriptato (smoke, 0 generati)")
+    p.add_argument("--live", action="store_true",
+                   help="esige il live (errore chiaro se manca chiave o SDK)")
+    p.add_argument("--stagione", default=STAGIONE_DEFAULT_SLUG,
+                   help="slug della stagione da risolvere")
+    p.add_argument("--piano", default=None,
+                   help="slug del piano da popolare (default: il primo della stagione)")
+    return p
+
+
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point)
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     except (AttributeError, ValueError):
         pass
-    argv = list(sys.argv[1:] if argv is None else argv)
+    args = costruisci_parser().parse_args(sys.argv[1:] if argv is None else argv)
 
-    def _arg(nome: str, default: int) -> int:
-        return int(argv[argv.index(nome) + 1]) if nome in argv else default
-
-    slug_stagione = STAGIONE_DEFAULT_SLUG
-    stagione = risolvi_stagione(slug_stagione)
-    piano = stagione.piani[0]
+    stagione = risolvi_stagione(args.stagione)
+    if args.piano is None:
+        piano = stagione.piani[0]
+    else:
+        piano = next((p for p in stagione.piani if p.slug == args.piano), None)
+        if piano is None:
+            disponibili = ", ".join(p.slug for p in stagione.piani)
+            print(f"[genera] piano '{args.piano}' non nella stagione "
+                  f"(disponibili: {disponibili})")
+            return 1
     if piano.territorio is None:
         print(f"[genera] il piano {piano.slug} non ha territorio: niente da generare")
         return 1
@@ -405,7 +442,8 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
     # Backend PER CORSIA, non composito per-schema: le rotte authoring dichiarano
     # `Corsia.FORTE` e qui quella dichiarazione arriva davvero al modello forte
     # (con `avvolgi` la corsia della rotta non avrebbe alcun effetto).
-    corsie, etichetta, consumo = scegli_corsie(argv)
+    flags_provider = (["--fake"] if args.fake else []) + (["--live"] if args.live else [])
+    corsie, etichetta, consumo = scegli_corsie(flags_provider)
     print(f"[genera] {etichetta}")
     if corsie is None:
         engine = MasterEngine.avvolgi(FakeProvider([]))  # --fake/offline: smoke a zero generazioni
@@ -415,12 +453,12 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         })
 
     n_per_tier = {
-        TierTerritorio.PROVINCIA: _arg("--provincia", 10),
-        TierTerritorio.CITTA: _arg("--citta", 40),
+        TierTerritorio.PROVINCIA: args.provincia,
+        TierTerritorio.CITTA: args.citta,
     }
     mob_nuovi, tabelle, spawn, per_tier, respinti = asyncio.run(genera_roster(
         engine, stagione, piano, n_per_tier=n_per_tier,
-        sovrascrivi="--sovrascrivi" in argv,
+        sovrascrivi=args.sovrascrivi,
     ))
     print(f"[genera] boss accettati: {len(mob_nuovi)} "
           f"(provincia {len(per_tier[TierTerritorio.PROVINCIA])}, "
@@ -431,11 +469,11 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
     if consumo is not None:
         print(f"[genera] {consumo.riassunto()}")
 
-    if "--applica" not in argv:
+    if not args.applica:
         print("[genera] DRY-RUN: nessuna scrittura (usa --applica per scrivere; "
               "il diff git è la promozione)")
         return 0
-    errori = applica(slug_stagione, piano.slug, mob_nuovi, tabelle, spawn, per_tier)
+    errori = applica(args.stagione, piano.slug, mob_nuovi, tabelle, spawn, per_tier)
     for riga in errori:
         print(f"[genera] ✗ {riga}")
     if not errori:

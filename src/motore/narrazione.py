@@ -167,6 +167,50 @@ def costruisci_prompt(budget: Budget, proiezione: SchedaProiezione, voce: str) -
 
 # --- Il gate: tre strati nel MOTORE (F §4, F-5/F-6/F-10; clamp G-25/F-14) ------
 
+def motivi_fuori_budget(
+    archetipo: str,
+    grado,
+    blocchi,
+    *,
+    archetipi_ammessi,
+    gradi_ammessi,
+    blocchi_ammessi,
+    mosse=(),
+    con_registry: bool = True,
+) -> list[str]:
+    """Le regole CONDIVISE dei gate (catalogo + budget + mosse) come motivi
+    leggibili; `[]` = passa. UNICA implementazione per i tre consumatori —
+    `valida_turno` (l'autorità runtime), il `gate_boss` dell'authoring e il
+    banco di prova: prima erano tre copie che potevano divergere in silenzio.
+
+    `gradi_ammessi=None` salta il controllo del grado (authoring: il grado lo
+    impone il tier, mai l'AI). `con_registry=False` salta il binding
+    dell'archetipo nel registry della RUN (authoring: nessuna run attiva — il
+    binding lo verifica il gate finale `risolvi_stagione`). Il binding dei
+    blocchi resta sempre attivo: è un invariante di runtime (F-6).
+    """
+    from .mosse import mosse_note
+
+    motivi: list[str] = []
+    if con_registry and archetipo not in registry_archetipi_correnti():
+        motivi.append(f"archetipo '{archetipo}' non nel catalogo")
+    if archetipo not in archetipi_ammessi:
+        motivi.append(f"archetipo '{archetipo}' fuori budget")
+    for blocco in blocchi:
+        if blocco not in REGISTRY_BLOCCHI:
+            motivi.append(f"blocco '{blocco.value}' non nel catalogo")
+    if not set(blocchi) <= set(blocchi_ammessi):
+        ammessi = ", ".join(sorted(b.value for b in blocchi_ammessi)) or "nessuno"
+        motivi.append(f"blocchi fuori budget (ammessi: {ammessi})")
+    if grado is not None and gradi_ammessi is not None and grado not in gradi_ammessi:
+        ammessi = ", ".join(sorted(g.value for g in gradi_ammessi))
+        motivi.append(f"grado '{grado.value}' fuori budget (ammessi: {ammessi})")
+    fuori_mosse = [m for m in mosse if m not in mosse_note()]
+    if fuori_mosse:
+        motivi.append("mosse fuori catalogo: " + ", ".join(fuori_mosse))
+    return motivi
+
+
 def valida_turno(
     candidato: TurnoNarrazione,
     budget: Budget,
@@ -196,21 +240,16 @@ def valida_turno(
 
     eg = cand.entita
 
-    # Strato 2: appartenenza al catalogo + binding nel registry (per gli archetipi:
-    # il registry congelato della run — F-6 diventa runtime, D1).
-    if eg.archetipo not in registry_archetipi_correnti():
+    # Strati 2+3: catalogo (binding nel registry DELLA RUN, F-6/D1) + budget
+    # (HARD, oltre al soft del prompt) — le regole condivise vivono in
+    # `motivi_fuori_budget`, una sola implementazione per tutti i gate.
+    if motivi_fuori_budget(
+        eg.archetipo, eg.grado, eg.blocchi,
+        archetipi_ammessi=budget.archetipi_ammessi,
+        gradi_ammessi=budget.gradi_ammessi,
+        blocchi_ammessi=budget.blocchi_ammessi,
+    ):
         return None
-    for blocco in eg.blocchi:
-        if blocco not in REGISTRY_BLOCCHI:
-            return None
-
-    # Strato 3: rispetto del budget (HARD, oltre al soft del prompt).
-    if eg.grado not in budget.gradi_ammessi:
-        return None
-    if not set(eg.blocchi) <= budget.blocchi_ammessi:
-        return None
-    if eg.archetipo not in budget.archetipi_ammessi:
-        return None  # il design del piano vincola anche gli archetipi
 
     # Strato 4 (D5): il `riferimento` è un RECLUTAMENTO dal cast del piano corrente
     # — un nome fuori cast è un rifiuto (fallback F-13), mai contenuto arbitrario.

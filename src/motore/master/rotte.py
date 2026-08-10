@@ -20,6 +20,7 @@ from contracts import (
     Ideazione,
     InquadramentoProva,
     LottoBossGenerati,
+    NemicoSperimentale,
     TabellaProceduraleGen,
     TabellaSpawnGenerata,
     TurnoNarrazione,
@@ -96,6 +97,11 @@ for _rotta in (
     Rotta("authoring.tabella", TabellaProceduraleGen, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     Rotta("authoring.spawn", TabellaSpawnGenerata, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
+    # --- Banco di prova nemici: strumento fuori-run (fase=None), gating=True
+    # (il core passa da `valida_turno`). Corsia FORTE: è il confronto fra
+    # modelli sul percorso di qualità. retry=0: un None VA riportato com'è.
+    Rotta("banco.nemico", NemicoSperimentale, Corsia.FORTE, retry=0,
           fase=None, gating=True),
 ):
     registra_rotta(_rotta)

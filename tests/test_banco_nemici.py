@@ -12,6 +12,7 @@ import pytest
 
 import banco_nemici as bn
 from contracts import Blocco, Grado
+from motore import MasterEngine, ROTTE
 from provider import FakeProvider
 
 
@@ -21,6 +22,16 @@ def _budget_normale():
 
 
 # --- Schema sperimentale ------------------------------------------------------
+
+def test_anche_il_banco_passa_dal_master_engine() -> None:
+    # Nessuna chiamata AI nel repo bypassa il canale unico: il banco ha la SUA
+    # rotta registrata (fuori-run, gating, corsia forte) e lo schema vive in
+    # contracts come i fratelli di authoring.
+    rotta = ROTTE["banco.nemico"]
+    assert rotta.schema is bn.NemicoSperimentale
+    assert rotta.gating is True and rotta.fase is None
+    assert rotta.corsia.value == "forte"
+
 
 def test_schema_core_piu_drop_azioni() -> None:
     n = bn.nemico_scriptato()
@@ -39,7 +50,7 @@ def test_schema_core_piu_drop_azioni() -> None:
 
 def test_pipeline_gate_passa_e_stat_reali(mondo_isolato: str) -> None:
     budget = _budget_normale()
-    prov = {"(fake)": FakeProvider([bn.nemico_scriptato().model_dump()])}
+    prov = {"(fake)": MasterEngine.avvolgi(FakeProvider([bn.nemico_scriptato().model_dump()]))}
     esiti = asyncio.run(bn.confronta(prov, "prompt", budget, livello=3))
 
     assert len(esiti) == 1
@@ -99,7 +110,8 @@ def test_gate_reject_blocco_fuori_budget(mondo_isolato: str) -> None:
 
 def test_trasporto_none_riportato(mondo_isolato: str) -> None:
     budget = _budget_normale()
-    esiti = asyncio.run(bn.confronta({"(fake)": FakeProvider([None])}, "p", budget, livello=1))
+    esiti = asyncio.run(bn.confronta(
+        {"(fake)": MasterEngine.avvolgi(FakeProvider([None]))}, "p", budget, livello=1))
     assert esiti[0].trasporto_ok is False and esiti[0].candidato is None
 
 

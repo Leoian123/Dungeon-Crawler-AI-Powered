@@ -505,3 +505,19 @@ class TabellaSpawnGenerata(BaseModel):
 
     tier: TierTerritorio
     voci: list[VoceSpawnGenerata] = Field(min_length=1, max_length=12)
+
+
+class NemicoSperimentale(BaseModel):
+    """Il candidato del BANCO DI PROVA (confronto fra modelli): il **core** di
+    `EntitaGenerata` (stessi enum chiusi, da cui il motore deriva le stat REALI)
+    + i campi **sperimentali** `drop`/`azioni`, non ancora validati dal motore."""
+
+    model_config = _CHIUSO
+
+    archetipo: ArchetipoId
+    grado: Grado
+    blocchi: list[Blocco]
+    nome: str
+    descrizione: str          # stile DCC (ironico/dark-comico)
+    drop: list[str]           # SPERIMENTALE: bottino possibile
+    azioni: list[str]         # SPERIMENTALE: mosse di combattimento (→ futuro catalogo Effetto)
