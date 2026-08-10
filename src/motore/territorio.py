@@ -28,11 +28,15 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import TierTerritorio
+from contracts import PlayerAttraversa, TierTerritorio, TransizioneZona
 
-from .design import TerritorioAttivo, design_piano_corrente
-from .mappa import Mappa, genera_topologia, mappa_corrente
+from .design import MobAttivo, TerritorioAttivo, design_piano_corrente
+from .intenti_coda import consuma_messaggi
+from .mappa import Mappa, genera_topologia, mappa_corrente, mob_corrente
+from .mob import EntitaMob
+from .phased import SistemaSoloNarrazione
 from .piano import Piano
+from .scheda import Protagonista
 from .seme import master_seed
 
 # L'ordine di ATTRAVERSAMENTO della spina: dal basso alla tana.
@@ -227,6 +231,116 @@ def avvia_territorio(livello: int = 1) -> bool:
     spina = spina_del_piano(livello)
     rigenera_mappa_zona(livello, spina[0])
     return True
+
+
+def boss_della_zona(livello: int, zona: Zona) -> MobAttivo | None:
+    """IL boss che custodisce questa zona.
+
+    Tier nominati: pescato SEEDED dal roster del piano (stessa zona → stesso
+    boss, per sempre). Tier procedurali: istanziato dalle tabelle (Fase 3) —
+    per ora `None` (il gate d'attraversamento usa il flag, non l'identità)."""
+    territorio = territorio_attivo()
+    if territorio is None:
+        return None
+    roster = territorio.boss.get(zona.tier.value, ())
+    if roster:
+        rng = random.Random(f"{master_seed()}:piano:{livello}:boss:{zona.chiave}")
+        return rng.choice(list(roster))
+    return None  # tier procedurale: arriva con le tabelle (Fase 3)
+
+
+def stanza_corrente_e_del_boss() -> bool:
+    """Vero se la stanza corrente è la stanza-boss della zona corrente."""
+    zona = zona_corrente()
+    m = mappa_corrente()
+    if zona is None or m is None:
+        return False
+    return m[1].stanza_corrente == stanza_boss_di(zona, m[1].piano)
+
+
+# --- Attraversamento: UN solo proprietario dell'avanzamento zona ----------------
+
+def attraversamento_consentito() -> bool:
+    """Il gate del passaggio: stanza-passaggio ∧ boss di zona sconfitto ∧ nessun
+    nemico vivo ∧ esiste una zona successiva (nella tana c'è la scala, non il
+    passaggio). Falso senza territorio (piani piatti: nessun attraversamento)."""
+    from .piano import livello_corrente
+
+    zona = zona_corrente()
+    m = mappa_corrente()
+    if zona is None or m is None or territorio_attivo() is None:
+        return False
+    if m[1].stanza_corrente != stanza_passaggio_di(zona, m[1].piano):
+        return False
+    if mob_corrente() is not None:
+        return False
+    if not boss_sconfitto(zona):
+        return False
+    return zona_successiva(livello_corrente()) is not None
+
+
+def _despawna_mob_di_zona() -> None:
+    """Elimina i mob residui della zona che si lascia (entità con `EntitaMob`,
+    mai il protagonista): la zona nuova nasce pulita, niente reveal orfani."""
+    for ent, _em in list(esper.get_component(EntitaMob)):
+        if esper.has_component(ent, Protagonista):
+            continue  # cintura: il protagonista non ha EntitaMob, ma mai dire mai
+        esper.delete_entity(ent, immediate=True)
+
+
+def attraversa(bus) -> bool:
+    """Varca il passaggio verso la zona successiva della spina. Ritorna True se
+    l'attraversamento è avvenuto (gate: `attraversamento_consentito`)."""
+    from .piano import livello_corrente
+
+    if not attraversamento_consentito():
+        return False
+    livello = livello_corrente()
+    prossima = zona_successiva(livello)
+    assert prossima is not None  # garantito dal gate
+    _despawna_mob_di_zona()
+    rigenera_mappa_zona(livello, prossima)
+    if bus is not None:
+        bus.pubblica(TransizioneZona(zona=prossima.chiave, tier=prossima.tier.value))
+    return True
+
+
+class SistemaAttraversamento(SistemaSoloNarrazione):
+    """Consuma `PlayerAttraversa` (solo in NARRAZIONE) e avanza la zona.
+
+    Gemello di `SistemaDiscesa`: l'avanzamento è una conseguenza POSSEDUTA dal
+    motore, scatenata dall'intento; un intento non valido è consumato senza
+    effetto. UNICO proprietario dell'avanzamento zona."""
+
+    def __init__(self, bus) -> None:
+        self.bus = bus
+
+    def run(self, dt: int) -> None:
+        for _intento in consuma_messaggi(PlayerAttraversa):
+            attraversa(self.bus)
+
+
+def collega_boss(bus):
+    """Registra il rilevatore di boss sconfitto su `CombatResolved` (in-run).
+
+    La vittoria nella STANZA-BOSS della zona corrente marca il suo custode come
+    battuto (`StatoTerritorio.boss_sconfitti`). Il varco resta comunque chiuso
+    finché un mob vivo occupa la stanza (`attraversamento_consentito`): una
+    vittoria d'imboscata nella stanza sbagliata non apre niente da sola.
+    Ritorna l'handler per la deregistrazione al teardown (pattern
+    `collega_discesa_mappa`)."""
+    from contracts import CombatResolved
+
+    def _su_resolved(evento) -> None:
+        if not getattr(evento, "vittoria", False):
+            return
+        if territorio_attivo() is None:
+            return
+        if stanza_corrente_e_del_boss():
+            registra_boss_sconfitto()
+
+    bus.registra(CombatResolved, _su_resolved)
+    return _su_resolved
 
 
 def boss_sconfitto(zona: Zona | None = None) -> bool:

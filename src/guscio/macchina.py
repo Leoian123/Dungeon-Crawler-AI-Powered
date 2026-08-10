@@ -32,7 +32,7 @@ import random
 from enum import Enum
 from pathlib import Path
 
-from contracts import BusEventi, DiscesaPiano, MortePersonaggio, Terminale
+from contracts import BusEventi, CombatResolved, DiscesaPiano, MortePersonaggio, Terminale
 from motore import (
     Fase,
     MODEL_ID_DEFAULT,
@@ -41,6 +41,7 @@ from motore import (
     SistemaCrollo,
     SistemaDeathCheck,
     SistemaDiscesa,
+    SistemaAttraversamento,
     SistemaEquip,
     SistemaMovimento,
     SistemaRinforzi,
@@ -50,6 +51,7 @@ from motore import (
     avvia_run,
     carica_archivio,
     carica_crawler,
+    collega_boss,
     collega_combattimento,
     collega_discesa_mappa,
     collega_transizioni_fase,
@@ -141,7 +143,12 @@ class Guscio:
             # SistemaEquip: il canale indossa/togli è ACCESO (giro 2026-08-07 —
             # era l'unico Processor del motore mai registrato: un intento equip
             # accodato marciva nel World per sempre).
-            solo_narrazione=[SistemaMovimento(), SistemaDiscesa(self.bus), SistemaEquip()],
+            solo_narrazione=[
+                SistemaMovimento(), SistemaDiscesa(self.bus), SistemaEquip(),
+                # Territorio (2026-08-10): il passaggio di zona è un intento con
+                # un solo proprietario, gemello della discesa.
+                SistemaAttraversamento(self.bus),
+            ],
         )
 
     def _registra_handler_run(self) -> None:
@@ -155,6 +162,8 @@ class Guscio:
         # guscio): la scala del nuovo piano la legge dalla stagione congelata, che è
         # l'unico contenuto di cui una run in corso possa fidarsi.
         coppie.append((DiscesaPiano, collega_discesa_mappa(self.bus, _stanze_del_piano)))
+        # Territorio: la vittoria nella stanza-boss marca il custode come battuto.
+        coppie.append((CombatResolved, collega_boss(self.bus)))
         for tipo, handler in ((MortePersonaggio, self._su_morte), (DiscesaPiano, self._su_discesa)):
             self.bus.registra(tipo, handler)
             coppie.append((tipo, handler))

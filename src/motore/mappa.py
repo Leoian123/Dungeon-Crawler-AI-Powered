@@ -279,6 +279,23 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     opzioni: list[OpzioneScena] = []
     if scala_presente():
         opzioni.append(OpzioneScena(tipo=TipoAzione.SCENDI, etichetta="Scendi la scala"))
+    # ATTRAVERSA (territorio): il varco verso la zona successiva — compare SOLO
+    # quando è VERO (stanza-passaggio, boss battuto, nessun nemico). Import
+    # locale: la mappa resta l'autorità dentro la zona, il territorio sopra.
+    from .territorio import attraversamento_consentito, zona_successiva
+
+    try:
+        varco = attraversamento_consentito()
+    except Exception:
+        varco = False  # World parziale (harness): comporre è una lettura
+    if varco:
+        from .piano import livello_corrente
+
+        prossima = zona_successiva(livello_corrente())
+        dove = prossima.tier.value if prossima is not None else "oltre"
+        opzioni.append(OpzioneScena(
+            tipo=TipoAzione.ATTRAVERSA, etichetta=f"Attraversa: verso {dove}"
+        ))
     # RIPOSA compare solo quando è VERA (stanza sicura + downtime lecito, J §5):
     # come SCENDI/MUOVI, la compone il motore dalla scena, mai l'AI dal testo.
     from .tempo import puo_downtime  # locale: nessun ciclo mappa↔tempo

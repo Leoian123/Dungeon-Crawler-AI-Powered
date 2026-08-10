@@ -154,6 +154,10 @@ class TipoAzione(SchemaSnello, str, Enum):
     # (stanza senza nemici e nessuno status che lo impedisca), mai l'AI dal testo.
     # Costa tempo — e il tempo, scorrendo, può portare un'imboscata.
     RIPOSA = "riposa"
+    # `ATTRAVERSA` (territorio, 2026-08): il passaggio alla zona successiva della
+    # spina. Di scena come SCENDI: compare SOLO quando è vero (stanza-passaggio
+    # e boss di zona sconfitto) — l'AI può nominarlo, mai concederlo.
+    ATTRAVERSA = "attraversa"
     ALTRO = "altro"
 
 

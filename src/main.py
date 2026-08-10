@@ -42,6 +42,7 @@ from contracts import (
     StatusApplicato,
     CrolloDungeon,
     DisimpegnoScena,
+    TransizioneZona,
     StatusSvanito,
     TurnoSaltato,
     CrawlerVista,
@@ -71,6 +72,7 @@ from contracts import (
     OggettoTrovato,
     PlayerDiscende,
     PlayerEquipaggia,
+    PlayerAttraversa,
     PlayerSiMuove,
     PlayerToglie,
     OpzioneVista,
@@ -1398,6 +1400,11 @@ class SessioneGioco:
         if azione.tipo is TipoAzione.SCENDI:
             self.coda.accoda(PlayerDiscende())  # la serve SistemaDiscesa (gate: scala)
             return
+        if azione.tipo is TipoAzione.ATTRAVERSA:
+            # Il passaggio di zona: lo serve SistemaAttraversamento (gate:
+            # stanza-passaggio + boss battuto), unico proprietario dell'avanzamento.
+            self.coda.accoda(PlayerAttraversa())
+            return
         if azione.tipo is TipoAzione.MUOVI and azione.stanza is not None:
             self.coda.accoda(PlayerSiMuove(azione.stanza))  # la serve SistemaMovimento
             return
@@ -1415,6 +1422,21 @@ class SessioneGioco:
             # La classe la impone il MOB della scena (il suo `Grado`), non una costante:
             # disimpegnarsi da uno slime di bronzo e da un boss non è la stessa impresa.
             if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), classe_disimpegno()):
+                # ANTI-SOFTLOCK del boss di zona (territorio): il custode del
+                # passaggio NON si dissolve col disimpegno — ti RITIRI nella
+                # stanza precedente e lui resta al varco (altrimenti la zona si
+                # aprirebbe per sparizione del boss, mai per vittoria).
+                from motore import stanza_corrente_e_del_boss
+
+                if stanza_corrente_e_del_boss():
+                    self.bus.pubblica(DisimpegnoScena(nemico=nome_mob_corrente()))
+                    _e, _mappa = mappa_corrente()
+                    ritirata = min(_mappa.piano.adiacenze[_mappa.stanza_corrente])
+                    _mappa.stanza_corrente = ritirata
+                    from motore.calibrazione import DURATA_AZIONE as _DURATE
+
+                    spendi_tempo(self.bus, _DURATE[TipoAzione.SCAPPA])
+                    return
                 # Il disimpegno si NARRA (prima il mob si dissolveva in silenzio
                 # totale): l'evento parte col nome ancora leggibile, poi si smonta.
                 self.bus.pubblica(DisimpegnoScena(nemico=nome_mob_corrente()))
@@ -1653,6 +1675,15 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (DisimpegnoScena, lambda e: (
         f"Ti disimpegni: {getattr(e, 'nemico', '') or 'l’incontro'} non ti segue. "
         f"La scena si riapre.")),
+    (TransizioneZona, lambda e: (
+        "➤ Varchi il confine: " + {
+            "quartiere": "un altro quartiere ti inghiotte.",
+            "distretto": "il distretto si apre davanti a te.",
+            "citta": "le luci di una città del dungeon.",
+            "provincia": "la provincia, sterminata, ti dà il benvenuto.",
+            "paese": "sei nel cuore di un paese del piano.",
+            "piano": "la TANA. Qualcuno sta contando fino a dieci.",
+        }.get(getattr(e, "tier", ""), "una zona nuova del piano."))),
     (OggettoTrovato, lambda e: (
         f"✦ Bottino: {getattr(e, 'nome', '') or getattr(e, 'fonte', '?')} "
         f"(nello zaino).")),

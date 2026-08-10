@@ -431,6 +431,9 @@ _DEFS: tuple[Param, ...] = (
     Param("DURATA_AZIONE.altro", "un_pochino", "Durata di default dell'azione libera (ALTRO): "
           "la stima che il giocatore vede prima di confermare.", CAT_TEMPO, "una Durata",
           "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.attraversa", "un_attimo", "Durata del passaggio di zona "
+          "(territorio): varcare il confine custodito dal boss battuto.", CAT_TEMPO,
+          "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     # --- Pavimenti dei benefici (gate anti-arbitraggio, asimmetrico) ---
     # Il costo MINIMO che una classe di beneficio reclama: l'AI classifica, il motore
     # addebita. `fuori_scala` = irraggiungibile in-run: beneficio negato, tariffa in

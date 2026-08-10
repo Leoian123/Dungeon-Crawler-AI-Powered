@@ -118,6 +118,17 @@ class PlayerToglie(IntentoEsplorazione):
 
 
 @dataclass(frozen=True)
+class PlayerAttraversa(IntentoEsplorazione):
+    """Intento di ATTRAVERSAMENTO (territorio, 2026-08): il giocatore varca il
+    passaggio verso la zona successiva della spina.
+
+    Attraversare è un atto del giocatore; la validità (stanza-passaggio, boss di
+    zona sconfitto, nessun nemico vivo) e l'avanzamento della zona sono del
+    MOTORE (`SistemaAttraversamento`, unico proprietario) — un intento non
+    valido è consumato senza effetto."""
+
+
+@dataclass(frozen=True)
 class PlayerDiscende(IntentoEsplorazione):
     """Intento di discesa: il giocatore attiva una `DiscesaPiano` (G §8.1).
 

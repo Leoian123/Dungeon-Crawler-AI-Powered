@@ -126,6 +126,17 @@ class DisimpegnoScena(EventoDominio):
 
 
 @dataclass(frozen=True)
+class TransizioneZona(EventoDominio):
+    """Il crawler ha varcato il passaggio verso un'altra ZONA del territorio
+    (2026-08). L'avanzamento è già disposto dal motore (`SistemaAttraversamento`):
+    l'evento è il fatto compiuto, per cronaca e showrunner. `zona` è la chiave
+    stabile della zona d'arrivo, `tier` il suo livello nella gerarchia."""
+
+    zona: str
+    tier: str
+
+
+@dataclass(frozen=True)
 class OggettoTrovato(EventoDominio):
     """Bottino a fine scontro vinto: il canale del loot parla in cronaca.
 
