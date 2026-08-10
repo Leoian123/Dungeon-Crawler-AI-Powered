@@ -10,8 +10,9 @@
 > **Come si aggiorna.** Quando un punto si chiude, si **integra** nella sezione a cui
 > appartiene (e sparisce dal registro del debito); non si appende una voce di diario.
 > Quando emerge un difetto o una decisione da prendere, entra nel registro §4.2 con la
-> sua priorità. Ultima revisione: **2026-08-08** (branch `narrative-system`) — suite
-> **831 verdi + 3 skip**, `python -m main` gioca capo-a-fine, due piani pubblicati.
+> sua priorità. Ultima revisione: **2026-08-10** (branch `narrative-system`) — suite
+> **898 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
+> territoriale «Pianoterra dei Morti» (stagione «Nascondino con il Morto»).
 >
 > **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
 > `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive
@@ -118,12 +119,56 @@ di scontro (EVENTO), il mob memorabile ORO+/anomalia (PERSONAGGIO, con
 `aspetto`/`tratto` — i campi solo-testo dell'identità cinematografica, Sit.2).
 
 **Il sistema degli incontri è cucito** (Sit.5): `motore/incontri.py` compone
-l'imboscata dal cast del piano con RNG isolato `master_seed:imboscata:tick`
-(replay-safe, lo stream di sessione non si muove); `spendi_tempo` e `riposa`
-passano il compositore, `RiposoConcluso.interrotto` è valorizzato,
+l'imboscata (con territorio: dalla tabella di spawn della zona; altrimenti dal
+cast) con RNG isolato `master_seed:imboscata:tick` (replay-safe); `spendi_tempo`
+e `riposa` passano il compositore, `RiposoConcluso.interrotto` è valorizzato,
 `EncounterStarted.imboscata` distingue la cronaca e la sessione apre l'istanza
 anche su un incontro non suo. Nella suite il dado è spento di default
 (`conftest`), riacceso dai lucchetti dedicati.
+
+### 2.1-bis Territorio: il piano-mondo procedurale (2026-08-10)
+
+**La scelta di fondo**: procedurale seeded con ancore autorate — la run
+attraversa una **spina campionata** (quartiere→distretto→città→provincia→paese→
+tana), ogni zona una mini-mappa (riuso di `genera_topologia`, seed
+`master_seed:piano:L:zona:{chiave}`) col suo **boss a custodire il passaggio**;
+zone **laterali lazy** (0-2 sorelle seeded per zona di spina, vicoli con ritorno
+libero) nascono alla prima entrata. Il miliardo di reclusi è telecronaca nel
+fascicolo, mai stato.
+
+- **Modello**: `TierTerritorio` (6 tier ↔ 6 gradi, PER INDICE — `GRADO_DA_TIER`
+  con lucchetto di sincronia); `PianoAsset.territorio` (conteggi, roster boss
+  nominati per PIANO/PAESE/PROVINCIA/CITTA, tabelle procedurali per
+  distretto/quartiere, tabelle di spawn a `Frequenza` categoriale — pesi §11).
+  Coerenza PER COSTRUZIONE: grado boss == grado del tier, boss di piano
+  esattamente 1, **CELESTIALE riservato a lui** (mai in cast/spawn/anomalia sui
+  piani-mondo).
+- **Runtime**: `motore/territorio.py` — `spina_del_piano` derivata pura (mai
+  persistita), `StatoTerritorio` persistente (zona, boss battuti, zone viste),
+  `SistemaAttraversamento` unico proprietario dell'avanzamento (gate:
+  stanza-passaggio ∧ boss sconfitto), anti-softlock (il custode non si dissolve
+  col disimpegno: ritirata), `boss_procedurale` (nome×gimmick×archetipo seeded),
+  `pesca_spawn` pesata con fallback di tier. `firma_turno` porta la ZONA
+  (chiave legacy byte-identica: niente collisioni d'Archivio fra zone).
+- **Copione offline zona-aware**: `ProviderCopione` COMPUTA il turno dalla zona
+  on-demand (stanza-boss → IL custode; ordinaria → riempitivo seeded) — identico
+  dopo un load, zero liste precompilate.
+- **Contenuto**: stagione-1 = «Nascondino con il Morto», piano
+  `pianoterra-dei-morti` (non-morti d'epoca/cult): Il Lich Cinefilo (celestiale),
+  Leon della Casa del Male + Evil Ash (paese), La Regina Scaduta e DJ Rigor
+  Mortis (segnaposto provincia/città), 6 riempitivi, tabelle a tema. La
+  falsa-idra e sotto-il-palco sono CANCELLATI; i lucchetti girano su stagioni
+  sintetiche (`tests/contenuti_sintetici.py` — perimetro: forma, non contenuto).
+- **GL-2 a 3 clausole**: spina attraversabile (per seed, con custode per ogni
+  zona); battibilità = TTK/G-L1 a corredo del grado (la vincibilità nuda resta
+  §4.1); **clausola del nascondino** — nella tana esiste sempre un cammino
+  partenza→scala che EVITA il Lich (lucchetto BFS): la tagline è meccanica.
+- **`genera_stagione.py`** (authoring AI): rotte `authoring.boss/tabella/spawn`
+  (FORTE, fuori-run, gating=lint); batch ~15 chiamate one-shot; il boss dichiara
+  il TIER, mai il grado; scarti RIPORTATI (umano nel loop); `--applica` scrive
+  con gate finale `risolvi_stagione` e ROLLBACK completo — il diff git è la
+  promozione. Da lanciare con la chiave per riempire i roster (10 province,
+  40 città).
 
 - **Gate a 4 strati** (`narrazione.valida_turno`): schema Pydantic → registry archetipi
   (chiusura per-run, congelata nella stagione) → budget (gradi/blocchi/archetipi
