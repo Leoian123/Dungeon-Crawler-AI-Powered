@@ -437,13 +437,21 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         print(f"[genera] il piano {piano.slug} non ha territorio: niente da generare")
         return 1
 
-    from provider import FakeProvider, scegli_corsie
+    from provider import CORSIE_DEFAULT, FakeProvider, ProfiloCorsia, scegli_corsie
 
     # Backend PER CORSIA, non composito per-schema: le rotte authoring dichiarano
     # `Corsia.FORTE` e qui quella dichiarazione arriva davvero al modello forte
     # (con `avvolgi` la corsia della rotta non avrebbe alcun effetto).
+    # Profilo AUTHORING: stesso modello forte del gioco, ma timeout paziente —
+    # un lotto di 5 boss con prosa è una risposta lunga, e il timeout da gioco
+    # (30s, tarato sul turno) la uccideva a metà generazione.
+    corsie_authoring = {
+        "forte": ProfiloCorsia(modello=CORSIE_DEFAULT["forte"].modello,
+                               max_tokens=4096, timeout=240.0),
+        "veloce": CORSIE_DEFAULT["veloce"],
+    }
     flags_provider = (["--fake"] if args.fake else []) + (["--live"] if args.live else [])
-    corsie, etichetta, consumo = scegli_corsie(flags_provider)
+    corsie, etichetta, consumo = scegli_corsie(flags_provider, corsie=corsie_authoring)
     print(f"[genera] {etichetta}")
     if corsie is None:
         engine = MasterEngine.avvolgi(FakeProvider([]))  # --fake/offline: smoke a zero generazioni

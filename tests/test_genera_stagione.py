@@ -50,6 +50,14 @@ def test_authoring_viaggia_sulla_corsia_forte() -> None:
     assert forte.chiamate and not veloce.chiamate
 
 
+def test_profilo_authoring_paziente() -> None:
+    """Il profilo di corsia dell'authoring usa lo stesso modello forte del gioco
+    ma con timeout da BATCH: il timeout da turno (30s) uccideva i lotti a metà
+    generazione (visto nel dry-run live del 2026-08-10)."""
+    src = (gs.Path(gs.__file__)).read_text(encoding="utf-8")
+    assert "timeout=240.0" in src and 'CORSIE_DEFAULT["forte"].modello' in src
+
+
 def test_parser_cli_default_e_flag() -> None:
     p = gs.costruisci_parser()
     args = p.parse_args([])
