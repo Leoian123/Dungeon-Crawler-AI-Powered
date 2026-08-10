@@ -245,6 +245,7 @@ from .mappa import (
     muovi,
     dettagli_mob_corrente,
     nome_mob_corrente,
+    png_in_stanza_corrente,
     registra_mob,
     rimuovi_mob,
     scala_presente,
@@ -286,6 +287,7 @@ from .piano import (
 from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
 from .catalogo import GRADO_DA_TIER, grado_da_tier
 from .incontri import componi_imboscata_scena, entita_mob_incontro, nome_nemico_incontro
+from .png import dialoga, materializza_png
 from .territorio import (
     ORDINE_SPINA,
     SistemaAttraversamento,
@@ -735,6 +737,9 @@ __all__ = [
     "componi_imboscata_scena",
     "entita_mob_incontro",
     "nome_nemico_incontro",
+    "dialoga",
+    "materializza_png",
+    "png_in_stanza_corrente",
     "ROTTE",
     "Rotta",
     "registra_rotta",

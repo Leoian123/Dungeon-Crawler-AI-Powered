@@ -190,6 +190,23 @@ def mob_corrente() -> int | None:
     return ent
 
 
+def png_in_stanza_corrente() -> int | None:
+    """L'entità-PNG presente nella stanza corrente, o `None`. Scansione ECS su
+    `EntitaMob` (T3): i PNG non passano da `mob_stanza` (che è il registro dei
+    NEMICI di scena) e `EntitaMob.stanza` è già il dato persistente (H-4) —
+    nessun registro nuovo da tenere in fase."""
+    from contracts import RuoloMob
+
+    m = mappa_corrente()
+    if m is None:
+        return None
+    stanza = m[1].stanza_corrente
+    for ent, em in esper.get_component(EntitaMob):
+        if em.ruolo is RuoloMob.PNG and em.stanza == stanza:
+            return ent
+    return None
+
+
 def dettagli_mob_corrente() -> EntitaMob | None:
     """Il componente `EntitaMob` del mob della stanza corrente (`None` se
     assente): il gemello intero di `nome_mob_corrente` — per chi (l'apertura
@@ -390,10 +407,14 @@ def mappa_da_dict(dati: dict) -> int:
         adiacenze={int(k): [int(x) for x in v] for k, v in dati["adiacenze"].items()},
         discese={int(x) for x in dati["discese"]},
     )
+    # I PNG restano fuori dal re-link (T3): un PNG in `mob_stanza` verrebbe
+    # trattato da nemico della stanza (menu Combatti, varco chiuso) al load.
+    from contracts import RuoloMob
+
     mob_stanza = {
         em.stanza: ent
         for ent, em in esper.get_component(EntitaMob)
-        if em.stanza is not None
+        if em.stanza is not None and em.ruolo is not RuoloMob.PNG
     }
     return esper.create_entity(
         Mappa(

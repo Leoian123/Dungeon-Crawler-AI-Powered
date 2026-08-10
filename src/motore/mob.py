@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from contracts import Grado
+from contracts import Grado, RuoloMob
 
 
 @dataclass
@@ -33,6 +33,11 @@ class EntitaMob:
     # si deserializzano invariati (campo assente = stringa vuota).
     aspetto: str = ""
     tratto: str = ""
+    # Il RUOLO nel mondo (T3): OSTILE = bersaglio (default storico, i save
+    # vecchi deserializzano così); PNG = esente dal despawn di zona e mai
+    # trattato da nemico della stanza. È identità del mob quanto il grado:
+    # campo qui, non componente a parte (un solo dato da tenere in fase).
+    ruolo: RuoloMob = RuoloMob.OSTILE
 
 
 @dataclass

@@ -385,10 +385,15 @@ def attraversamento_consentito() -> bool:
 
 def _despawna_mob_di_zona() -> None:
     """Elimina i mob residui della zona che si lascia (entità con `EntitaMob`,
-    mai il protagonista): la zona nuova nasce pulita, niente reveal orfani."""
-    for ent, _em in list(esper.get_component(EntitaMob)):
+    mai il protagonista): la zona nuova nasce pulita, niente reveal orfani.
+    I PNG sopravvivono al cambio zona (T3): non sono arredo della stanza."""
+    from contracts import RuoloMob
+
+    for ent, em in list(esper.get_component(EntitaMob)):
         if esper.has_component(ent, Protagonista):
             continue  # cintura: il protagonista non ha EntitaMob, ma mai dire mai
+        if em.ruolo is RuoloMob.PNG:
+            continue
         esper.delete_entity(ent, immediate=True)
 
 

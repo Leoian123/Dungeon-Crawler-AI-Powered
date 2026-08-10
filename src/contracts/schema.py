@@ -507,6 +507,16 @@ class TabellaSpawnGenerata(BaseModel):
     voci: list[VoceSpawnGenerata] = Field(min_length=1, max_length=12)
 
 
+class RuoloMob(str, Enum):
+    """Il RUOLO di un'entità-mob nel mondo: ostile (bersaglio, il default
+    storico) o PNG (personaggio non giocante: esente dal despawn di zona, mai
+    trattato da nemico della stanza). NON AI-facing: lo scrive il motore alla
+    materializzazione, mai il modello."""
+
+    OSTILE = "ostile"
+    PNG = "png"
+
+
 class NemicoSperimentale(BaseModel):
     """Il candidato del BANCO DI PROVA (confronto fra modelli): il **core** di
     `EntitaGenerata` (stessi enum chiusi, da cui il motore deriva le stat REALI)

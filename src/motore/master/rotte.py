@@ -98,6 +98,13 @@ for _rotta in (
           fase=None, gating=True),
     Rotta("authoring.spawn", TabellaSpawnGenerata, Corsia.FORTE, retry=1,
           fase=None, gating=True),
+    # --- Dialogo PNG (T3): SOLA PROSA (mai esiti — la voce va solo a video),
+    # phase-gated a NARRAZIONE: parlare in combattimento è strutturalmente
+    # impossibile (la guardia di fase, non un check a mano). Corsia VELOCE:
+    # è flavor conversazionale; se la voce risulta piatta, il cambio a FORTE
+    # è un dato in questa riga.
+    Rotta("png.dialogo", Flavor, Corsia.VELOCE, retry=0,
+          fase=Fase.NARRAZIONE, gating=False),
     # --- Banco di prova nemici: strumento fuori-run (fase=None), gating=True
     # (il core passa da `valida_turno`). Corsia FORTE: è il confronto fra
     # modelli sul percorso di qualità. retry=0: un None VA riportato com'è.
