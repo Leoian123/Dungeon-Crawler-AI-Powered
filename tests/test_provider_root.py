@@ -16,6 +16,7 @@ from provider import (
     NOME_VAR_CHIAVE,
     ProfiloCorsia,
     costruisci_backend_live,
+    scegli_corsie,
     scegli_provider,
 )
 
@@ -74,6 +75,29 @@ def test_corsie_e_instradamento_iniettabili(monkeypatch) -> None:
     assert prov._per_schema[TurnoNarrazione].modello == "m-forte"
     assert prov._per_schema[TurnoNarrazione].max_tokens == 4096
     assert prov._predefinito.modello == "m-veloce"
+
+
+def test_scegli_corsie_offline_e_fake(monkeypatch) -> None:
+    # Stessa politica di `scegli_provider`: --fake e assenza chiave → offline DETTO.
+    monkeypatch.setenv(NOME_VAR_CHIAVE, "chiave-di-test-mai-vera")
+    backend, etichetta, consumo = scegli_corsie(["--fake"])
+    assert backend is None and consumo is None and "scriptato" in etichetta
+    monkeypatch.delenv(NOME_VAR_CHIAVE, raising=False)
+    backend, etichetta, consumo = scegli_corsie([])
+    assert backend is None and NOME_VAR_CHIAVE in etichetta
+
+
+def test_scegli_corsie_live_cabla_i_modelli_col_tally_condiviso(monkeypatch) -> None:
+    # Il mattone sotto scegli_provider: backend PER CORSIA (chi parla col
+    # Master-Engine li inietta per corsia, e la rotta seleziona il modello).
+    monkeypatch.setattr(pacchetto, "chiave_presente", lambda: True)
+    monkeypatch.setattr(pacchetto, "sdk_disponibile", lambda: True)
+    backend, etichetta, consumo = scegli_corsie([])
+    assert set(backend) == {"forte", "veloce"}
+    assert backend["forte"].modello == CORSIE_DEFAULT["forte"].modello
+    assert backend["veloce"].modello == CORSIE_DEFAULT["veloce"].modello
+    assert backend["forte"].consumo is backend["veloce"].consumo is consumo
+    assert "live" in etichetta
 
 
 def test_costruisci_backend_condivide_il_tally() -> None:

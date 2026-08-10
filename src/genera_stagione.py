@@ -20,15 +20,15 @@ Uso (dalla radice del repo, PYTHONPATH="src;vendor"):
     python -m genera_stagione --provincia 10 --citta 40
     python -m genera_stagione --fake          # smoke offline (provider muto: 0 generati)
 
-Pattern `banco_nemici`: stdlib + composition root; il provider arriva da
-`provider.root.scegli_provider` con instradamento authoring→FORTE.
+Pattern `banco_nemici`: stdlib + composition root; i backend arrivano da
+`provider.root.scegli_corsie` e il Master-Engine li riceve PER CORSIA — così la
+`Corsia.FORTE` dichiarata dalle rotte authoring seleziona davvero il modello forte.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -41,7 +41,7 @@ from contracts import (
     TierTerritorio,
 )
 from main import DIRECTORY_CONTENUTI, carica_asset, risolvi_stagione
-from motore import GRADO_DA_TIER, MasterEngine, mosse_note
+from motore import Corsia, GRADO_DA_TIER, MasterEngine, mosse_note
 
 STAGIONE_DEFAULT_SLUG = "stagione-1"
 
@@ -84,35 +84,54 @@ def contesto_prompt(stagione, piano) -> str:
     return "\n".join(righe)
 
 
-def prompt_lotto_boss(contesto: str, tier: TierTerritorio, n: int,
-                      esclusi: set[str]) -> str:
+def prompt_lotto_boss(tier: TierTerritorio, n: int, esclusi: set[str],
+                      respinti_prima: tuple[str, ...] = ()) -> str:
+    """Il compito di UN lotto. Solo le parti DINAMICHE (vietati, feedback):
+    il contesto condiviso viaggia in `sistema=` — byte-identico per tutta la
+    sessione, così il prompt caching del backend lavora davvero."""
     vietati = f" Slug già usati (vietati): {', '.join(sorted(esclusi))}." if esclusi else ""
-    return "\n".join([
-        contesto,
+    righe = [
         f"[compito] Genera {n} boss di {tier.value.upper()} per questo piano "
         f"(campo `tier` = \"{tier.value}\" per TUTTI).{vietati} Ognuno con la sua "
         "epoca/citazione, mai due simili nel lotto.",
-    ])
+    ]
+    if respinti_prima:
+        righe.append(
+            "[respinti] Nel giro precedente sono stati SCARTATI: "
+            + "; ".join(respinti_prima) + ". Correggi questi errori."
+        )
+    return "\n".join(righe)
 
 
-def prompt_tabella(contesto: str, tier: TierTerritorio) -> str:
-    return "\n".join([
-        contesto,
+def prompt_tabella(tier: TierTerritorio, respinti_prima: tuple[str, ...] = ()) -> str:
+    righe = [
         f"[compito] Genera la TABELLA PROCEDURALE dei boss di {tier.value.upper()}: "
         "8-12 `nomi` (titoli da boss rionale, epoche/cult diversi), 8-12 `gimmick` "
         "(una frase di carattere ciascuno), e gli `archetipi` ammessi (dal "
         "vocabolario). Il motore combinerà nomi × gimmick × archetipi, seeded.",
-    ])
+    ]
+    if respinti_prima:
+        righe.append(
+            "[respinti] La proposta precedente è stata SCARTATA: "
+            + "; ".join(respinti_prima) + ". Correggi questi errori."
+        )
+    return "\n".join(righe)
 
 
-def prompt_spawn(contesto: str, tier: TierTerritorio, disponibili: list[str]) -> str:
-    return "\n".join([
-        contesto,
+def prompt_spawn(tier: TierTerritorio, disponibili: list[str],
+                 respinti_prima: tuple[str, ...] = ()) -> str:
+    righe = [
         f"[mob-disponibili] {', '.join(disponibili)}",
         f"[compito] Componi la TABELLA DI SPAWN del tier {tier.value.upper()}: "
         "scegli SOLO slug dai mob-disponibili e assegna a ciascuno una frequenza "
         "(comune|insolito|raro). I comuni danno il tono, i rari sorprendono.",
-    ])
+    ]
+    if respinti_prima:
+        righe.append(
+            "[respinti] La proposta precedente è stata SCARTATA: "
+            + "; ".join(respinti_prima) + ". Correggi questi errori."
+        )
+    return "\n".join(righe)
 
 
 # --- Gate per item (i lint del motore, mai fiducia) -----------------------------
@@ -162,7 +181,30 @@ def boss_a_mob_asset(b: BossGenerato) -> MobAsset:
     )
 
 
-# --- Il batch (per costruzione: ~2+8+2+2 chiamate FORTE, one-shot) --------------
+# --- Il batch (giri paralleli + top-up bounded, ~12-16 chiamate FORTE) -----------
+
+_GIRI_EXTRA = 1  # un solo giro di top-up per i respinti: bounded, mai loop infinito
+
+
+def _gate_tabella(tabella: TabellaProceduraleGen, tier: TierTerritorio,
+                  piano) -> str | None:
+    """Motivo di scarto di una tabella procedurale, `None` = passa."""
+    if tabella.tier is not tier:
+        return f"tabella {tier.value}: tier sbagliato ({tabella.tier.value})"
+    fuori = [a for a in tabella.archetipi if a not in set(piano.budget.archetipi)]
+    if fuori:
+        return f"tabella {tier.value}: archetipi fuori budget: {', '.join(fuori)}"
+    return None
+
+
+def _gate_spawn(proposta: TabellaSpawnGenerata, tier: TierTerritorio,
+                disponibili: list[str]) -> str | None:
+    """Motivo di scarto di una tabella di spawn, `None` = passa."""
+    fuori = [v.mob for v in proposta.voci if v.mob not in set(disponibili)]
+    if fuori:
+        return f"spawn {tier.value}: mob inesistenti: {', '.join(fuori)}"
+    return None
+
 
 async def genera_roster(
     engine: MasterEngine, stagione, piano, *,
@@ -170,69 +212,119 @@ async def genera_roster(
     ufficiali: Path | None = None, locali: Path | None = None,
     sovrascrivi: bool = False,
 ):
-    """Il batch di authoring. Ritorna (mob_accettati, tabelle, spawn, respinti)."""
+    """Il batch di authoring. Ritorna (mob_accettati, tabelle, spawn, per_tier, respinti).
+
+    Le chiamate di un giro partono INSIEME (`gather`: l'I/O è il collo); il gate
+    resta seriale post-gather, nell'ordine dei task — è lì che gli slug in
+    collisione tra lotti paralleli vengono deduplicati. Un giro di TOP-UP
+    (bounded, `_GIRI_EXTRA`) rigenera i mancanti col motivo dello scarto nel
+    prompt; ogni scarto resta comunque RIPORTATO (mai fallback-contenuto).
+    Il contesto condiviso viaggia in `sistema=` (byte-identico per tutta la
+    sessione: prompt caching); i dinamici stanno SOLO nel prompt utente.
+    """
     contesto = contesto_prompt(stagione, piano)
     mob_accettati: list[MobAsset] = []
     per_tier: dict[TierTerritorio, list[str]] = {t: [] for t in _TIER_GENERABILI}
     respinti: list[str] = []
     slug_visti: set[str] = set()
 
-    for tier in _TIER_GENERABILI:
-        mancanti = n_per_tier.get(tier, 0)
-        for _ in range(math.ceil(mancanti / _LOTTO)):
-            quanti = min(_LOTTO, mancanti - len(per_tier[tier]))
-            if quanti <= 0:
-                break
-            lotto = await engine.genera(
-                "authoring.boss",
-                prompt_lotto_boss(contesto, tier, quanti, slug_visti),
-            )
+    # --- Boss nominati: giri di lotti paralleli, top-up per i tier sotto quota ---
+    feedback: dict[TierTerritorio, tuple[str, ...]] = {}
+    for _ in range(1 + _GIRI_EXTRA):
+        tier_dei_lotti: list[TierTerritorio] = []
+        prompts: list[str] = []
+        for tier in _TIER_GENERABILI:
+            mancanti = n_per_tier.get(tier, 0) - len(per_tier[tier])
+            for inizio in range(0, mancanti, _LOTTO):
+                tier_dei_lotti.append(tier)
+                prompts.append(prompt_lotto_boss(
+                    tier, min(_LOTTO, mancanti - inizio), slug_visti,
+                    feedback.get(tier, ()),
+                ))
+        if not tier_dei_lotti:
+            break
+        lotti = await asyncio.gather(*(
+            engine.genera("authoring.boss", p, sistema=contesto) for p in prompts
+        ))
+        motivi_giro: dict[TierTerritorio, list[str]] = {}
+        for tier, lotto in zip(tier_dei_lotti, lotti):
             if lotto is None:
+                # Trasporto: nessun feedback al modello (non ha sbagliato lui);
+                # il tier resta sotto quota e il giro dopo lo riprova da solo.
                 respinti.append(f"lotto {tier.value}: chiamata degradata (trasporto)")
                 continue
             for b in lotto.boss:
+                if len(per_tier[tier]) >= n_per_tier.get(tier, 0):
+                    break  # quota piena: gli extra di un lotto largo non entrano
                 errori = gate_boss(
                     b, piano, tier, slug_visti,
                     ufficiali=ufficiali, locali=locali, sovrascrivi=sovrascrivi,
                 )
                 if errori:
                     respinti.extend(errori)
+                    motivi_giro.setdefault(tier, []).extend(errori)
                     continue
                 slug_visti.add(b.slug)
                 mob_accettati.append(boss_a_mob_asset(b))
                 per_tier[tier].append(b.slug)
+        feedback = {t: tuple(m) for t, m in motivi_giro.items()}
 
+    # --- Tabelle procedurali: in parallelo, un retry col motivo per le respinte ---
     tabelle: list[TabellaProceduraleGen] = []
-    for tier in (TierTerritorio.DISTRETTO, TierTerritorio.QUARTIERE):
-        tabella = await engine.genera("authoring.tabella", prompt_tabella(contesto, tier))
-        if tabella is None:
-            respinti.append(f"tabella {tier.value}: chiamata degradata")
-            continue
-        if tabella.tier is not tier:
-            respinti.append(f"tabella {tier.value}: tier sbagliato ({tabella.tier.value})")
-            continue
-        fuori = [a for a in tabella.archetipi if a not in set(piano.budget.archetipi)]
-        if fuori:
-            respinti.append(f"tabella {tier.value}: archetipi fuori budget: {', '.join(fuori)}")
-            continue
-        tabelle.append(tabella)
+    da_fare: dict[TierTerritorio, tuple[str, ...]] = {
+        t: () for t in (TierTerritorio.DISTRETTO, TierTerritorio.QUARTIERE)
+    }
+    for _ in range(1 + _GIRI_EXTRA):
+        if not da_fare:
+            break
+        ordine = list(da_fare)
+        proposte = await asyncio.gather(*(
+            engine.genera("authoring.tabella", prompt_tabella(t, da_fare[t]),
+                          sistema=contesto)
+            for t in ordine
+        ))
+        prossimo: dict[TierTerritorio, tuple[str, ...]] = {}
+        for tier, tabella in zip(ordine, proposte):
+            if tabella is None:
+                respinti.append(f"tabella {tier.value}: chiamata degradata")
+                prossimo[tier] = ()  # trasporto: si riprova senza feedback
+                continue
+            motivo = _gate_tabella(tabella, tier, piano)
+            if motivo is None:
+                tabelle.append(tabella)
+            else:
+                respinti.append(motivo)
+                prossimo[tier] = (motivo,)
+        da_fare = prossimo
 
+    # --- Spawn: dipendono dai boss accettati, stessi giri delle tabelle ----------
     disponibili = sorted(
         {m.slug for m in piano.cast} | {m.slug for m in mob_accettati}
     )
     spawn: list[TabellaSpawnGenerata] = []
-    for tier in (TierTerritorio.QUARTIERE, TierTerritorio.CITTA):
-        proposta = await engine.genera(
-            "authoring.spawn", prompt_spawn(contesto, tier, disponibili)
-        )
-        if proposta is None:
-            respinti.append(f"spawn {tier.value}: chiamata degradata")
-            continue
-        fuori = [v.mob for v in proposta.voci if v.mob not in set(disponibili)]
-        if fuori:
-            respinti.append(f"spawn {tier.value}: mob inesistenti: {', '.join(fuori)}")
-            continue
-        spawn.append(proposta)
+    da_fare = {t: () for t in (TierTerritorio.QUARTIERE, TierTerritorio.CITTA)}
+    for _ in range(1 + _GIRI_EXTRA):
+        if not da_fare:
+            break
+        ordine = list(da_fare)
+        proposte = await asyncio.gather(*(
+            engine.genera("authoring.spawn", prompt_spawn(t, disponibili, da_fare[t]),
+                          sistema=contesto)
+            for t in ordine
+        ))
+        prossimo = {}
+        for tier, proposta in zip(ordine, proposte):
+            if proposta is None:
+                respinti.append(f"spawn {tier.value}: chiamata degradata")
+                prossimo[tier] = ()
+                continue
+            motivo = _gate_spawn(proposta, tier, disponibili)
+            if motivo is None:
+                spawn.append(proposta)
+            else:
+                respinti.append(motivo)
+                prossimo[tier] = (motivo,)
+        da_fare = prossimo
 
     return mob_accettati, tabelle, spawn, per_tier, respinti
 
@@ -308,17 +400,19 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         print(f"[genera] il piano {piano.slug} non ha territorio: niente da generare")
         return 1
 
-    from contracts import TurnoNarrazione
-    from provider import scegli_provider
+    from provider import FakeProvider, scegli_corsie
 
-    instradamento = {TurnoNarrazione: "forte"}
-    provider, etichetta = scegli_provider(argv, instradamento=instradamento)
+    # Backend PER CORSIA, non composito per-schema: le rotte authoring dichiarano
+    # `Corsia.FORTE` e qui quella dichiarazione arriva davvero al modello forte
+    # (con `avvolgi` la corsia della rotta non avrebbe alcun effetto).
+    corsie, etichetta, consumo = scegli_corsie(argv)
     print(f"[genera] {etichetta}")
-    if provider is None:
-        from provider import FakeProvider
-
-        provider = FakeProvider([])  # --fake/offline: smoke a zero generazioni
-    engine = MasterEngine.avvolgi(provider)
+    if corsie is None:
+        engine = MasterEngine.avvolgi(FakeProvider([]))  # --fake/offline: smoke a zero generazioni
+    else:
+        engine = MasterEngine({
+            Corsia.FORTE: corsie["forte"], Corsia.VELOCE: corsie["veloce"],
+        })
 
     n_per_tier = {
         TierTerritorio.PROVINCIA: _arg("--provincia", 10),
@@ -334,7 +428,6 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
           f"tabelle: {len(tabelle)}; spawn: {len(spawn)}")
     for riga in respinti:
         print(f"[genera] ✗ respinto: {riga}")
-    consumo = getattr(provider, "consumo", None)
     if consumo is not None:
         print(f"[genera] {consumo.riassunto()}")
 

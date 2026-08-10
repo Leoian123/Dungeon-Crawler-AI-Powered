@@ -75,13 +75,19 @@ def _instradamento_default() -> dict[type, str]:
     return {TurnoNarrazione: "forte"}
 
 
-def scegli_provider(
+def scegli_corsie(
     argv: list[str],
     *,
-    instradamento: Mapping[type, str] | None = None,
     corsie: Mapping[str, ProfiloCorsia] | None = None,
-) -> tuple[object | None, str]:
-    """Seleziona il provider del GM. Ritorna `(provider, etichetta)`; `None` = fake.
+) -> tuple[dict[str, object] | None, str, ConsumoProvider | None]:
+    """Seleziona i backend PER CORSIA ("forte"/"veloce") con UN tally condiviso.
+    Ritorna `(backend, etichetta, consumo)`; backend `None` = offline/fake.
+
+    È il mattone sotto `scegli_provider`: chi parla per corsie astratte (il
+    Master-Engine, che riceve `Mapping[Corsia, provider]`) usa QUESTA, così la
+    corsia dichiarata dalla rotta arriva davvero al modello giusto — senza
+    passare dall'instradamento per-schema. Le chiavi restano stringhe: questo
+    modulo non importa mai `motore` (membrana C-2).
 
     Politica (PLK §4 + best practice chiavi API):
       - la chiave vive SOLO nell'ambiente (`ANTHROPIC_API_KEY`): qui se ne controlla
@@ -94,7 +100,7 @@ def scegli_provider(
     from provider import chiave_presente, sdk_disponibile  # pigri: monkeypatchabili
 
     if "--fake" in argv:
-        return None, "GM offline (contenuto scriptato)"
+        return None, "GM offline (contenuto scriptato)", None
     presente, sdk = chiave_presente(), sdk_disponibile()
     if "--live" in argv:
         if not presente:
@@ -107,18 +113,37 @@ def scegli_provider(
                 "--live richiede l'SDK: .venv\\Scripts\\pip install anthropic"
             )
     if not presente:
-        return None, "GM offline (nessuna ANTHROPIC_API_KEY: vedi .env.example)"
+        return None, "GM offline (nessuna ANTHROPIC_API_KEY: vedi .env.example)", None
     if not sdk:
-        return None, "GM offline (SDK anthropic non installato)"
+        return None, "GM offline (SDK anthropic non installato)", None
 
     consumo = ConsumoProvider()
     backend = costruisci_backend_live(corsie=corsie, consumo=consumo)
+    profili = dict(CORSIE_DEFAULT if corsie is None else corsie)
+    etichetta = (f"GM live — {profili['forte'].modello} (turni) + "
+                 f"{profili['veloce'].modello} (rifiniture)")
+    return backend, etichetta, consumo
+
+
+def scegli_provider(
+    argv: list[str],
+    *,
+    instradamento: Mapping[type, str] | None = None,
+    corsie: Mapping[str, ProfiloCorsia] | None = None,
+) -> tuple[object | None, str]:
+    """Seleziona il provider del GM. Ritorna `(provider, etichetta)`; `None` = fake.
+
+    È `scegli_corsie` + l'adattatore per-schema: serve agli host che parlano con
+    UN provider composito (la porta storica). La politica chiave/fake/live vive
+    in `scegli_corsie` — una sola copia."""
+    backend, etichetta, consumo = scegli_corsie(argv, corsie=corsie)
+    if backend is None:
+        return None, etichetta
+
     rotte = dict(_instradamento_default() if instradamento is None else instradamento)
     per_schema = {schema: backend[corsia] for schema, corsia in rotte.items()}
     provider = ProviderPerSchema(per_schema, predefinito=backend["veloce"])
     # Il tally viaggia col provider: l'host lo mostra a fine sessione (e può
     # leggerlo quando un turno degrada) senza cambiare la firma di questa funzione.
     provider.consumo = consumo
-    profili = dict(CORSIE_DEFAULT if corsie is None else corsie)
-    return provider, (f"GM live — {profili['forte'].modello} (turni) + "
-                      f"{profili['veloce'].modello} (rifiniture)")
+    return provider, etichetta
