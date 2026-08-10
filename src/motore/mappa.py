@@ -254,11 +254,13 @@ class SistemaMovimento(SistemaSoloNarrazione):
 @dataclass(frozen=True)
 class OpzioneScena:
     """Un'azione legale nella scena corrente, composta dal MOTORE dalla mappa.
-    `stanza` è il bersaglio per `MUOVI` (None altrimenti)."""
+    `stanza` è il bersaglio per `MUOVI`; `zona` la destinazione (chiave) per le
+    DEVIAZIONI di `ATTRAVERSA` (None = avanti sulla spina)."""
 
     tipo: TipoAzione
     etichetta: str
     stanza: int | None = None
+    zona: str | None = None
 
 
 def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
@@ -282,7 +284,14 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     # ATTRAVERSA (territorio): il varco verso la zona successiva — compare SOLO
     # quando è VERO (stanza-passaggio, boss battuto, nessun nemico). Import
     # locale: la mappa resta l'autorità dentro la zona, il territorio sopra.
-    from .territorio import attraversamento_consentito, zona_successiva
+    from .territorio import (
+        attraversamento_consentito,
+        e_di_spina,
+        zona_corrente,
+        zona_di_spina_del_tier,
+        zona_successiva,
+        zone_laterali,
+    )
 
     try:
         varco = attraversamento_consentito()
@@ -296,6 +305,35 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         opzioni.append(OpzioneScena(
             tipo=TipoAzione.ATTRAVERSA, etichetta=f"Attraversa: verso {dove}"
         ))
+    # DEVIAZIONI (Fase 6): dalla PARTENZA della zona, le sorelle laterali (zone
+    # lazy: nascono dal loro seed alla prima entrata) o il RITORNO sulla spina.
+    try:
+        from .piano import livello_corrente
+
+        zona = zona_corrente()
+        alla_partenza = (
+            zona is not None and m[1].stanza_corrente == m[1].piano.partenza
+        )
+        if alla_partenza:
+            livello = livello_corrente()
+            if e_di_spina(zona, livello):
+                for laterale in zone_laterali(livello):
+                    opzioni.append(OpzioneScena(
+                        tipo=TipoAzione.ATTRAVERSA,
+                        etichetta=f"Deviazione: {laterale.tier.value} vicino "
+                                  f"({laterale.percorso[-1]})",
+                        zona=laterale.chiave,
+                    ))
+            else:
+                rientro = zona_di_spina_del_tier(zona.tier, livello)
+                if rientro is not None:
+                    opzioni.append(OpzioneScena(
+                        tipo=TipoAzione.ATTRAVERSA,
+                        etichetta="Torna sulla via principale",
+                        zona=rientro.chiave,
+                    ))
+    except Exception:
+        pass  # World parziale: la scena resta componibile
     # RIPOSA compare solo quando è VERA (stanza sicura + downtime lecito, J §5):
     # come SCENDI/MUOVI, la compone il motore dalla scena, mai l'AI dal testo.
     from .tempo import puo_downtime  # locale: nessun ciclo mappa↔tempo

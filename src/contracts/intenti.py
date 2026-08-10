@@ -119,13 +119,16 @@ class PlayerToglie(IntentoEsplorazione):
 
 @dataclass(frozen=True)
 class PlayerAttraversa(IntentoEsplorazione):
-    """Intento di ATTRAVERSAMENTO (territorio, 2026-08): il giocatore varca il
-    passaggio verso la zona successiva della spina.
+    """Intento di ATTRAVERSAMENTO (territorio, 2026-08): il giocatore varca un
+    confine di zona.
 
-    Attraversare è un atto del giocatore; la validità (stanza-passaggio, boss di
-    zona sconfitto, nessun nemico vivo) e l'avanzamento della zona sono del
-    MOTORE (`SistemaAttraversamento`, unico proprietario) — un intento non
-    valido è consumato senza effetto."""
+    `destinazione` = chiave della zona bersaglio per le DEVIAZIONI laterali e i
+    ritorni sulla spina (composta dal motore nella scena, mai inventata dalla
+    vista); vuota = avanti sulla spina (il passaggio custodito dal boss).
+    Validità e avanzamento sono del MOTORE (`SistemaAttraversamento`, unico
+    proprietario) — un intento non valido è consumato senza effetto."""
+
+    destinazione: str = ""
 
 
 @dataclass(frozen=True)

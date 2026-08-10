@@ -417,6 +417,17 @@ def componi_fascicolo(
                 f"; custode del varco: {custode.nome} ({stato_custode}) — "
                 "il passaggio si apre solo battendolo"
             )
+        # La telecronaca del MILIARDO (solo prompt, zero meccanica): lo show
+        # ricorda quanto è vasto il piano e che altri crawler giocano altrove.
+        territorio = piano.territorio if piano is not None else None
+        if territorio is not None and territorio.conteggi:
+            scala_mondo = " × ".join(
+                f"{n} {tier}" for tier, n in territorio.conteggi.items()
+            )
+            riga_territorio += (
+                f" | il piano è VASTO ({scala_mondo}; 150.000 ingressi): altri "
+                "crawler stanno giocando questa stessa partita altrove"
+            )
     return Fascicolo(
         tick=tempo_piano_corrente(),
         livello=livello_corrente(),

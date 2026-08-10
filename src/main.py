@@ -1402,8 +1402,9 @@ class SessioneGioco:
             return
         if azione.tipo is TipoAzione.ATTRAVERSA:
             # Il passaggio di zona: lo serve SistemaAttraversamento (gate:
-            # stanza-passaggio + boss battuto), unico proprietario dell'avanzamento.
-            self.coda.accoda(PlayerAttraversa())
+            # stanza-passaggio + boss battuto; per le DEVIAZIONI: partenza,
+            # destinazione composta dalla scena), unico proprietario.
+            self.coda.accoda(PlayerAttraversa(destinazione=azione.zona or ""))
             return
         if azione.tipo is TipoAzione.MUOVI and azione.stanza is not None:
             self.coda.accoda(PlayerSiMuove(azione.stanza))  # la serve SistemaMovimento

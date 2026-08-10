@@ -143,8 +143,8 @@ def zona_corrente() -> Zona | None:
 def zona_successiva(livello: int) -> Zona | None:
     """La prossima zona della SPINA dopo quella corrente (None = sei alla tana).
 
-    Da una zona laterale (fuori spina, Fase 6) si rientra alla zona di spina del
-    suo stesso tier: il passaggio avanti è uno solo."""
+    Una zona LATERALE è un vicolo (Fase 6): non ha un "avanti" — da lì si torna
+    alla zona di spina da cui si è deviati (`zona_di_spina_del_tier`)."""
     corrente = zona_corrente()
     if corrente is None:
         return None
@@ -152,11 +152,44 @@ def zona_successiva(livello: int) -> Zona | None:
     for i, zona in enumerate(spina):
         if zona.chiave == corrente.chiave:
             return spina[i + 1] if i + 1 < len(spina) else None
-    # Zona laterale: si rientra sulla spina al tier SUCCESSIVO al suo.
-    indice_tier = ORDINE_SPINA.index(corrente.tier)
-    if indice_tier + 1 < len(ORDINE_SPINA):
-        return spina[indice_tier + 1]
+    return None  # laterale: vicolo, nessun avanti
+
+
+def e_di_spina(zona: Zona, livello: int) -> bool:
+    return any(z.chiave == zona.chiave for z in spina_del_piano(livello))
+
+
+def zona_di_spina_del_tier(tier: TierTerritorio, livello: int) -> Zona | None:
+    """La zona di SPINA di quel tier (il punto di rientro dalle laterali)."""
+    for zona in spina_del_piano(livello):
+        if zona.tier is tier:
+            return zona
     return None
+
+
+def zone_laterali(livello: int) -> tuple[Zona, ...]:
+    """Le 0-2 SORELLE della zona di spina corrente: stessa gerarchia, indice
+    finale diverso — campionate SEEDED dalla chiave di zona (derivate pure,
+    generate ON-DEMAND alla prima entrata: mappa e boss nascono dal loro seed).
+    Vuota fuori dalla spina, alla tana, o se il mondo non ha sorelle."""
+    territorio = territorio_attivo()
+    corrente = zona_corrente()
+    if territorio is None or corrente is None or not corrente.percorso:
+        return ()
+    if not e_di_spina(corrente, livello):
+        return ()
+    disponibili = _conta(territorio, corrente.tier)
+    mio = corrente.percorso[-1]
+    sorelle = [i for i in range(disponibili) if i != mio]
+    if not sorelle:
+        return ()
+    rng = random.Random(f"{master_seed()}:piano:{livello}:laterali:{corrente.chiave}")
+    quante = min(rng.randint(0, 2), len(sorelle))
+    scelte = rng.sample(sorelle, quante) if quante else []
+    return tuple(
+        Zona(tier=corrente.tier, percorso=corrente.percorso[:-1] + (i,))
+        for i in sorted(scelte)
+    )
 
 
 # --- La mappa DELLA ZONA (riuso di genera_topologia, seed per zona) -------------
@@ -359,16 +392,43 @@ def _despawna_mob_di_zona() -> None:
         esper.delete_entity(ent, immediate=True)
 
 
-def attraversa(bus) -> bool:
-    """Varca il passaggio verso la zona successiva della spina. Ritorna True se
-    l'attraversamento è avvenuto (gate: `attraversamento_consentito`)."""
+def deviazione_consentita(destinazione: str) -> bool:
+    """Il gate delle DEVIAZIONI (laterali e ritorni): si devia dalla PARTENZA
+    della zona, senza nemico in stanza, verso una destinazione che la scena ha
+    davvero composto — mai un teletrasporto da chiave arbitraria."""
     from .piano import livello_corrente
 
-    if not attraversamento_consentito():
+    corrente = zona_corrente()
+    m = mappa_corrente()
+    if corrente is None or m is None or territorio_attivo() is None:
+        return False
+    if m[1].stanza_corrente != m[1].piano.partenza or mob_corrente() is not None:
         return False
     livello = livello_corrente()
-    prossima = zona_successiva(livello)
-    assert prossima is not None  # garantito dal gate
+    lecite = {z.chiave for z in zone_laterali(livello)}
+    if not e_di_spina(corrente, livello):
+        rientro = zona_di_spina_del_tier(corrente.tier, livello)
+        lecite = {rientro.chiave} if rientro is not None else set()
+    return destinazione in lecite
+
+
+def attraversa(bus, destinazione: str = "") -> bool:
+    """Varca un confine di zona. Senza `destinazione`: avanti sulla spina (gate:
+    `attraversamento_consentito`); con `destinazione`: deviazione laterale o
+    rientro (gate: `deviazione_consentita` — dalla partenza, senza boss: la via
+    da cui sei entrato resta libera, il vicolo non ti chiude mai dentro)."""
+    from .piano import livello_corrente
+
+    livello = livello_corrente()
+    if destinazione:
+        if not deviazione_consentita(destinazione):
+            return False
+        prossima = zona_da_chiave(destinazione)
+    else:
+        if not attraversamento_consentito():
+            return False
+        prossima = zona_successiva(livello)
+        assert prossima is not None  # garantito dal gate
     _despawna_mob_di_zona()
     rigenera_mappa_zona(livello, prossima)
     if bus is not None:
@@ -387,8 +447,8 @@ class SistemaAttraversamento(SistemaSoloNarrazione):
         self.bus = bus
 
     def run(self, dt: int) -> None:
-        for _intento in consuma_messaggi(PlayerAttraversa):
-            attraversa(self.bus)
+        for intento in consuma_messaggi(PlayerAttraversa):
+            attraversa(self.bus, getattr(intento, "destinazione", ""))
 
 
 def collega_boss(bus):
