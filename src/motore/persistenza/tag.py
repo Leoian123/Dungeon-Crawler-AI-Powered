@@ -143,6 +143,18 @@ def _da_jsonable(dato: object, annot: object) -> object:
     if _e_enum(annot):
         return annot(dato)  # type: ignore[operator]
     origine = typing.get_origin(annot)
+    # `X | None` (Optional): si scarta il ramo None e si ricorre sul tipo vero —
+    # serve ai campi `dataclass | None` (es. `PianoAttivo.territorio`), che prima
+    # di questo ramo tornavano dict grezzi in silenzio. PEP 604 incluso.
+    import types
+
+    if origine in (typing.Union, types.UnionType):
+        if dato is None:
+            return None
+        interni = [a for a in typing.get_args(annot) if a is not type(None)]
+        if len(interni) == 1:
+            return _da_jsonable(dato, interni[0])
+        return dato  # Union eterogenea: passthrough (nessun campo così, oggi)
     if origine is dict:
         k_t, v_t = typing.get_args(annot)
         return {_da_jsonable(k, k_t): _da_jsonable(v, v_t) for k, v in dato.items()}

@@ -256,6 +256,9 @@ from .design import (
     MobAttivo,
     PianoAttivo,
     StagioneAttiva,
+    TabellaProceduraleAttiva,
+    TerritorioAttivo,
+    VoceSpawnAttiva,
     archetipo_attivo,
     crea_stagione,
     design_piano_corrente,
@@ -280,6 +283,7 @@ from .piano import (
     valida_piano,
 )
 from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
+from .catalogo import GRADO_DA_TIER, grado_da_tier
 from .incontri import componi_imboscata_scena, nome_nemico_incontro
 from .memoria_narrativa import TIPO_RECORD_MEMORIA, MemoriaSuArchivio
 from .seme import SemeRun, crea_seme, master_seed
@@ -577,6 +581,11 @@ __all__ = [
     "registry_archetipi_correnti",
     "PianoAttivo",
     "StagioneAttiva",
+    "TabellaProceduraleAttiva",
+    "TerritorioAttivo",
+    "VoceSpawnAttiva",
+    "GRADO_DA_TIER",
+    "grado_da_tier",
     "crea_stagione",
     "design_piano_corrente",
     "lint_profilo",

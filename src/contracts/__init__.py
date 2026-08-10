@@ -56,6 +56,8 @@ from .schema import (
     SedeAccessorio,
     Durata,
     EntitaGenerata,
+    Frequenza,
+    TierTerritorio,
     TurnoNarrazione,
     Flavor,
     IntenzioneScena,
@@ -78,6 +80,13 @@ from .contenuti import (
     ProfiloArchetipoDati,
     Stagione,
     StagioneRisolta,
+    TabellaBossProcedurali,
+    TabellaSpawn,
+    TabellaSpawnRisolta,
+    TerritorioDesign,
+    TerritorioRisolto,
+    VoceSpawn,
+    VoceSpawnRisolta,
 )
 from .hub import CrawlerVista
 from .proiezione import (
@@ -176,6 +185,15 @@ __all__ = [
     "PianoRisolto",
     "Stagione",
     "StagioneRisolta",
+    "Frequenza",
+    "TierTerritorio",
+    "TabellaBossProcedurali",
+    "TabellaSpawn",
+    "TabellaSpawnRisolta",
+    "TerritorioDesign",
+    "TerritorioRisolto",
+    "VoceSpawn",
+    "VoceSpawnRisolta",
     # snapshot di rendering per la vista
     "DocumentoMemoria",
     "MemoriaNarrativa",

@@ -20,7 +20,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
-from contracts import Blocco, ClasseProva, Durata, Grado
+from contracts import Blocco, ClasseProva, Durata, Frequenza, Grado, TierTerritorio
 
 # I VALORI §11 vivono in `calibrazione.py` (un solo posto, guida §0); qui se ne **rieaspongono**
 # i migrati per non rompere i consumatori storici (`from .catalogo import REGISTRY_ARCHETIPI`…).
@@ -29,6 +29,7 @@ from .calibrazione import (  # noqa: F401  (re-export)
     GRADI_PER_PROFONDITA,
     PROFONDITA_PER_GRADO,
     DURATA_BLOCCO_DEFAULT,
+    PESO_FREQUENZA,
     PRIMARIE_BASE_CARL,
     PROB_ANOMALIA,
     PROB_IMBOSCATA,
@@ -83,6 +84,19 @@ def classe_da_grado(grado: Grado) -> ClasseProva:
 
     Il motore la deriva; l'AI non la sceglie mai — è il gemello di `rango_grado`."""
     return CLASSE_DA_GRADO[grado]
+
+
+# --- `TierTerritorio` → `Grado`: la simmetria 6↔6 del territorio (2026-08-10) ---
+# Stessa dottrina di `CLASSE_DA_GRADO`: due enum, lo stesso ordinamento nominato
+# visto da due lati (quartiere=bronzo … piano=celestiale), derivato PER INDICE.
+# L'AI di authoring dichiara il TIER di un boss, mai il grado: il grado lo impone
+# questa mappa (e il validator di `TerritorioRisolto` la rispecchia in contracts).
+GRADO_DA_TIER: dict[TierTerritorio, Grado] = dict(zip(TierTerritorio, Grado, strict=True))
+
+
+def grado_da_tier(tier: TierTerritorio) -> Grado:
+    """Il grado che il tier territoriale impone al suo boss (simmetria 6↔6)."""
+    return GRADO_DA_TIER[tier]
 
 
 # --- Formula-madre: (archetipo, grado, livello) → primarie (FNC §5.5) ----------

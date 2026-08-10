@@ -24,7 +24,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .schema import RE_SLUG as _RE_SLUG
-from .schema import ArchetipoId, Blocco, Durata, Grado
+from .schema import ArchetipoId, Blocco, Durata, Frequenza, Grado, TierTerritorio
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 
@@ -156,6 +156,130 @@ class MobAsset(_Asset):
         return self
 
 
+# --- Territorio: la gerarchia di un piano-mondo (2026-08-10) --------------------
+#
+# Un piano che ospita miliardi non si autora stanza per stanza: si autorano le
+# ANCORE (roster boss canonici, tabelle) e il motore campiona il resto, seeded.
+# I tier con roster NOMINATO sono PIANO/PAESE/PROVINCIA/CITTA; DISTRETTO e
+# QUARTIERE sono procedurali (tabelle nome×gimmick×archetipo, istanziati a
+# runtime dal seed di zona). La simmetria tier↔grado è forma (schema.py).
+
+# I tier col roster nominato vs i tier procedurali (chiusi, per costruzione).
+_TIER_NOMINATI = frozenset({
+    TierTerritorio.PIANO, TierTerritorio.PAESE,
+    TierTerritorio.PROVINCIA, TierTerritorio.CITTA,
+})
+_TIER_PROCEDURALI = frozenset({TierTerritorio.DISTRETTO, TierTerritorio.QUARTIERE})
+
+
+class VoceSpawn(BaseModel):
+    """Una voce di tabella di spawn: UN mob (per slug) con la sua frequenza.
+
+    La frequenza è una categoria (F-14): il peso numerico è una foglia §11."""
+
+    model_config = _FROZEN
+
+    mob: str = Field(pattern=_RE_SLUG)
+    frequenza: Frequenza = Frequenza.COMUNE
+
+
+class TabellaSpawn(BaseModel):
+    """La tabella di spawn di un TIER: chi popola le stanze ordinarie delle zone
+    di quel livello (riempitivi del copione offline, pescate d'imboscata,
+    suggerimenti soft nel prompt live)."""
+
+    model_config = _FROZEN
+
+    tier: TierTerritorio
+    voci: list[VoceSpawn] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _voci_uniche(self) -> "TabellaSpawn":
+        _senza_duplicati([v.mob for v in self.voci], "voci")
+        return self
+
+
+class TabellaBossProcedurali(BaseModel):
+    """Il materiale per ISTANZIARE (seeded, a runtime) i boss dei tier
+    procedurali: nome × gimmick × archetipo. Il grado non c'è: lo impone il
+    tier (simmetria 6↔6); i numeri li deriva la calibrazione come sempre."""
+
+    model_config = _FROZEN
+
+    tier: TierTerritorio
+    nomi: list[str] = Field(min_length=4)
+    gimmick: list[str] = Field(min_length=4)
+    archetipi: list[ArchetipoId] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _tier_procedurale(self) -> "TabellaBossProcedurali":
+        if self.tier not in _TIER_PROCEDURALI:
+            raise ValueError(
+                f"tabella procedurale sul tier {self.tier.value}: i tier nominati "
+                "hanno un roster, non una tabella"
+            )
+        _senza_duplicati(self.nomi, "nomi")
+        _senza_duplicati(self.gimmick, "gimmick")
+        _senza_duplicati(self.archetipi, "archetipi")
+        return self
+
+
+class TerritorioDesign(BaseModel):
+    """La gerarchia territoriale di un piano-mondo. Assente sul `PianoAsset` =
+    piano piatto storico (retro-compatibile).
+
+    `conteggi` è la SCALA del mondo per tier (lore + campionamento della spina:
+    quante province, quante città…); PIANO non vi compare (è sempre 1).
+    `boss` è il roster NOMINATO per tier (slug di `MobAsset`): canonici autorati
+    + generati dall'authoring AI. `procedurali` copre distretti e quartieri."""
+
+    model_config = _FROZEN
+
+    conteggi: dict[TierTerritorio, int] = Field(default_factory=dict)
+    boss: dict[TierTerritorio, list[str]] = Field(default_factory=dict)
+    procedurali: list[TabellaBossProcedurali] = Field(min_length=2)
+    spawn: list[TabellaSpawn] = Field(min_length=1)
+    stanze_per_zona: int | None = Field(default=None, ge=2)
+
+    def conta(self, tier: TierTerritorio) -> int:
+        """Quante unità di quel tier esistono nel mondo (default 1)."""
+        return self.conteggi.get(tier, 1)
+
+    @model_validator(mode="after")
+    def _coerente(self) -> "TerritorioDesign":
+        if TierTerritorio.PIANO in self.conteggi:
+            raise ValueError("conteggi: il tier 'piano' è sempre 1, non si dichiara")
+        for tier, n in self.conteggi.items():
+            if n < 1:
+                raise ValueError(f"conteggi: {tier.value} deve essere >= 1")
+        import re
+
+        for tier, roster in self.boss.items():
+            if tier not in _TIER_NOMINATI:
+                raise ValueError(
+                    f"boss: il tier {tier.value} è procedurale (tabelle, non roster)"
+                )
+            _senza_duplicati(roster, f"boss[{tier.value}]")
+            for slug in roster:
+                if not re.fullmatch(_RE_SLUG, slug):
+                    raise ValueError(f"boss[{tier.value}]: slug non valido {slug!r}")
+        if len(self.boss.get(TierTerritorio.PIANO, [])) != 1:
+            raise ValueError("boss: il tier 'piano' vuole ESATTAMENTE un boss")
+        for tier, roster in self.boss.items():
+            if tier in self.conteggi and len(roster) > self.conteggi[tier]:
+                raise ValueError(
+                    f"boss[{tier.value}]: roster ({len(roster)}) oltre il "
+                    f"conteggio del mondo ({self.conteggi[tier]})"
+                )
+        coperti = {t.tier for t in self.procedurali}
+        if not _TIER_PROCEDURALI <= coperti:
+            mancanti = ", ".join(t.value for t in _TIER_PROCEDURALI - coperti)
+            raise ValueError(f"procedurali: manca la tabella per: {mancanti}")
+        _senza_duplicati([t.tier for t in self.procedurali], "procedurali")
+        _senza_duplicati([t.tier for t in self.spawn], "spawn")
+        return self
+
+
 class PianoAsset(_Asset):
     """Un piano del dungeon: tema, voce, budget hard e cast per RIFERIMENTO.
 
@@ -171,6 +295,8 @@ class PianoAsset(_Asset):
     budget: BudgetDesign
     cast: list[str] = Field(min_length=1)  # slug di MobAsset, ordinati
     stanze: int | None = Field(default=None, ge=1)
+    # La gerarchia territoriale (2026-08-10): assente = piano piatto storico.
+    territorio: TerritorioDesign | None = None
 
     @model_validator(mode="after")
     def _cast_slug_validi(self) -> "PianoAsset":
@@ -219,6 +345,58 @@ class Stagione(BaseModel):
 
 # --- Forme RISOLTE (denormalizzate): prodotte dalla risoluzione, mai autorate ---
 
+class VoceSpawnRisolta(BaseModel):
+    """Una voce di spawn col mob SCIOLTO (inline)."""
+
+    model_config = _FROZEN
+
+    mob: MobAsset
+    frequenza: Frequenza = Frequenza.COMUNE
+
+
+class TabellaSpawnRisolta(BaseModel):
+    model_config = _FROZEN
+
+    tier: TierTerritorio
+    voci: list[VoceSpawnRisolta] = Field(min_length=1)
+
+
+class TerritorioRisolto(BaseModel):
+    """Il territorio coi roster SCIOLTI e coerenti per costruzione:
+
+    - il grado di ogni boss È il grado del suo tier (simmetria 6↔6, per indice);
+    - il CELESTIALE è riservato al boss di PIANO (per costruzione: nessun altro
+      tier lo può avere, e cast/spawn lo escludono nel validator del piano);
+    - gli archetipi delle tabelle procedurali sono slug (⊆ budget: validator del
+      piano risolto, che il budget lo possiede)."""
+
+    model_config = _FROZEN
+
+    conteggi: dict[TierTerritorio, int] = Field(default_factory=dict)
+    boss: dict[TierTerritorio, list[MobAsset]] = Field(default_factory=dict)
+    procedurali: list[TabellaBossProcedurali] = Field(min_length=2)
+    spawn: list[TabellaSpawnRisolta] = Field(min_length=1)
+    stanze_per_zona: int | None = None
+
+    def conta(self, tier: TierTerritorio) -> int:
+        return self.conteggi.get(tier, 1)
+
+    @model_validator(mode="after")
+    def _boss_del_loro_tier(self) -> "TerritorioRisolto":
+        if len(self.boss.get(TierTerritorio.PIANO, [])) != 1:
+            raise ValueError("territorio: il tier 'piano' vuole ESATTAMENTE un boss")
+        for tier, roster in self.boss.items():
+            if tier not in _TIER_NOMINATI:
+                raise ValueError(f"territorio: roster sul tier procedurale {tier.value}")
+            for mob in roster:
+                if mob.grado is not tier.grado:
+                    raise ValueError(
+                        f"boss fuori tier: {mob.slug} è {mob.grado.value}, il tier "
+                        f"{tier.value} esige {tier.grado.value}"
+                    )
+        return self
+
+
 class PianoRisolto(BaseModel):
     """Il piano coi riferimenti SCIOLTI: il cast è inline. La coerenza
     cast⊆budget è imposta per costruzione dal validator: un piano risolto
@@ -236,26 +414,58 @@ class PianoRisolto(BaseModel):
     budget: BudgetDesign
     cast: list[MobAsset] = Field(min_length=1)
     stanze: int | None = None
+    territorio: TerritorioRisolto | None = None
 
     @property
     def n_stanze(self) -> int:
         """La scala effettiva per l'offline: esplicita o derivata dal cast."""
         return self.stanze if self.stanze is not None else len(self.cast)
 
+    def _controlla_nel_budget(self, mob: MobAsset, dove: str) -> None:
+        if mob.grado not in set(self.budget.gradi):
+            raise ValueError(f"{dove} fuori budget: {mob.slug} ha grado {mob.grado.value}")
+        if mob.archetipo not in set(self.budget.archetipi):
+            raise ValueError(f"{dove} fuori budget: {mob.slug} ha archetipo {mob.archetipo}")
+        if not set(mob.blocchi) <= set(self.budget.blocchi):
+            raise ValueError(f"{dove} fuori budget: {mob.slug} ha blocchi non ammessi")
+
     @model_validator(mode="after")
     def _cast_nel_budget(self) -> "PianoRisolto":
-        gradi = set(self.budget.gradi)
-        blocchi = set(self.budget.blocchi)
-        archetipi = set(self.budget.archetipi)
         for mob in self.cast:
-            if mob.grado not in gradi:
-                raise ValueError(f"cast fuori budget: {mob.slug} ha grado {mob.grado.value}")
-            if mob.archetipo not in archetipi:
+            self._controlla_nel_budget(mob, "cast")
+        return self
+
+    @model_validator(mode="after")
+    def _territorio_coerente(self) -> "PianoRisolto":
+        t = self.territorio
+        if t is None:
+            return self
+        # Il CELESTIALE è l'identità del boss di piano: mai nel cast, mai nelle
+        # tabelle di spawn (i roster inferiori lo escludono già per costruzione).
+        for mob in self.cast:
+            if mob.grado is Grado.CELESTIALE:
                 raise ValueError(
-                    f"cast fuori budget: {mob.slug} ha archetipo {mob.archetipo}"
+                    f"celestiale riservato al boss di piano: {mob.slug} nel cast"
                 )
-            if not set(mob.blocchi) <= blocchi:
-                raise ValueError(f"cast fuori budget: {mob.slug} ha blocchi non ammessi")
+        for tabella in t.spawn:
+            for voce in tabella.voci:
+                self._controlla_nel_budget(voce.mob, f"spawn[{tabella.tier.value}]")
+                if voce.mob.grado is Grado.CELESTIALE:
+                    raise ValueError(
+                        f"celestiale riservato al boss di piano: {voce.mob.slug} "
+                        f"nella tabella di spawn {tabella.tier.value}"
+                    )
+        for tier, roster in t.boss.items():
+            for mob in roster:
+                self._controlla_nel_budget(mob, f"boss[{tier.value}]")
+        archetipi = set(self.budget.archetipi)
+        for tabella in t.procedurali:
+            fuori = [a for a in tabella.archetipi if a not in archetipi]
+            if fuori:
+                raise ValueError(
+                    f"procedurali[{tabella.tier.value}]: archetipi fuori budget: "
+                    + ", ".join(fuori)
+                )
         return self
 
 

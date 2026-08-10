@@ -128,6 +128,9 @@ from motore import (
     MobAttivo,
     PianoAttivo,
     StagioneAttiva,
+    TabellaProceduraleAttiva,
+    TerritorioAttivo,
+    VoceSpawnAttiva,
     design_piano_corrente,
     stagione_corrente,
     lint_profilo,
@@ -469,6 +472,56 @@ def vocabolario(
     }
 
 
+def _risolvi_territorio(
+    territorio, slug_piano: str, errori: list[str],
+    *, ufficiali: Path | None, locali: Path | None,
+):
+    """Scioglie i riferimenti del territorio (roster boss e tabelle di spawn):
+    slug → MobAsset con lo stesso lint espressivo del cast. `None` = riferimenti
+    pendenti (già accumulati in `errori`); la COERENZA la impongono i validator
+    di `TerritorioRisolto`/`PianoRisolto` alla costruzione del piano."""
+    from contracts import TabellaSpawnRisolta, TerritorioRisolto, VoceSpawnRisolta
+
+    pendenti = False
+
+    def _mob(slug_mob: str, dove: str) -> MobAsset | None:
+        nonlocal pendenti
+        mob = carica_asset("mob", slug_mob, ufficiali=ufficiali, locali=locali)
+        if mob is None:
+            errori.append(
+                f"mob riferito ma assente: {slug_mob} ({dove}, piano {slug_piano})"
+            )
+            pendenti = True
+            return None
+        _lint_mob_espressivo(mob, errori)
+        return mob
+
+    boss = {}
+    for tier, roster in territorio.boss.items():
+        sciolti = [_mob(s, f"boss {tier.value}") for s in roster]
+        boss[tier] = [m for m in sciolti if m is not None]
+    spawn = []
+    for tabella in territorio.spawn:
+        voci = []
+        for voce in tabella.voci:
+            mob = _mob(voce.mob, f"spawn {tabella.tier.value}")
+            if mob is not None:
+                voci.append(VoceSpawnRisolta(mob=mob, frequenza=voce.frequenza))
+        if voci:
+            spawn.append(TabellaSpawnRisolta(tier=tabella.tier, voci=voci))
+    if pendenti:
+        return None
+    try:
+        return TerritorioRisolto(
+            conteggi=territorio.conteggi, boss=boss,
+            procedurali=territorio.procedurali, spawn=spawn,
+            stanze_per_zona=territorio.stanze_per_zona,
+        )
+    except ValueError as errore:  # grado==tier, boss[PIANO]==1 (validator)
+        errori.append(f"piano {slug_piano}: {errore}")
+        return None
+
+
 def risolvi_stagione(
     stagione: Stagione | str,
     *, ufficiali: Path | None = None, locali: Path | None = None,
@@ -502,18 +555,41 @@ def risolvi_stagione(
                 cast.append(mob)
         if mancanti:
             continue
+        # Il TERRITORIO (2026-08-10): roster boss e tabelle di spawn si sciolgono
+        # come il cast (slug → MobAsset, con lo stesso lint espressivo); la
+        # coerenza (grado==tier, celestiale riservato, tutto ⊆ budget) è imposta
+        # dai validator delle forme risolte — qui si accumulano solo gli errori.
+        territorio_risolto = None
+        if piano.territorio is not None:
+            territorio_risolto = _risolvi_territorio(
+                piano.territorio, slug_piano, errori,
+                ufficiali=ufficiali, locali=locali,
+            )
+            if territorio_risolto is None and piano.territorio is not None:
+                continue  # slug pendenti già a registro: il piano non si monta
         try:
             piani_risolti.append(
                 PianoRisolto(
                     slug=piano.slug, versione=piano.versione, tags=piano.tags,
                     titolo=piano.titolo, tema=piano.tema, stile=piano.stile,
                     lore=piano.lore, budget=piano.budget, cast=cast, stanze=piano.stanze,
+                    territorio=territorio_risolto,
                 )
             )
-        except ValueError as errore:  # cast⊆budget imposto dal validator
+        except ValueError as errore:  # cast⊆budget + coerenza territorio (validator)
             errori.append(f"piano {slug_piano}: {errore}")
         else:
-            for slug_arch in list(piano.budget.archetipi) + [m.archetipo for m in cast]:
+            mob_extra: list[MobAsset] = []
+            if territorio_risolto is not None:
+                for roster in territorio_risolto.boss.values():
+                    mob_extra.extend(roster)
+                for tabella in territorio_risolto.spawn:
+                    mob_extra.extend(v.mob for v in tabella.voci)
+            for slug_arch in (
+                list(piano.budget.archetipi)
+                + [m.archetipo for m in cast]
+                + [m.archetipo for m in mob_extra]
+            ):
                 if slug_arch not in slug_archetipi:
                     slug_archetipi.append(slug_arch)
             errori.extend(lint_registry([], piano.budget.blocchi))
@@ -1635,6 +1711,50 @@ def _profilo_attivo(dati: ProfiloArchetipoDati) -> ProfiloArchetipo:
     )
 
 
+def _mob_a_attivo(mob: MobAsset) -> MobAttivo:
+    """Conversione MobAsset→MobAttivo (usata per cast, roster boss e spawn)."""
+    return MobAttivo(
+        slug=mob.slug, nome=mob.nome, archetipo=mob.archetipo,
+        grado=mob.grado, blocchi=list(mob.blocchi),
+        descrizione=mob.descrizione, prosa_stanza=mob.prosa_stanza,
+        durata=mob.durata, tags=list(mob.tags),
+        mosse=list(mob.mosse),
+        override=(
+            mob.override.model_dump(exclude_none=True)
+            if mob.override is not None else {}
+        ),
+    )
+
+
+def _territorio_a_attivo(territorio) -> TerritorioAttivo | None:
+    """Conversione TerritorioRisolto→TerritorioAttivo (tier/frequenze come
+    `.value`: il componente congelato viaggia nel save col translator generico)."""
+    if territorio is None:
+        return None
+    return TerritorioAttivo(
+        conteggi={tier.value: n for tier, n in territorio.conteggi.items()},
+        boss={
+            tier.value: tuple(_mob_a_attivo(m) for m in roster)
+            for tier, roster in territorio.boss.items()
+        },
+        procedurali=tuple(
+            TabellaProceduraleAttiva(
+                tier=t.tier.value, nomi=tuple(t.nomi),
+                gimmick=tuple(t.gimmick), archetipi=tuple(t.archetipi),
+            )
+            for t in territorio.procedurali
+        ),
+        spawn={
+            tabella.tier.value: tuple(
+                VoceSpawnAttiva(mob=_mob_a_attivo(v.mob), frequenza=v.frequenza.value)
+                for v in tabella.voci
+            )
+            for tabella in territorio.spawn
+        },
+        stanze_per_zona=territorio.stanze_per_zona,
+    )
+
+
 def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
     """Conversione DTO→dataclass al confine (la colla vive nel composition root)."""
     return StagioneAttiva(
@@ -1656,22 +1776,10 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
                 gradi=list(piano.budget.gradi),
                 blocchi=list(piano.budget.blocchi),
                 archetipi=list(piano.budget.archetipi),
-                cast=[
-                    MobAttivo(
-                        slug=mob.slug, nome=mob.nome, archetipo=mob.archetipo,
-                        grado=mob.grado, blocchi=list(mob.blocchi),
-                        descrizione=mob.descrizione, prosa_stanza=mob.prosa_stanza,
-                        durata=mob.durata, tags=list(mob.tags),
-                        mosse=list(mob.mosse),
-                        override=(
-                            mob.override.model_dump(exclude_none=True)
-                            if mob.override is not None else {}
-                        ),
-                    )
-                    for mob in piano.cast
-                ],
+                cast=[_mob_a_attivo(mob) for mob in piano.cast],
                 stanze=piano.stanze,
                 tags=list(piano.tags),
+                territorio=_territorio_a_attivo(piano.territorio),
             )
             for piano in risolta.piani
         ],

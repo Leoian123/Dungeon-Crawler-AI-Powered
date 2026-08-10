@@ -27,7 +27,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import Blocco, ClasseBeneficio, ClasseProva, Durata, Grado, StatId, TipoAzione, TipoDanno
+from contracts import Blocco, ClasseBeneficio, ClasseProva, Durata, Frequenza, Grado, StatId, TipoAzione, TipoDanno
 
 
 # --- Il catalogo: ogni placeholder con la sua spiegazione (cosa dovrebbe essere) -
@@ -376,6 +376,15 @@ _DEFS: tuple[Param, ...] = (
           "dal motore, seeded). Bassa: 'l'ingiustizia assurda' è rara.", CAT_PROB, "0 – 1"),
     Param("PROB_IMBOSCATA", 0.3, "Probabilità del dado-evento d'imboscata per tick di scorrimento "
           "(fuori combattimento).", CAT_PROB, "0 – 1"),
+    # Pesi delle classi di frequenza delle tabelle di spawn (territorio, 2026-08):
+    # la FORMA (comune/insolito/raro) è vocabolario chiuso del contratto; i pesi
+    # sono foglie §11 — l'AI e l'authoring non emettono mai un numero.
+    Param("PESO_FREQUENZA.comune", 6, "Peso di pesca di una voce di spawn COMUNE.",
+          CAT_PROB, "intero ≥1", "int"),
+    Param("PESO_FREQUENZA.insolito", 3, "Peso di pesca di una voce di spawn INSOLITA.",
+          CAT_PROB, "intero ≥1", "int"),
+    Param("PESO_FREQUENZA.raro", 1, "Peso di pesca di una voce di spawn RARA.",
+          CAT_PROB, "intero ≥1", "int"),
     # --- Tempo ---
     Param("DURATA_BLOCCO_DEFAULT", 3, "Durata (cariche) di default di uno status-blocco "
           "materializzato.", CAT_TEMPO, "intero ≥1", "int", "tick"),
@@ -705,6 +714,12 @@ DANNO_BASE = valore("DANNO_BASE")
 
 PROB_ANOMALIA = valore("PROB_ANOMALIA")
 PROB_IMBOSCATA = valore("PROB_IMBOSCATA")
+# Pesi per classe di frequenza (chiavi-stringa: derivate dall'enum del contratto —
+# un membro nuovo di `Frequenza` senza foglia è un KeyError all'import, pattern
+# SPEC_STATUS). Consumate da `territorio.pesca_spawn` via il catalogo.
+PESO_FREQUENZA: dict[str, int] = {
+    f.value: valore(f"PESO_FREQUENZA.{f.value}") for f in Frequenza
+}
 DURATA_BLOCCO_DEFAULT = valore("DURATA_BLOCCO_DEFAULT")
 # Durata delle afflizioni per nome-blocco (le classi vivono in status.py: qui solo
 # chiavi-stringa, calibrazione non importa i componenti). Derivata dall'ENUM: un

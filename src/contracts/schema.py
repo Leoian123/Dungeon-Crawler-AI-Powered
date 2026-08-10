@@ -273,6 +273,44 @@ class Durata(SchemaSnello, str, Enum):
         return self.ordine >= other.ordine
 
 
+class TierTerritorio(SchemaSnello, str, Enum):
+    """La gerarchia TERRITORIALE di un piano-mondo, dal basso: l'ordine di
+    dichiarazione È la scala (come `Grado` — e la simmetria è deliberata: 6 tier,
+    6 gradi, il grado di un boss è il grado del suo tier, per indice). La mappa
+    tier→grado riesposta al motore vive nel catalogo (`GRADO_DA_TIER`), con
+    lucchetto di sincronia; qui c'è solo la FORMA (vocabolario chiuso + ordine).
+    """
+
+    QUARTIERE = "quartiere"    # ↔ bronzo
+    DISTRETTO = "distretto"    # ↔ argento
+    CITTA = "citta"            # ↔ oro
+    PROVINCIA = "provincia"    # ↔ platino
+    PAESE = "paese"            # ↔ leggendario
+    PIANO = "piano"            # ↔ celestiale (il boss di piano, e SOLO lui)
+
+    @property
+    def ordine(self) -> int:
+        """Posizione nell'ordine totale (0 = quartiere)."""
+        return list(type(self).__members__).index(self.name)
+
+    @property
+    def grado(self) -> "Grado":
+        """Il grado del tier, PER INDICE (la simmetria 6↔6 resa forma): è la
+        stessa derivazione di `GRADO_DA_TIER` nel catalogo (sincronia F-6)."""
+        return list(Grado)[self.ordine]
+
+
+class Frequenza(SchemaSnello, str, Enum):
+    """Quanto spesso una voce di spawn compare — CATEGORIA, mai un peso (F-14).
+
+    L'AI e l'authoring dichiarano la classe; il peso numerico è una foglia §11
+    del motore (`PESO_FREQUENZA` in calibrazione), mai nel contratto."""
+
+    COMUNE = "comune"
+    INSOLITO = "insolito"
+    RARO = "raro"
+
+
 class ClasseBeneficio(SchemaSnello, str, Enum):
     """Il VANTAGGIO che un'azione libera reclama — enum chiuso, mai testo (F-14).
 

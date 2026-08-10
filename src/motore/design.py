@@ -62,6 +62,42 @@ class MobAttivo:
 
 
 @dataclass(frozen=True)
+class TabellaProceduraleAttiva:
+    """Il materiale congelato per istanziare i boss dei tier procedurali
+    (distretto/quartiere): nome × gimmick × archetipo, pescati seeded a runtime.
+    `tier` è il `.value` dell'enum (jsonable, come `Grado` nei componenti)."""
+
+    tier: str
+    nomi: tuple[str, ...]
+    gimmick: tuple[str, ...]
+    archetipi: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VoceSpawnAttiva:
+    """Una voce di tabella di spawn congelata: il mob + la classe di frequenza
+    (`.value`: il peso numerico è la foglia §11 `PESO_FREQUENZA`)."""
+
+    mob: MobAttivo
+    frequenza: str
+
+
+@dataclass(frozen=True)
+class TerritorioAttivo:
+    """La gerarchia territoriale del piano, congelata (2026-08-10).
+
+    `conteggi`/`boss`/`spawn` sono keyed sul `.value` del tier (jsonable: il
+    componente viaggia nel save col translator generico). I roster boss vivono
+    QUI e non nel cast: il boss è un RUOLO del piano, il mob resta un asset."""
+
+    conteggi: dict[str, int] = field(default_factory=dict)
+    boss: dict[str, tuple[MobAttivo, ...]] = field(default_factory=dict)
+    procedurali: tuple[TabellaProceduraleAttiva, ...] = ()
+    spawn: dict[str, tuple[VoceSpawnAttiva, ...]] = field(default_factory=dict)
+    stanze_per_zona: int | None = None
+
+
+@dataclass(frozen=True)
 class PianoAttivo:
     """Un piano della stagione, congelato: tema/voce + budget hard + cast."""
 
@@ -76,6 +112,8 @@ class PianoAttivo:
     cast: list[MobAttivo]
     stanze: int | None = None  # scala esplicita; None = derivata (offline: len(cast))
     tags: list[str] = field(default_factory=list)
+    # La gerarchia territoriale (None = piano piatto storico, save legacy inclusi).
+    territorio: TerritorioAttivo | None = None
 
     @property
     def n_stanze(self) -> int:
@@ -144,13 +182,26 @@ def registry_archetipi_correnti() -> dict[str, ProfiloArchetipo]:
 
 def mob_del_cast(slug: str) -> MobAttivo | None:
     """Il membro del cast del PIANO CORRENTE con questo slug (None = fuori cast).
-    È la risoluzione del `riferimento` (D5): il gate la usa come 4° strato."""
+    È la risoluzione del `riferimento` (D5): il gate la usa come 4° strato.
+
+    Col territorio attivo il "cast" della run include anche i ROSTER BOSS e le
+    voci delle tabelle di spawn: sono contenuto del piano a tutti gli effetti —
+    il gate li riconosce come riferimenti legittimi (2026-08-10)."""
     piano = design_piano_corrente()
     if piano is None:
         return None
     for mob in piano.cast:
         if mob.slug == slug:
             return mob
+    if piano.territorio is not None:
+        for roster in piano.territorio.boss.values():
+            for mob in roster:
+                if mob.slug == slug:
+                    return mob
+        for voci in piano.territorio.spawn.values():
+            for voce in voci:
+                if voce.mob.slug == slug:
+                    return voce.mob
     return None
 
 

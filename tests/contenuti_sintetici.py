@@ -102,6 +102,73 @@ def piano_sintetico(
     )
 
 
+def territorio_sintetico(prefisso: str = "t"):
+    """Un territorio RISOLTO minimo e coerente: un boss per tier nominato (grado
+    = grado del tier, per costruzione), tabelle procedurali per distretto e
+    quartiere, una tabella di spawn per il quartiere."""
+    from contracts import (
+        Frequenza,
+        TabellaBossProcedurali,
+        TabellaSpawnRisolta,
+        TerritorioRisolto,
+        TierTerritorio,
+        VoceSpawnRisolta,
+    )
+
+    def _boss(tier: TierTerritorio) -> "MobAsset":
+        return mob_sintetico(
+            f"{prefisso}-boss-{tier.value}", grado=tier.grado, archetipo="slime",
+            prosa=f"Il boss di {tier.value} ti aspetta al varco.",
+        )
+
+    nominati = (
+        TierTerritorio.PIANO, TierTerritorio.PAESE,
+        TierTerritorio.PROVINCIA, TierTerritorio.CITTA,
+    )
+    return TerritorioRisolto(
+        conteggi={
+            TierTerritorio.PAESE: 2, TierTerritorio.PROVINCIA: 10,
+            TierTerritorio.CITTA: 40, TierTerritorio.DISTRETTO: 4,
+            TierTerritorio.QUARTIERE: 4,
+        },
+        boss={tier: [_boss(tier)] for tier in nominati},
+        procedurali=[
+            TabellaBossProcedurali(
+                tier=tier,
+                nomi=[f"{prefisso}-n{i}" for i in range(4)],
+                gimmick=[f"gimmick {i}" for i in range(4)],
+                archetipi=["slime", "scheletro"],
+            )
+            for tier in (TierTerritorio.DISTRETTO, TierTerritorio.QUARTIERE)
+        ],
+        spawn=[
+            TabellaSpawnRisolta(
+                tier=TierTerritorio.QUARTIERE,
+                voci=[
+                    VoceSpawnRisolta(
+                        mob=mob_sintetico(f"{prefisso}-riempitivo-{i}"),
+                        frequenza=Frequenza.COMUNE if i else Frequenza.RARO,
+                    )
+                    for i in range(3)
+                ],
+            )
+        ],
+        stanze_per_zona=3,
+    )
+
+
+def piano_territoriale(n: int = 1, *, prefisso: str = "t"):
+    """Un piano-mondo sintetico: budget su TUTTI i gradi + territorio minimo."""
+    from contracts import Grado as _G
+
+    return piano_sintetico(
+        n,
+        gradi=tuple(_G),
+        slug=f"mondo-{n}",
+        territorio=territorio_sintetico(prefisso),
+    )
+
+
 def stagione_sintetica(
     n_piani: int = 2,
     *,
