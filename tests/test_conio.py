@@ -65,32 +65,84 @@ def _sessione_con_pendente(tmp_path, monkeypatch):
     return sessione
 
 
-def test_live_il_drop_resta_pendente_e_il_conio_deposita(run_pulita, tmp_path, monkeypatch) -> None:
+def _pezzo_unico(**extra) -> dict:
+    base = dict(
+        base="Elmo", famiglia="del Becchino", affissi=["Fumante"],
+        nome="Requiem del Guardarobiere",
+        descrizione="L'ultimo elmo timbrato prima della chiusura definitiva.",
+    )
+    base.update(extra)
+    return base
+
+
+def test_pezzo_unico_ai_sceglie_i_componenti(run_pulita, tmp_path, monkeypatch) -> None:
+    """Con la fabbrica attiva il conio è OTTIMIZZATO: l'AI sceglie i
+    componenti PER NOME e firma la targhetta; l'assemblaggio è dello stesso
+    assemblatore del procedurale."""
     sessione = _sessione_con_pendente(tmp_path, monkeypatch)
-    live = _ProviderLive([_conio()])
+    live = _ProviderLive([_pezzo_unico()])
     sessione.provider = live
-    # Live-like: _deposita_bottino ora lascerebbe il drop PENDENTE.
     assert sessione._provider_offline() is False
 
     prosa = asyncio.run(sessione.veste_premio())
+    assert prosa is not None and "Requiem del Guardarobiere" in prosa
+    # Il prompt è COMPATTO: liste di nomi-parte, non un oggetto intero.
+    assert "[componenti/basi]" in live.prompt_ricevuti[0]
+    assert "del Becchino" in live.prompt_ricevuti[0]
+    pent, _m, _s = protagonista()
+    unico = next(f for f in fonti_zaino(pent) if f.startswith("requiem-del-guardarobiere"))
+    assert unico in catalogo_oggetti_correnti()
+    assert grado_oggetto(unico) == "bronzo"
+    assert etichetta_oggetto(unico) == "Requiem del Guardarobiere"
+    # I componenti scelti si sentono: elmo leggero con resistenza al fuoco.
+    from motore.equip import PezzoArmatura
+
+    vivo = catalogo_oggetti_correnti()[unico]
+    assert isinstance(vivo, PezzoArmatura)
+    assert vivo.resistenze and vivo.resistenze[0].contro.value == "fuoco"
+    assert sessione._drop_pendente is None
+
+
+def test_componenti_ignoti_ricadono_sul_procedurale(run_pulita, tmp_path, monkeypatch) -> None:
+    sessione = _sessione_con_pendente(tmp_path, monkeypatch)
+    sessione.provider = _ProviderLive([_pezzo_unico(base="Spadone Inventato")])
+    pent, _m, _s = protagonista()
+    prima = set(fonti_zaino(pent))
+    assert asyncio.run(sessione.veste_premio()) is None
+    # Il drop non si perde: la FABBRICA conia comunque (seeded), non il pool.
+    nuove = set(fonti_zaino(pent)) - prima
+    assert len(nuove) == 1
+    fonte = next(iter(nuove))
+    assert fonte in catalogo_oggetti_correnti()
+    assert "requiem" not in fonte
+
+
+def test_conio_libero_senza_fabbrica(run_pulita, tmp_path, monkeypatch) -> None:
+    """Senza fabbrica attiva resta il conio LIBERO storico (oggetto intero,
+    gate completo): il canale non dipende dalla fabbrica per esistere."""
+    import motore
+
+    sessione = _sessione_con_pendente(tmp_path, monkeypatch)
+    monkeypatch.setattr(motore, "fabbrica_attiva", lambda: None)
+    live = _ProviderLive([_conio()])
+    sessione.provider = live
+    prosa = asyncio.run(sessione.veste_premio())
     assert prosa is not None and "Corona del Sesto" in prosa
-    # Il prompt porta il frame del motore: grado deciso, non negoziabile.
     assert 'grado: bronzo' in live.prompt_ricevuti[0]
     pent, _m, _s = protagonista()
     assert "corona-del-sesto" in fonti_zaino(pent)
-    assert "corona-del-sesto" in catalogo_oggetti_correnti()
-    assert grado_oggetto("corona-del-sesto") == "bronzo"
     assert etichetta_oggetto("corona-del-sesto") == "Corona del Sesto"
-    assert sessione._drop_pendente is None
 
 
 def test_conio_equipaggiabile_e_round_trippa(run_pulita, tmp_path, monkeypatch) -> None:
     sessione = _sessione_con_pendente(tmp_path, monkeypatch)
-    sessione.provider = _ProviderLive([_conio()])
+    sessione.provider = _ProviderLive([_pezzo_unico()])
     assert asyncio.run(sessione.veste_premio()) is not None
+    pent, _m, _s = protagonista()
+    unico = next(f for f in fonti_zaino(pent) if f.startswith("requiem"))
     # L'oggetto coniato passa dal canale equip come uno di libreria.
-    sessione.equipaggia("corona-del-sesto")
-    assert "corona-del-sesto" in sessione.fonti_indossate()
+    sessione.equipaggia(unico)
+    assert unico in sessione.fonti_indossate()
 
     sessione.salva()
     uuid = sessione.uuid
@@ -100,13 +152,22 @@ def test_conio_equipaggiabile_e_round_trippa(run_pulita, tmp_path, monkeypatch) 
     ripresa = carica_sessione(uuid=uuid, directory=tmp_path)
     assert ripresa is not None
     pent, _m, _s = protagonista()
-    assert "corona-del-sesto" in fonti_zaino(pent)
-    assert "corona-del-sesto" in catalogo_oggetti_correnti()   # coniati persistenti
-    assert "corona-del-sesto" in ripresa.fonti_indossate()     # e re-equipaggiati (F5)
+    assert unico in fonti_zaino(pent)
+    assert unico in catalogo_oggetti_correnti()   # coniati persistenti
+    assert unico in ripresa.fonti_indossate()     # e re-equipaggiati (F5)
 
 
-def test_gate_rifiuta_grado_negoziato_e_ricade_sul_pool(run_pulita, tmp_path, monkeypatch) -> None:
+def test_gate_libero_rifiuta_grado_negoziato_e_ricade_sul_pool(run_pulita, tmp_path, monkeypatch) -> None:
+    """Nel conio LIBERO (senza fabbrica) il gate respinge chi negozia il
+    grado; nel pezzo unico non c'è nulla da negoziare per costruzione (lo
+    schema non ha il campo grado)."""
+    import motore
+
+    from contracts import PezzoUnico
+
+    assert "grado" not in set(PezzoUnico.model_fields)
     sessione = _sessione_con_pendente(tmp_path, monkeypatch)
+    monkeypatch.setattr(motore, "fabbrica_attiva", lambda: None)
     barare = _conio(grado="celestiale")            # alza il grado: respinto
     sessione.provider = _ProviderLive([barare])
     pent, _m, _s = protagonista()
@@ -119,12 +180,13 @@ def test_gate_rifiuta_grado_negoziato_e_ricade_sul_pool(run_pulita, tmp_path, mo
     assert "corona-del-sesto" not in catalogo_oggetti_correnti()
 
 
-def test_degrado_trasporto_ricade_sul_pool(run_pulita, tmp_path, monkeypatch) -> None:
+def test_degrado_trasporto_conia_comunque(run_pulita, tmp_path, monkeypatch) -> None:
     sessione = _sessione_con_pendente(tmp_path, monkeypatch)
     sessione.provider = _ProviderLive([None, None])   # trasporto muto (+ retry rotta)
     pent, _m, _s = protagonista()
     prima = set(fonti_zaino(pent))
     assert asyncio.run(sessione.veste_premio()) is None
+    # Fabbrica attiva → il fallback è il conio procedurale, mai un drop perso.
     assert len(set(fonti_zaino(pent))) == len(prima) + 1
 
 

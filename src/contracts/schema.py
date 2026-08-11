@@ -632,6 +632,22 @@ class LottoStatusProposti(BaseModel):
     status: list[StatusProposto] = Field(min_length=1, max_length=4)
 
 
+class PezzoUnico(BaseModel):
+    """Il pezzo UNICO del drop (il "legendario" di BL3, in piccolo): l'AI
+    SCEGLIE i componenti PER NOME dalle tabelle della fabbrica — base,
+    famiglia, fino a 2 affissi — e firma la targhetta (nome/descrizione).
+    L'assemblaggio, il grado e i numeri restano del motore: questo schema è
+    volutamente MINUSCOLO — nomi di parte, mai un oggetto intero."""
+
+    model_config = _CHIUSO
+
+    base: str
+    famiglia: str
+    affissi: list[str] = Field(default_factory=list, max_length=2)
+    nome: str                 # la targhetta del pezzo unico
+    descrizione: str
+
+
 class ModificatoreAutorato(BaseModel):
     """Una voce di potere su un oggetto autorato: stat + FASCIA. Niente numeri."""
 

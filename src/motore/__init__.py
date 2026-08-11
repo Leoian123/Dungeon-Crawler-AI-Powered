@@ -283,7 +283,7 @@ from .design import (
     registry_archetipi_correnti,
     stagione_corrente,
 )
-from .fabbrica import conia_procedurale, fabbrica_attiva
+from .fabbrica import assembla_unico, conia_procedurale, fabbrica_attiva
 from .oggetti import (
     OggettiConiati,
     assicura_coniati,
@@ -647,6 +647,7 @@ __all__ = [
     "mosse_note_correnti",
     "OggettiConiati",
     "FabbricaAttiva",
+    "assembla_unico",
     "conia_procedurale",
     "fabbrica_attiva",
     "assicura_coniati",

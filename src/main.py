@@ -1327,12 +1327,71 @@ class SessioneGioco:
         return prosa
 
     async def _conia_premio(self) -> str | None:
-        """Il CONIO (la richiesta dell'utente 2026-08-11): a chance di drop
-        VINTA, l'AI genera un oggetto NUOVO dentro il frame del motore — il
-        GRADO è deciso seeded PRIMA della chiamata e non si negozia; lo schema
-        (`OggettoAutorato`) non ha campi numerici; `gate_conio` valida forma,
-        banda e mosse della run. Su rifiuto o degrado: deposito deterministico
-        dal pool — il drop non dipende MAI dall'esito della chiamata."""
+        """Il CONIO del drop vinto. Con la FABBRICA attiva è il PEZZO UNICO
+        (ottimizzato): l'AI sceglie i COMPONENTI per nome dalle tabelle-parti
+        e firma la targhetta — schema e prompt minuscoli, assemblaggio dello
+        STESSO assemblatore del procedurale; fallback = conio procedurale
+        (mai un drop perso, mai il pool se la fabbrica esiste). Senza
+        fabbrica: il conio libero storico (`premi.conio`) con fallback pool.
+        In entrambi i casi il GRADO è deciso seeded PRIMA della chiamata."""
+        from motore import fabbrica_attiva
+
+        if fabbrica_attiva() is not None:
+            return await self._conia_pezzo_unico()
+        return await self._conia_libero()
+
+    async def _conia_pezzo_unico(self) -> str | None:
+        from motore import assembla_unico, fabbrica_attiva
+
+        grado = self._drop_pendente
+        self._drop_pendente = None
+        fabbrica = fabbrica_attiva()
+        prompt = "\n".join([
+            "[componenti/basi] " + ", ".join(b.nome for b in fabbrica.basi),
+            "[componenti/famiglie] " + ", ".join(f.nome for f in fabbrica.famiglie),
+            "[componenti/affissi] " + ", ".join(a.nome for a in fabbrica.affissi),
+            f"[premio] La chance di drop è VINTA: pezzo UNICO di grado {grado}.",
+            "[istruzione] SCEGLI i componenti PER NOME dalle liste (una base, "
+            "una famiglia, fino a 2 affissi) e firma la targhetta: `nome` da "
+            "pezzo leggendario (stile DCC) e `descrizione` tagliente (1-2 "
+            "frasi). L'assemblaggio e i numeri sono del motore: tu scegli e "
+            "battezzi.",
+        ])
+        candidato = await self._engine().genera(
+            "premi.unico", prompt, sistema=PREFISSO_RIFINITURA
+        )
+        if candidato is not None:
+            attivo, _motivo = assembla_unico(candidato, grado, self.rng)
+            if attivo is not None:
+                self._deposita_coniato(attivo, grado)
+                self._ultimo_drop = None    # la targhetta c'è già: niente doppia vestizione
+                self._memoria_premio(attivo, grado)
+                return f"«{attivo.nome}» — {attivo.descrizione}"
+        # Rifiuto o degrado: la fabbrica conia comunque, seeded.
+        self._conia_dalla_fabbrica(grado)
+        self._ultimo_drop = None
+        return None
+
+    def _memoria_premio(self, attivo, grado: str) -> None:
+        from contracts import Grado as _Grado
+        from motore import rango_grado
+
+        if (self.memoria_lunga is not None
+                and rango_grado(_Grado(grado)) >= rango_grado(_Grado.ORO)):
+            from contracts import DocumentoMemoria, TipoDocumento
+
+            self.memoria_lunga.salva(DocumentoMemoria(
+                id=f"premio-{attivo.slug}", tipo=TipoDocumento.EVENTO,
+                titolo=attivo.nome,
+                testo=f"{grado}: {attivo.descrizione}"[:300],
+                tags=(attivo.slug,),
+            ))
+
+    async def _conia_libero(self) -> str | None:
+        """Il conio libero (senza fabbrica): l'AI genera l'oggetto intero
+        (`OggettoAutorato`, zero numeri); `gate_conio` valida forma, banda e
+        mosse della run. Su rifiuto o degrado: deposito deterministico dal
+        pool — il drop non dipende MAI dall'esito della chiamata."""
         from contracts import (
             CategoriaArmatura as _Cat,
             Fascia as _Fascia,
@@ -1602,6 +1661,13 @@ class SessioneGioco:
         if attivo is None:
             self._deposita_da_pool(grado)
             return
+        self._deposita_coniato(attivo, grado)
+
+    def _deposita_coniato(self, attivo, grado: str) -> None:
+        """Il deposito condiviso di un oggetto CONIATO (fabbrica, pezzo unico
+        o conio libero): coniati persistenti + zaino + cronaca."""
+        from motore import assicura_coniati
+
         pent, _marker, _scheda = protagonista()
         assicura_coniati(pent).voci.append(attivo)
         assicura_zaino(pent).fonti.append(attivo.slug)
@@ -1634,11 +1700,18 @@ class SessioneGioco:
 
     def _scarica_drop_pendente(self) -> None:
         """Flush del drop vinto ma non coniato (host che non ha atteso, save
-        imminente): deposito deterministico dal pool — il drop non si perde."""
+        imminente): deposito deterministico — dalla fabbrica se c'è, dal pool
+        altrimenti. Il drop non si perde."""
         if self._drop_pendente is not None:
+            from motore import fabbrica_attiva
+
             grado = self._drop_pendente
             self._drop_pendente = None
-            self._deposita_da_pool(grado)
+            if fabbrica_attiva() is not None:
+                self._conia_dalla_fabbrica(grado)
+                self._ultimo_drop = None
+            else:
+                self._deposita_da_pool(grado)
 
     def equipaggia(self, fonte: str) -> SnapshotVista:
         """Porta dell'inventario (ADR-1 D3): Zaino → manifest, via l'intento

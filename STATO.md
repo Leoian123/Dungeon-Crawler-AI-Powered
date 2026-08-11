@@ -344,31 +344,45 @@ authoring successive.
   (`crea_protagonista` → `nuova_partita` → `SessioneGioco.nuova`): nessun literal nel
   composition root.
 
-### 2.4 Equipaggiamento (canale ACCESO; manca la persistenza F5 e il contenuto)
+### 2.4 Equipaggiamento e loot (filiera COMPLETA: fabbrica → conio → vestizione)
 
-La forma ADR-1 F1–F3 è atterrata: `ComponenteEquip` come manifest durevole (effetti
-sempre **derivati**, rimozione per fonte), un solo enum `SlotEquip` (9 slot + mount),
-`coeff_eva` a media pesata con `m_armatura_di` **unico proprietario** della geometria
-(cascata manifest → `Corredo` → default, degenerazione esatta bit-per-bit), mosse
-concesse con **provenienza** (`mosse_concesse`: sfilare un anello non cancella una
-mossa innata né quella del gemello ancora indosso).
+La forma ADR-1 è atterrata **fino a F5**: `ComponenteEquip` come manifest durevole
+(effetti sempre **derivati**, rimozione per fonte) che **round-trippa nel save**
+con la coppia filtro-di-provenienza (scrittura) + hook `re_equipaggia` +
+`clampa_hp` (load) — oracolo save→load→save byte-identico (`test_equip_f5`);
+un solo enum `SlotEquip`, `coeff_eva` a media pesata, mosse concesse con
+provenienza. Il canale in partita è acceso end-to-end (`SistemaEquip` con gate
+di possesso sullo `Zaino`, porte `equipaggia/togli`, menu Zaino in TUI —
+`test_canale_equip`).
 
-**Il canale in partita è ACCESO end-to-end**: `SistemaEquip` è registrato nel bucket
-di narrazione (`guscio/macchina.py`) col gate di possesso sullo `Zaino` (persistente);
-le porte `SessioneGioco.equipaggia/togli` producono `PlayerEquipaggia/Toglie`;
-`_deposita_bottino` deposita a vittoria un drop seeded (`PROB_DROP` §11) con
-`OggettoTrovato` in cronaca; la TUI ha il menu Zaino (tasto Z). Lucchetto:
-`test_canale_equip` (loot → zaino → equip → mossa concessa → togli).
+**Il loot è una FILIERA a tre stadi, un solo assemblatore** (`motore/fabbrica.py`):
 
-I **contratti AI dei premi** (oggetti/skill generati: Sit.3+4) sono progettati SU
-CARTA in `docs/contratto-premi-ai.md` (schemi `OggettoGenerato`/`SkillGenerata` a
-zero numeri, rotte `premi.*` gating, innesto in `_deposita_bottino`).
+1. **Authoring — l'AI suggerisce i componenti**: la `FabbricaAsset`
+   (`contenuti/fabbriche/`, basi × famiglie × affissi a FASCE, mai numeri) è
+   generabile con `authoring.fabbrica`; una stagione senza fabbrica se la fa
+   proporre da sola (`genera_stagione`, bootstrap automatico). In più:
+   `authoring.oggetto` per i pezzi curati del pool e le mosse-asset per gli
+   accessori che le concedono.
+2. **Runtime, il grosso — conio PROCEDURALE** (stile Borderlands, in piccolo):
+   a chance vinta (`PROB_DROP`) il motore fissa il GRADO (pesato,
+   `LOOT.PESO_GRADO`, finestra della profondità) e con `LOOT.PROB_FABBRICA`
+   assembla seeded base × famiglia × affissi (bronzo=liscio, argento+=elemento,
+   oro+=doppio tratto; merge per stat con fascia alta, cap 4; nome composto
+   «Lama Fumante del Becchino») — deterministico, gratuito, identico offline e
+   live, replay che riconia identico (`test_fabbrica`).
+3. **Runtime, il raro — PEZZO UNICO AI** (`premi.unico`, gated): col GM live
+   l'AI **sceglie i componenti PER NOME** dalle tabelle della fabbrica e firma
+   la targhetta — schema minuscolo (5 campi stringa), stesso assemblatore, il
+   grado non è nemmeno nel contratto; fallback = conio procedurale (un drop
+   non si perde MAI: flush anche in `salva()`). Senza fabbrica resta il conio
+   libero (`premi.conio`, `OggettoAutorato` + `gate_conio`) con fallback pool.
 
-**Cosa resta spento**: `ComponenteEquip` **non è persistente** (lucchettato: si
-registra il tag *insieme* all'hook di re-equip di ADR-1 F5, mai prima — il desync
-manifest-senza-modificatori è peggio dell'assenza) → l'equip indossato si perde al
-load; e il contenuto: `CATALOGO_OGGETTI` è un dict provvisorio con UN oggetto
-dimostrativo, in attesa del canale-asset del loot.
+A valle: la **vestizione** (`premi.oggetto`, anti-arbitraggio su base/grado/slot)
+battezza i drop da pool nel `Guardaroba` persistente e `premi.skill` ribattezza le
+mosse concesse (solo parole); i coniati vivono in `OggettiConiati` (persistente) e
+si equipaggiano come pezzi di libreria. Il catalogo della run =
+storico ∪ pool congelato ∪ coniati (`catalogo_oggetti_correnti`). Il criterio di
+sostentamento è falsificabile: `test_corredo_di_riferimento_raggiungibile`.
 
 ### 2.5 Persistenza e ciclo di vita
 
@@ -470,23 +484,15 @@ fra "i gate passano" e "il gioco è coerente".
 
 Il **riposo vero** è già in gioco (l'opzione `RIPOSA` è di scena, recupero HP/mana
 dalle foglie §11, seam dell'imboscata collegato — vedi §2.1: il mana non è a
-esaurimento irreversibile). Restano, in ordine (ogni passo sblocca il successivo):
+esaurimento irreversibile). La **persistenza equip (F5)** e il **loot** sono
+CHIUSI e integrati in §2.4: l'equip round-trippa nel save, il drop per grado
+esce dalla filiera fabbrica→conio→pool e il corredo di riferimento è
+raggiungibile scendendo (test falsificabile). Resta UN passo:
 
-1. **Persistenza equip (ADR-1 F5)** — il canale indossa/togli è ACCESO (§2.4);
-   resta rendere `ComponenteEquip` persistente **insieme** all'hook di re-equip
-   (filtro di provenienza nel save + re-immissione al load + `clampa_hp` — il
-   lucchetto che oggi vieta il tag esiste esattamente per pretendere questa
-   contemporaneità). Senza, l'equip indossato si perde al load.
-2. **Loot minimo (ADR-2 ridotto)** — un canale-asset per gli oggetti e un drop
-   per-grado dal budget della profondità, quanto basta perché `CORREDO_RIFERIMENTO`
-   sia *raggiungibile* scendendo. `CATALOGO_OGGETTI` diventa la lettura del canale,
-   come già dichiarato.
-3. **Ri-misura** — win-rate e TTK sul piano-mondo col personaggio che si sostenta;
-   POI la taratura fine dei numeri §11 (che resta l'ultimo miglio dell'MVP).
-
-> Il piano operativo che assorbe questi passi (e li estende ai generatori AI di
-> oggetti/mosse/status) è agli atti della sessione 2026-08-10; i contratti premi
-> di §2.4 si posano dentro quel cammino.
+1. **Ri-misura** — win-rate e TTK sul piano-mondo col personaggio che ora si
+   sostenta (equip persistente + loot vivo); POI la taratura fine dei numeri
+   §11 — incluse le fasce nuove del canale oggetti/mosse (tarabili da console
+   senza codice) — che resta l'ultimo miglio dell'MVP.
 
 ### 4.2 Registro del debito (unico, in ordine di priorità dentro ogni gruppo)
 

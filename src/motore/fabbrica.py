@@ -48,6 +48,42 @@ def _fascia_maggiore(a: str, b: str) -> str:
     return a if OGGETTO_MOD_FASCIA[a] >= OGGETTO_MOD_FASCIA[b] else b
 
 
+def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
+              *, nome: str | None = None,
+              descrizione: str | None = None) -> OggettoAttivo:
+    """L'UNICO assemblatore: dalle parti all'`OggettoAttivo`. Lo usano il conio
+    procedurale (parti pescate seeded) e il pezzo UNICO (parti SCELTE dall'AI,
+    gated): la meccanica esce sempre dalla stessa catena — merge per stat con
+    la fascia più alta (cap 4), resistenze dagli affissi, numeri dal §11 alla
+    traduzione. `nome`/`descrizione` espliciti = la targhetta del pezzo unico."""
+    per_stat: dict[str, str] = {}
+    for parte in (famiglia, *affissi):
+        for stat, fascia in parte.modificatori:
+            per_stat[stat] = (_fascia_maggiore(per_stat[stat], fascia)
+                              if stat in per_stat else fascia)
+    modificatori = tuple(sorted(per_stat.items()))[:4]
+    resistenze = tuple(
+        (a.res_contro, a.res_fascia) for a in affissi if a.res_contro is not None
+    )
+    composto = " ".join(x for x in (
+        base.nome, affissi[0].nome if affissi else "", famiglia.nome,
+    ) if x)
+    return OggettoAttivo(
+        slug=f"{_slug(nome or composto)}-{suffisso}",
+        nome=nome or composto,
+        tipo=base.tipo,
+        grado=grado,
+        descrizione=descrizione or famiglia.descrizione
+        or "Uscito dalla catena di montaggio del piano.",
+        slot=base.slot,
+        categoria=base.categoria,
+        taglia=base.taglia,
+        sede=base.sede,
+        modificatori=modificatori,
+        resistenze=resistenze,
+    )
+
+
 def conia_procedurale(rng: random.Random, grado: str) -> OggettoAttivo | None:
     """UN oggetto dalla fabbrica, per il grado deciso dal motore. `None` senza
     fabbrica attiva. Deterministico: stesso stream RNG → stesso oggetto."""
@@ -69,37 +105,44 @@ def conia_procedurale(rng: random.Random, grado: str) -> OggettoAttivo | None:
         if secondo.nome != affissi[0].nome:
             affissi.append(secondo)
 
-    # Merge dei modificatori: per stat vince la fascia più alta; cap 4 (la
-    # stessa legge del validator degli asset).
-    per_stat: dict[str, str] = {}
-    for parte in (famiglia, *affissi):
-        for stat, fascia in parte.modificatori:
-            per_stat[stat] = (_fascia_maggiore(per_stat[stat], fascia)
-                              if stat in per_stat else fascia)
-    modificatori = tuple(sorted(per_stat.items()))[:4]
-
-    resistenze = tuple(
-        (a.res_contro, a.res_fascia) for a in affissi if a.res_contro is not None
-    )
-
-    nome = " ".join(x for x in (
-        base.nome, affissi[0].nome if affissi else "", famiglia.nome,
-    ) if x)
     # Suffisso dallo STESSO stream seeded: due coni della stessa run non
     # collidono, e il replay riconia identico.
     suffisso = f"{rng.randrange(16 ** 4):04x}"
-    descrizione = famiglia.descrizione or "Uscito dalla catena di montaggio del piano."
+    return _assembla(base, famiglia, affissi, grado, suffisso)
 
-    return OggettoAttivo(
-        slug=f"{_slug(nome)}-{suffisso}",
-        nome=nome,
-        tipo=base.tipo,
-        grado=grado,
-        descrizione=descrizione,
-        slot=base.slot,
-        categoria=base.categoria,
-        taglia=base.taglia,
-        sede=base.sede,
-        modificatori=modificatori,
-        resistenze=resistenze,
-    )
+
+def assembla_unico(scelte, grado: str, rng: random.Random):
+    """Il PEZZO UNICO: l'AI ha SCELTO i componenti per nome (dalle tabelle
+    della fabbrica) e la targhetta; il motore risolve i nomi, GATA e assembla
+    con la stessa catena del procedurale. Ritorna (OggettoAttivo|None, motivo).
+
+    È l'ottimizzazione del conio: schema e prompt portano NOMI DI PARTE, non
+    un oggetto intero — l'AI propone dal catalogo-parti, il motore dispone."""
+    fabbrica = fabbrica_attiva()
+    if fabbrica is None:
+        return None, "nessuna fabbrica attiva"
+    per_nome_base = {b.nome: b for b in fabbrica.basi}
+    per_nome_famiglia = {f.nome: f for f in fabbrica.famiglie}
+    per_nome_affisso = {a.nome: a for a in fabbrica.affissi}
+
+    base = per_nome_base.get(scelte.base)
+    if base is None:
+        return None, f"base ignota: {scelte.base!r}"
+    famiglia = per_nome_famiglia.get(scelte.famiglia)
+    if famiglia is None:
+        return None, f"famiglia ignota: {scelte.famiglia!r}"
+    affissi = []
+    for nome_affisso in scelte.affissi:
+        affisso = per_nome_affisso.get(nome_affisso)
+        if affisso is None:
+            return None, f"affisso ignoto: {nome_affisso!r}"
+        if affisso not in affissi:
+            affissi.append(affisso)
+    if not scelte.nome.strip():
+        return None, "nome del pezzo unico vuoto"
+
+    suffisso = f"{rng.randrange(16 ** 4):04x}"
+    return _assembla(
+        base, famiglia, affissi, grado, suffisso,
+        nome=scelte.nome, descrizione=scelte.descrizione,
+    ), None

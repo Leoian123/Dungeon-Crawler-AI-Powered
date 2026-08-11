@@ -27,6 +27,7 @@ from contracts import (
     NemicoSperimentale,
     OggettoAutorato,
     OggettoGenerato,
+    PezzoUnico,
     SkillGenerata,
     TabellaProceduraleGen,
     TabellaSpawnGenerata,
@@ -123,10 +124,14 @@ for _rotta in (
     # chiave), fase NARRAZIONE (il resoconto post-scontro è il suo posto).
     Rotta("premi.oggetto", OggettoGenerato, Corsia.FORTE, retry=1,
           fase=Fase.NARRAZIONE, gating=True),
-    # Il CONIO: a chance di drop vinta l'AI genera l'oggetto NUOVO dentro il
-    # frame del motore (grado deciso seeded prima della chiamata). Stesso
-    # schema zero-numeri dell'authoring (OggettoAutorato).
+    # Il CONIO libero: senza fabbrica attiva, l'AI genera l'oggetto NUOVO
+    # dentro il frame del motore (grado deciso seeded prima della chiamata).
     Rotta("premi.conio", OggettoAutorato, Corsia.FORTE, retry=1,
+          fase=Fase.NARRAZIONE, gating=True),
+    # Il PEZZO UNICO: con la fabbrica attiva il conio è OTTIMIZZATO — l'AI
+    # sceglie i COMPONENTI per nome dalle tabelle-parti e firma la targhetta;
+    # l'assemblaggio è lo stesso del procedurale (un solo assemblatore).
+    Rotta("premi.unico", PezzoUnico, Corsia.FORTE, retry=1,
           fase=Fase.NARRAZIONE, gating=True),
     Rotta("premi.skill", SkillGenerata, Corsia.FORTE, retry=1,
           fase=Fase.NARRAZIONE, gating=True),

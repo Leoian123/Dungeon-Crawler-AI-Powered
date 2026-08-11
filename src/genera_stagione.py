@@ -925,7 +925,13 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         for percorso in proposte_status:
             print(f"[genera] proposta di status scritta: {percorso}")
     fabbrica_nuova = None
-    if args.fabbrica:
+    if args.fabbrica or stagione.fabbrica is None:
+        if not args.fabbrica:
+            # Il BOOTSTRAP: una stagione senza fabbrica se la fa PROPORRE —
+            # i componenti iniziali del loot li suggerisce l'AI, la promozione
+            # resta il diff git (--applica).
+            print("[genera] la stagione non ha una fabbrica: l'AI propone "
+                  "i componenti iniziali del loot")
         fabbrica_nuova, respinti_fabbrica = asyncio.run(genera_fabbrica(
             engine, stagione, sovrascrivi=args.sovrascrivi,
         ))
