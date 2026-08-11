@@ -98,6 +98,28 @@ class TerritorioAttivo:
 
 
 @dataclass(frozen=True)
+class OggettoAttivo:
+    """Un oggetto del pool di loot, congelato nella run (appiattito jsonable:
+    enum come `.value`, coppie stat×fascia come tuple — il translator generico
+    lo porta nel save senza righe dedicate). La traduzione a oggetto vivo è di
+    `oggetti.oggetto_da_asset` (unico traduttore, numeri dal §11)."""
+
+    slug: str
+    nome: str
+    tipo: str                       # armatura | arma | accessorio
+    grado: str
+    descrizione: str = ""
+    slot: str | None = None
+    categoria: str | None = None
+    taglia: str = "media"
+    sede: str | None = None
+    mitigazione_cent: int | None = None
+    danno_base: int | None = None
+    modificatori: tuple[tuple[str, str], ...] = ()   # (stat, fascia)
+    mosse: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class PianoAttivo:
     """Un piano della stagione, congelato: tema/voce + budget hard + cast."""
 
@@ -137,6 +159,9 @@ class StagioneAttiva:
     # Il vocabolario archetipi della run (D1): vuoto = save legacy → fallback ai
     # soli storici di calibrazione (`registry_archetipi_correnti`).
     archetipi: list[ArchetipoAttivo] = field(default_factory=list)
+    # Il pool di loot della run (T1b): vuoto = save legacy → il solo catalogo
+    # storico dimostrativo (`oggetti.catalogo_oggetti_correnti`).
+    oggetti: list[OggettoAttivo] = field(default_factory=list)
 
 
 def crea_stagione(stagione: StagioneAttiva) -> int:

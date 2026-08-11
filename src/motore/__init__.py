@@ -256,6 +256,7 @@ from .mappa import (
 from .design import (
     ArchetipoAttivo,
     MobAttivo,
+    OggettoAttivo,
     PianoAttivo,
     StagioneAttiva,
     TabellaProceduraleAttiva,
@@ -268,6 +269,12 @@ from .design import (
     lint_registry,
     registry_archetipi_correnti,
     stagione_corrente,
+)
+from .oggetti import (
+    catalogo_oggetti_correnti,
+    grado_oggetto,
+    lint_oggetto,
+    oggetto_da_asset,
 )
 from .piano import (
     LIVELLO_INIZIALE,
@@ -609,6 +616,11 @@ __all__ = [
     "EsitoProva",
     # stagione attiva (design di contenuto congelato nella run)
     "ArchetipoAttivo",
+    "OggettoAttivo",
+    "catalogo_oggetti_correnti",
+    "grado_oggetto",
+    "lint_oggetto",
+    "oggetto_da_asset",
     "MobAttivo",
     "archetipo_attivo",
     "registry_archetipi_correnti",

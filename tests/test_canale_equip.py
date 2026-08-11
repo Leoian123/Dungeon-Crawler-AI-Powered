@@ -41,12 +41,20 @@ def test_il_canale_equip_e_acceso_end_to_end(run_pulita, tmp_path, monkeypatch) 
     try:
         _vinci_uno_scontro(sessione)
 
-        # 1. VITTORIA → DROP: la fonte è nello zaino, la cronaca lo annuncia,
-        #    la scheda-vista lo espone all'host.
+        # 1. VITTORIA → DROP: una fonte del catalogo CORRENTE (per grado, T1c)
+        #    è nello zaino, la cronaca lo annuncia, la scheda-vista la espone.
         pent, _m, _s = protagonista()
-        assert "dadi-truccati" in fonti_zaino(pent)
+        drop = fonti_zaino(pent)
+        assert drop, "la vittoria non ha depositato alcun bottino"
         assert any(r.startswith("✦ Bottino:") for r in cronaca.preleva())
-        assert "dadi-truccati" in sessione.scheda().zaino
+        assert drop[0] in sessione.scheda().zaino
+
+        # Per il flusso mossa-concessa serve un oggetto specifico: il possesso
+        # è lo Zaino (il drop è solo il suo produttore in-game), quindi il
+        # test lo deposita direttamente.
+        from motore.equip import assicura_zaino
+
+        assicura_zaino(pent).fonti.append("dadi-truccati")
 
         # 2. PORTA equipaggia → il manifest si popola e la mossa concessa arriva.
         assert "roulette_del_sistema" not in mosse_di(pent)

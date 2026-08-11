@@ -1,0 +1,13 @@
+{
+  "slug": "piastra-della-cassa-blindata",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "nome": "Piastra della Cassa Blindata",
+  "descrizione": "Il portello di una cassa continua, ripiegato a pettorale. La combinazione è incisa dentro, al contrario.",
+  "tipo": "armatura",
+  "grado": "platino",
+  "slot": "busto",
+  "categoria": "pesante",
+  "taglia": "media",
+  "modificatori": [{"stat": "costituzione", "fascia": "lieve"}]
+}

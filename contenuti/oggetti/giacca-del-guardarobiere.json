@@ -1,0 +1,12 @@
+{
+  "slug": "giacca-del-guardarobiere",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "nome": "Giacca del Guardarobiere",
+  "descrizione": "Imbottita di scontrini e rancore. Il cartellino dice ancora «Gino».",
+  "tipo": "armatura",
+  "grado": "argento",
+  "slot": "busto",
+  "categoria": "leggera",
+  "taglia": "media"
+}

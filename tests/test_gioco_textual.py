@@ -115,22 +115,22 @@ def test_zaino_e_scheda_dalla_ui() -> None:
                 await pilot.click("#opz-0")
                 await pilot.pause()
             assert not app._morto and app.fase_corrente == "narrazione"
-            assert "dadi-truccati" in app.sessione.scheda().zaino, (
-                "la vittoria non ha depositato il bottino nello zaino"
-            )
+            zaino = app.sessione.scheda().zaino
+            assert zaino, "la vittoria non ha depositato il bottino nello zaino"
+            fonte_drop = zaino[0]              # il drop per grado pesca dal pool
 
             await pilot.press("z")             # inventario nel menu
             await pilot.pause()
             ids = {b.id for b in app.query(Button)}
-            assert "zaino-dadi-truccati" in ids and "zaino-chiudi" in ids
+            assert f"zaino-{fonte_drop}" in ids and "zaino-chiudi" in ids
 
-            await pilot.click("#zaino-dadi-truccati")     # Indossa
+            await pilot.click(f"#zaino-{fonte_drop}")     # Indossa
             await pilot.pause()
-            assert "dadi-truccati" in app.sessione.fonti_indossate()
+            assert fonte_drop in app.sessione.fonti_indossate()
 
-            await pilot.click("#zaino-dadi-truccati")     # Togli (toggle)
+            await pilot.click(f"#zaino-{fonte_drop}")     # Togli (toggle)
             await pilot.pause()
-            assert "dadi-truccati" not in app.sessione.fonti_indossate()
+            assert fonte_drop not in app.sessione.fonti_indossate()
 
             await pilot.click("#zaino-chiudi")            # torna alla scena
             await pilot.pause()

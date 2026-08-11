@@ -442,8 +442,9 @@ class SistemaEquip(SistemaSoloNarrazione):
     def __init__(self, catalogo_oggetti: dict[str, object] | None = None) -> None:
         # Un catalogo ESPLICITO è una dichiarazione di possesso del chiamante
         # (harness, host con inventario proprio): nessun gate. Il catalogo
-        # GLOBALE di default è «ciò che esiste»: lì il possesso lo decide lo
-        # Zaino — e il drop è il suo unico produttore.
+        # di default è «ciò che esiste NELLA RUN» (storico + oggetti-asset
+        # congelati nella stagione, risolto a ogni run()): lì il possesso lo
+        # decide lo Zaino — e il drop è il suo unico produttore.
         self._richiede_possesso = catalogo_oggetti is None
         self.catalogo_oggetti: dict[str, object] = dict(
             CATALOGO_OGGETTI if catalogo_oggetti is None else catalogo_oggetti
@@ -452,8 +453,13 @@ class SistemaEquip(SistemaSoloNarrazione):
     def run(self, dt: int) -> None:
         from .scheda import Protagonista  # locale: evita il ciclo equip↔scheda
 
+        catalogo = self.catalogo_oggetti
+        if self._richiede_possesso:
+            from .oggetti import catalogo_oggetti_correnti  # locale: niente ciclo equip↔oggetti
+
+            catalogo = catalogo_oggetti_correnti()
         for intento in consuma_messaggi(PlayerEquipaggia):
-            oggetto = self.catalogo_oggetti.get(intento.fonte)
+            oggetto = catalogo.get(intento.fonte)
             if oggetto is None:
                 continue                               # fonte ignota: consumata senza effetto
             for ent, _ in esper.get_component(Protagonista):

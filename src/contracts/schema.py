@@ -218,6 +218,17 @@ class CategoriaArmatura(SchemaSnello, str, Enum):
     PESANTE = "pesante"
 
 
+class Fascia(SchemaSnello, str, Enum):
+    """Il POTERE nominato di un modificatore da oggetto: l'autore (umano o AI)
+    sceglie la FASCIA, il motore deriva il numero (§11: fascia × rango del
+    grado). Vocabolario chiuso — la linea rossa «l'AI non emette numeri» qui è
+    strutturale: nello schema non esiste un campo dove metterli."""
+
+    LIEVE = "lieve"
+    MARCATA = "marcata"
+    POTENTE = "potente"
+
+
 class SedeAccessorio(SchemaSnello, str, Enum):
     """Dove si porta un accessorio: **tag di flavour**, non uno slot esclusivo (ADR-1 D6).
 

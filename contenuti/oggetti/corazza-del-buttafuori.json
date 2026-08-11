@@ -1,0 +1,12 @@
+{
+  "slug": "corazza-del-buttafuori",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "nome": "Corazza del Buttafuori",
+  "descrizione": "Gilet antiproiettile da discoteca anni '90. Odora di dopobarba e decisioni definitive.",
+  "tipo": "armatura",
+  "grado": "oro",
+  "slot": "busto",
+  "categoria": "media",
+  "taglia": "media"
+}

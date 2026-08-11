@@ -27,7 +27,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import Blocco, ClasseBeneficio, ClasseProva, Durata, Frequenza, Grado, StatId, TipoAzione, TipoDanno
+from contracts import Blocco, ClasseBeneficio, ClasseProva, Durata, Fascia, Frequenza, Grado, StatId, TipoAzione, TipoDanno
 
 
 # --- Il catalogo: ogni placeholder con la sua spiegazione (cosa dovrebbe essere) -
@@ -69,6 +69,7 @@ CAT_MOSSE = "Mosse — mana, cooldown, moltiplicatori"
 CAT_PROVE = "Prove — soglie delle classi"
 CAT_CARL = "Protagonista (Carl) — primarie base e HP"
 CAT_MAPPA = "Mappa / esplorazione"
+CAT_OGGETTI = "Oggetti e loot (canale-asset)"
 CAT_ARCH_SLIME = "Nemico — Slime"
 CAT_ARCH_SCHELETRO = "Nemico — Scheletro"
 CAT_ARCH_GOBLIN = "Nemico — Goblin"
@@ -539,6 +540,47 @@ _DURATE_AFFLIZIONE_DEFAULT = {"stordito": 1}  # corto per costruzione: niente st
 _DELTA_PER_RANGO_DEFAULT = {"veleno": -1, "brucia": -1, "rigenerazione": +1, "stordito": 0}
 
 
+# Fascia → moltiplicando base del modificatore da oggetto; il valore vivo è
+# fascia × rango del grado (un "potente" celestiale vale 6 volte un "potente"
+# bronzo: il grado è la scala, la fascia il carattere).
+_MOD_FASCIA_DEFAULT = {"lieve": 1, "marcata": 2, "potente": 4}
+
+# Peso di pesca del GRADO nel drop (loot): i bassi sono il pane, gli alti la festa.
+_PESO_GRADO_DEFAULT = {
+    "bronzo": 6, "argento": 4, "oro": 3, "platino": 2, "leggendario": 1, "celestiale": 1,
+}
+
+
+def _oggetti_defs() -> tuple[Param, ...]:
+    """Le foglie del canale oggetti, GENERATE dagli enum (`Fascia`, `Grado`):
+    una fascia o un grado nuovi senza foglia = KeyError all'import, mai un
+    numero inventato altrove."""
+    out: list[Param] = []
+    for fascia in Fascia:
+        out.append(Param(
+            f"OGGETTO.MOD_FASCIA.{fascia.value}", _MOD_FASCIA_DEFAULT[fascia.value],
+            f"Moltiplicando base di un modificatore di fascia {fascia.value.upper()} "
+            "su un oggetto: il valore vivo è fascia × rango del grado dell'oggetto.",
+            CAT_OGGETTI, "intero ≥1", "int",
+        ))
+    for indice, grado in enumerate(Grado, start=1):
+        out.append(Param(
+            f"OGGETTO.DANNO_ARMA.{grado.value}", indice,
+            f"Danno base di un'arma di grado {grado.value.upper()} senza valore "
+            "esplicito nell'asset (dormiente finché la review-armi non decide "
+            "il layer impugnato).",
+            CAT_OGGETTI, "intero ≥0", "int", "HP",
+        ))
+        out.append(Param(
+            f"LOOT.PESO_GRADO.{grado.value}", _PESO_GRADO_DEFAULT[grado.value],
+            f"Peso di pesca del grado {grado.value.upper()} nel drop a vittoria "
+            "(dentro la finestra dei gradi della profondità): i bassi sono il "
+            "pane, gli alti la festa.",
+            CAT_OGGETTI, "intero ≥0", "int",
+        ))
+    return tuple(out)
+
+
 def _status_defs() -> tuple[Param, ...]:
     """Le foglie `STATUS.<nome>.durata_afflizione`, GENERATE dall'enum `Blocco`:
     un blocco nuovo nel vocabolario ha la sua durata §11 senza toccare questo file
@@ -565,9 +607,9 @@ def _status_defs() -> tuple[Param, ...]:
     return tuple(out)
 
 
-# Le foglie per-status e per-archetipo sono GENERATE (dall'enum Blocco e dai profili
-# base): le tre leve storiche migrano lì, sotto la categoria propria.
-_DEFS = _DEFS + _status_defs() + _archetipi_defs()
+# Le foglie per-status, per-archetipo e del canale oggetti sono GENERATE (dagli
+# enum Blocco/Fascia/Grado e dai profili base), sotto la categoria propria.
+_DEFS = _DEFS + _status_defs() + _archetipi_defs() + _oggetti_defs()
 
 CATALOGO: dict[str, Param] = {p.chiave: p for p in _DEFS}
 
@@ -683,6 +725,17 @@ CORREDO_RIFERIMENTO: dict[str, dict[str, object]] = {
         "bonus_forza": valore(f"CORREDO_RIF.{grado.value}.bonus_forza"),
     }
     for grado in Grado
+}
+
+# Canale oggetti (T1b/T1c) — generati dagli enum come il corredo di riferimento.
+OGGETTO_MOD_FASCIA: dict[str, int] = {
+    f.value: valore(f"OGGETTO.MOD_FASCIA.{f.value}") for f in Fascia
+}
+DANNO_ARMA_PER_GRADO: dict[str, int] = {
+    g.value: valore(f"OGGETTO.DANNO_ARMA.{g.value}") for g in Grado
+}
+LOOT_PESO_GRADO: dict[str, int] = {
+    g.value: valore(f"LOOT.PESO_GRADO.{g.value}") for g in Grado
 }
 
 HP_BASE = valore("HP_BASE")

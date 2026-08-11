@@ -1,0 +1,12 @@
+{
+  "slug": "elmo-della-maschera",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "nome": "Elmo della Maschera",
+  "descrizione": "Il berretto rigido di una maschera di sala, rinforzato a torcia e gomiti. Strappa ancora i biglietti, in memoria.",
+  "tipo": "armatura",
+  "grado": "argento",
+  "slot": "testa",
+  "categoria": "leggera",
+  "taglia": "media"
+}

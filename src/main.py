@@ -47,6 +47,7 @@ from contracts import (
     TurnoSaltato,
     CrawlerVista,
     MobAsset,
+    OggettoAsset,
     ArchetipoAsset,
     PianoAsset,
     PianoRisolto,
@@ -89,6 +90,7 @@ from motore import (
     MODEL_ID_DEFAULT,
     Archivio,
     ArchetipoAttivo,
+    OggettoAttivo,
     MasterEngine,
     MemoriaSuArchivio,
     PREFISSO_RIFINITURA,
@@ -222,17 +224,19 @@ STAGIONE_DEFAULT = "stagione-1"
 
 TipoAsset = str  # "stagioni" | "piani" | "mob" | "archetipi" (le collezioni della libreria)
 MODELLI_ASSET: dict[str, type] = {
-    "stagioni": Stagione, "piani": PianoAsset, "mob": MobAsset, "archetipi": ArchetipoAsset,
+    "stagioni": Stagione, "piani": PianoAsset, "mob": MobAsset,
+    "archetipi": ArchetipoAsset, "oggetti": OggettoAsset,
 }
 
 
 def _etichetta_asset(tipo: str, asset) -> str:
-    return asset.nome if tipo in ("mob", "archetipi") else asset.titolo
+    return asset.nome if tipo in ("mob", "archetipi", "oggetti") else asset.titolo
 
 
 def _tipo_vista(tipo: str) -> str:
     return {
-        "stagioni": "stagione", "piani": "piano", "mob": "mob", "archetipi": "archetipo",
+        "stagioni": "stagione", "piani": "piano", "mob": "mob",
+        "archetipi": "archetipo", "oggetti": "oggetto",
     }[tipo]
 
 
@@ -606,13 +610,34 @@ def risolvi_stagione(
         risolto = _risolvi_archetipo(slug_arch, asset_arch, errori)
         if risolto is not None:
             archetipi_risolti.append(risolto)
+    # Il POOL DI LOOT (T1b, D-1): gli slug dichiarati dalla stagione, oppure —
+    # pool vuoto = lasco — tutta la libreria oggetti valida. Ogni oggetto passa
+    # dal lint di banda del motore (numeri in scala, mosse note): errore di
+    # authoring qui, mai un degrado a runtime.
+    from motore import lint_oggetto
+
+    slug_oggetti = list(stagione.oggetti)
+    if not slug_oggetti:
+        slug_oggetti = [
+            slug for slug, (asset, _vista)
+            in sorted(_collezione("oggetti", ufficiali, locali).items())
+            if asset is not None
+        ]
+    oggetti_risolti: list[OggettoAsset] = []
+    for slug_ogg in slug_oggetti:
+        ogg = carica_asset("oggetti", slug_ogg, ufficiali=ufficiali, locali=locali)
+        if ogg is None:
+            errori.append(f"oggetto riferito ma assente: {slug_ogg}")
+            continue
+        errori.extend(lint_oggetto(ogg))
+        oggetti_risolti.append(ogg)
     if errori:
         raise ValueError("stagione non risolvibile:\n- " + "\n- ".join(errori))
     return StagioneRisolta(
         slug=stagione.slug, versione=stagione.versione, tags=stagione.tags,
         numero=stagione.numero, titolo=stagione.titolo, tagline=stagione.tagline,
         mondo=stagione.mondo, stile=stagione.stile, lore=stagione.lore,
-        piani=piani_risolti, archetipi=archetipi_risolti,
+        piani=piani_risolti, archetipi=archetipi_risolti, oggetti=oggetti_risolti,
     )
 
 
@@ -971,6 +996,9 @@ class SessioneGioco:
         # lore che apertura/epitaffio mettono nel prompt. Sovrascritto a ogni
         # nuova istanza, MAI azzerato a scontro chiuso (l'epitaffio arriva dopo).
         self._dettagli_nemico = None
+        # L'ultimo drop deciso dal motore, (fonte, grado): il dato FISSATO che
+        # la vestizione AI dei premi potrà vestire, mai cambiare (T2b).
+        self._ultimo_drop: tuple[str, str] | None = None
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
@@ -1280,23 +1308,55 @@ class SessioneGioco:
         return comp.fonti() if comp is not None else ()
 
     def _deposita_bottino(self) -> None:
-        """Drop seeded a scontro VINTO: il CANALE del loot (la tabella è contenuto,
-        oggi un solo oggetto dimostrativo — la riempie l'authoring, non il motore).
-
-        Pesca dallo stream RNG di sessione (persistito nel save: replay-safe),
-        fra le fonti del catalogo non ancora possedute; deposita la FONTE nello
-        Zaino e lo annuncia in cronaca. `PROB_DROP` è §11 (letto a runtime: il
-        knob della console è vivo)."""
+        """Drop seeded a scontro VINTO, PER GRADO (T1c): il motore decide SE
+        droppa (`PROB_DROP`), poi pesca il GRADO — pesato (`LOOT.PESO_GRADO.*`)
+        dentro la finestra della profondità (`gradi_per_profondita`: il
+        budget-loot È quella mappa) — e infine la fonte del catalogo CORRENTE
+        (storico + oggetti-asset congelati) di quel grado non ancora posseduta.
+        Grado senza candidati → degrado a «qualunque non posseduto» (un buco di
+        contenuto non azzera mai il drop). Tutte le pescate vengono dallo
+        stream RNG di sessione (persistito: replay-safe) e l'ORDINE è fisso.
+        Il drop deciso resta in `self._ultimo_drop` per la vestizione AI."""
         from motore import calibrazione as _cal
+        from motore import (
+            catalogo_oggetti_correnti,
+            grado_oggetto,
+            gradi_per_profondita,
+            rango_grado,
+        )
 
         pent, _marker, _scheda = protagonista()
         zaino = assicura_zaino(pent)
-        candidate = [f for f in sorted(CATALOGO_OGGETTI) if f not in zaino.fonti]
-        if not candidate or self.rng.random() >= _cal.PROB_DROP:
+        catalogo = catalogo_oggetti_correnti()
+        if self.rng.random() >= _cal.PROB_DROP:
             return
+        per_grado: dict[str, list[str]] = {}
+        for fonte in sorted(catalogo):
+            if fonte not in zaino.fonti:
+                per_grado.setdefault(grado_oggetto(fonte), []).append(fonte)
+        if not per_grado:
+            return
+        finestra = [g.value for g in sorted(
+            gradi_per_profondita(livello_corrente()), key=rango_grado)]
+        pescabili = [g for g in finestra if per_grado.get(g)]
+        if pescabili:
+            pesi = [_cal.LOOT_PESO_GRADO[g] for g in pescabili]
+            tiro = self.rng.random() * (sum(pesi) or 1)
+            cumulo, grado = 0.0, pescabili[-1]
+            for g, peso in zip(pescabili, pesi):
+                cumulo += peso
+                if tiro < cumulo:
+                    grado = g
+                    break
+            candidate = per_grado[grado]
+        else:
+            # Nessun candidato nella finestra: degrado dichiarato, mai un
+            # drop a vuoto per un buco di contenuto.
+            candidate = sorted(f for fonti in per_grado.values() for f in fonti)
         fonte = candidate[self.rng.randrange(len(candidate))]
         zaino.fonti.append(fonte)
-        oggetto = CATALOGO_OGGETTI[fonte]
+        oggetto = catalogo[fonte]
+        self._ultimo_drop = (fonte, grado_oggetto(fonte))
         self.bus.pubblica(OggettoTrovato(
             nome=getattr(oggetto, "nome", "") or fonte, fonte=fonte,
         ))
@@ -1861,6 +1921,23 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
             )
             for arch in risolta.archetipi
         ],
+        oggetti=[
+            OggettoAttivo(
+                slug=ogg.slug, nome=ogg.nome, tipo=ogg.tipo,
+                grado=ogg.grado.value, descrizione=ogg.descrizione,
+                slot=ogg.slot.value if ogg.slot is not None else None,
+                categoria=ogg.categoria.value if ogg.categoria is not None else None,
+                taglia=ogg.taglia.value,
+                sede=ogg.sede.value if ogg.sede is not None else None,
+                mitigazione_cent=ogg.mitigazione_cent,
+                danno_base=ogg.danno_base,
+                modificatori=tuple(
+                    (m.stat.value, m.fascia.value) for m in ogg.modificatori
+                ),
+                mosse=tuple(ogg.mosse),
+            )
+            for ogg in risolta.oggetti
+        ],
     )
 
 
@@ -2114,9 +2191,11 @@ def elenca_crawler(directory: Path | None = None) -> list[CrawlerVista]:
 
 
 def etichetta_oggetto(fonte: str) -> str:
-    """Il nome diegetico di un oggetto del catalogo ("" o ignoto → la fonte):
-    l'host mostra parole, mai id di dominio nudi."""
-    oggetto = CATALOGO_OGGETTI.get(fonte)
+    """Il nome diegetico di un oggetto del catalogo DELLA RUN ("" o ignoto → la
+    fonte): l'host mostra parole, mai id di dominio nudi."""
+    from motore import catalogo_oggetti_correnti
+
+    oggetto = catalogo_oggetti_correnti().get(fonte)
     nome = getattr(oggetto, "nome", "") if oggetto is not None else ""
     return nome or fonte
 

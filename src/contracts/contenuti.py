@@ -24,7 +24,20 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .schema import RE_SLUG as _RE_SLUG
-from .schema import ArchetipoId, Blocco, Durata, Frequenza, Grado, TierTerritorio
+from .schema import (
+    ArchetipoId,
+    Blocco,
+    CategoriaArmatura,
+    Durata,
+    Fascia,
+    Frequenza,
+    Grado,
+    SedeAccessorio,
+    StatId,
+    Taglia,
+    TierTerritorio,
+)
+from .proiezione import SLOT_ARMATURA, SlotEquip
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 
@@ -152,6 +165,63 @@ class MobAsset(_Asset):
     @model_validator(mode="after")
     def _blocchi_unici(self) -> "MobAsset":
         _senza_duplicati(self.blocchi, "blocchi")
+        _senza_duplicati(self.mosse, "mosse")
+        return self
+
+
+class ModificatoreDati(BaseModel):
+    """UNA voce categoriale di potere su un oggetto: stat + FASCIA nominata.
+    Il numero lo deriva il motore (§11: fascia × rango del grado) — qui non
+    esiste un campo dove scriverlo."""
+
+    model_config = _FROZEN
+
+    stat: StatId
+    fascia: Fascia
+
+
+class OggettoAsset(_Asset):
+    """Un OGGETTO come asset di libreria: il canale del loot (ADR-2 ridotto).
+
+    Tre forme in un solo tipo (`tipo` discrimina): armatura (slot esclusivo +
+    categoria), arma (mount unico), accessorio (multiset aperto, può concedere
+    mosse). I `modificatori` sono FASCE (mai numeri); `mitigazione_cent` e
+    `danno_base` sono i numeri LEGALI dell'authoring umano (pattern
+    `ProfiloArchetipoDati`) — `None` = derivati dal motore (categoria→mitigazione,
+    grado→danno) — e il lint di banda del motore li tiene in scala."""
+
+    nome: str = Field(min_length=1)
+    descrizione: str = ""
+    tipo: Literal["armatura", "arma", "accessorio"]
+    grado: Grado                          # il tier di loot: qualità e budget del drop
+    slot: SlotEquip | None = None         # armatura: obbligatorio (∈ SLOT_ARMATURA)
+    categoria: CategoriaArmatura | None = None
+    taglia: Taglia = Taglia.MEDIA
+    sede: SedeAccessorio | None = None    # accessorio: obbligatorio
+    mosse: list[str] = Field(default_factory=list)       # solo accessori
+    modificatori: list[ModificatoreDati] = Field(default_factory=list, max_length=4)
+    mitigazione_cent: int | None = Field(default=None, ge=0)
+    danno_base: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _coerente_per_tipo(self) -> "OggettoAsset":
+        if self.tipo == "armatura":
+            if self.slot is None or self.categoria is None:
+                raise ValueError(f"oggetto {self.slug}: un'armatura vuole slot e categoria")
+            if self.slot not in SLOT_ARMATURA:
+                raise ValueError(f"oggetto {self.slug}: {self.slot.value!r} non è uno slot d'armatura")
+        else:
+            if self.slot is not None or self.categoria is not None or self.mitigazione_cent is not None:
+                raise ValueError(f"oggetto {self.slug}: slot/categoria/mitigazione sono solo dell'armatura")
+        if self.tipo == "accessorio":
+            if self.sede is None:
+                raise ValueError(f"oggetto {self.slug}: un accessorio vuole la sede")
+        else:
+            if self.sede is not None or self.mosse:
+                raise ValueError(f"oggetto {self.slug}: sede/mosse sono solo dell'accessorio")
+        if self.tipo != "arma" and self.danno_base is not None:
+            raise ValueError(f"oggetto {self.slug}: danno_base è solo dell'arma")
+        _senza_duplicati([m.stat for m in self.modificatori], "modificatori (stat)")
         _senza_duplicati(self.mosse, "mosse")
         return self
 
@@ -328,6 +398,10 @@ class Stagione(BaseModel):
     stile: list[str] = Field(default_factory=list, max_length=6)
     lore: str = ""
     piani: list[str] = Field(min_length=1)  # slug di PianoAsset, per profondità
+    # Il POOL DI LOOT della stagione, per riferimento (slug di OggettoAsset).
+    # VUOTO = lasco: tutta la libreria oggetti valida (D-1) — la stagione può
+    # stringere il pool quando il loot diventa curatela editoriale.
+    oggetti: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validi(self) -> "Stagione":
@@ -340,6 +414,10 @@ class Stagione(BaseModel):
         for slug in self.piani:
             if not re.fullmatch(_RE_SLUG, slug):
                 raise ValueError(f"piani: slug non valido {slug!r}")
+        _senza_duplicati(self.oggetti, "oggetti")
+        for slug in self.oggetti:
+            if not re.fullmatch(_RE_SLUG, slug):
+                raise ValueError(f"oggetti: slug non valido {slug!r}")
         return self
 
 
@@ -488,6 +566,9 @@ class StagioneRisolta(BaseModel):
     lore: str = ""
     piani: list[PianoRisolto] = Field(min_length=1)
     archetipi: list[ArchetipoAsset] = Field(default_factory=list)
+    # Il pool di loot risolto (D-1: `Stagione.oggetti` se dichiarato, altrimenti
+    # tutta la libreria valida) — pronto al freeze come gli archetipi.
+    oggetti: list[OggettoAsset] = Field(default_factory=list)
 
 
 class AssetVista(BaseModel):
@@ -496,7 +577,7 @@ class AssetVista(BaseModel):
     model_config = _FROZEN
 
     slug: str
-    tipo: Literal["stagione", "piano", "mob", "archetipo"]
+    tipo: Literal["stagione", "piano", "mob", "archetipo", "oggetto"]
     etichetta: str
     tags: list[str] = Field(default_factory=list)
     origine: Literal["ufficiale", "locale"] = "ufficiale"
