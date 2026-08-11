@@ -47,6 +47,7 @@ from contracts import (
     TurnoSaltato,
     CrawlerVista,
     MobAsset,
+    FabbricaAsset,
     MossaAsset,
     OggettoAsset,
     ArchetipoAsset,
@@ -91,7 +92,11 @@ from motore import (
     MODEL_ID_DEFAULT,
     Archivio,
     ArchetipoAttivo,
+    AffissoAttivo,
+    BaseAttiva,
     EffettoAttivo,
+    FabbricaAttiva,
+    FamigliaAttiva,
     MossaAttiva,
     OggettoAttivo,
     MasterEngine,
@@ -229,6 +234,7 @@ TipoAsset = str  # "stagioni" | "piani" | "mob" | "archetipi" (le collezioni del
 MODELLI_ASSET: dict[str, type] = {
     "stagioni": Stagione, "piani": PianoAsset, "mob": MobAsset,
     "archetipi": ArchetipoAsset, "oggetti": OggettoAsset, "mosse": MossaAsset,
+    "fabbriche": FabbricaAsset,
 }
 
 
@@ -251,13 +257,16 @@ def mosse_note_authoring(
 def _etichetta_asset(tipo: str, asset) -> str:
     if tipo == "mosse":
         return asset.etichetta
-    return asset.nome if tipo in ("mob", "archetipi", "oggetti") else asset.titolo
+    if tipo in ("mob", "archetipi", "oggetti", "fabbriche"):
+        return asset.nome
+    return asset.titolo
 
 
 def _tipo_vista(tipo: str) -> str:
     return {
         "stagioni": "stagione", "piani": "piano", "mob": "mob",
         "archetipi": "archetipo", "oggetti": "oggetto", "mosse": "mossa",
+        "fabbriche": "fabbrica",
     }[tipo]
 
 
@@ -673,6 +682,22 @@ def risolvi_stagione(
             errori.append(f"mossa riferita ma assente: {slug_mossa}")
             continue
         mosse_risolte.append(mossa)
+    # La FABBRICA del loot procedurale (lasca: senza slug dichiarato vale la
+    # prima valida in libreria; nessuna = niente conio procedurale).
+    fabbrica_risolta = None
+    slug_fabbrica = stagione.fabbrica
+    if slug_fabbrica is None:
+        disponibili_fabbriche = sorted(
+            slug for slug, (asset, _vista)
+            in _collezione("fabbriche", ufficiali, locali).items()
+            if asset is not None
+        )
+        slug_fabbrica = disponibili_fabbriche[0] if disponibili_fabbriche else None
+    if slug_fabbrica is not None:
+        fabbrica_risolta = carica_asset(
+            "fabbriche", slug_fabbrica, ufficiali=ufficiali, locali=locali)
+        if fabbrica_risolta is None:
+            errori.append(f"fabbrica riferita ma assente: {slug_fabbrica}")
     if errori:
         raise ValueError("stagione non risolvibile:\n- " + "\n- ".join(errori))
     return StagioneRisolta(
@@ -680,7 +705,7 @@ def risolvi_stagione(
         numero=stagione.numero, titolo=stagione.titolo, tagline=stagione.tagline,
         mondo=stagione.mondo, stile=stagione.stile, lore=stagione.lore,
         piani=piani_risolti, archetipi=archetipi_risolti, oggetti=oggetti_risolti,
-        mosse=mosse_risolte,
+        mosse=mosse_risolte, fabbrica=fabbrica_risolta,
     )
 
 
@@ -1553,10 +1578,35 @@ class SessioneGioco:
             if tiro < cumulo:
                 grado = g
                 break
-        if self._provider_offline():
+        from motore import fabbrica_attiva
+
+        if fabbrica_attiva() is not None and self.rng.random() < _cal.PROB_FABBRICA:
+            # Il grosso del bottino è PROCEDURALE (stile BL3, in piccolo):
+            # parti autorate × stream seeded — deterministico, gratuito,
+            # identico offline e live. Il conio AI resta la via del pezzo
+            # raro (quando la pesca non sceglie la fabbrica, col GM live).
+            self._conia_dalla_fabbrica(grado)
+        elif self._provider_offline():
             self._deposita_da_pool(grado)
         else:
             self._drop_pendente = grado
+
+    def _conia_dalla_fabbrica(self, grado: str) -> None:
+        """Il conio PROCEDURALE: base × famiglia × affissi per il grado deciso.
+        L'oggetto entra nei coniati persistenti e nello zaino; `_ultimo_drop`
+        resta armato — la vestizione AI può ancora dare la targhetta al pezzo,
+        ma il pezzo esiste comunque (mai un drop appeso a una chiamata)."""
+        from motore import assicura_coniati, conia_procedurale
+
+        attivo = conia_procedurale(self.rng, grado)
+        if attivo is None:
+            self._deposita_da_pool(grado)
+            return
+        pent, _marker, _scheda = protagonista()
+        assicura_coniati(pent).voci.append(attivo)
+        assicura_zaino(pent).fonti.append(attivo.slug)
+        self._ultimo_drop = (attivo.slug, grado)
+        self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
 
     def _deposita_da_pool(self, grado: str) -> None:
         """Il deposito DETERMINISTICO dal pool (storico + congelati + coniati):
@@ -2188,6 +2238,43 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
             )
             for mossa in risolta.mosse
         ],
+        fabbrica=_fabbrica_a_attiva(risolta.fabbrica),
+    )
+
+
+def _fabbrica_a_attiva(fabbrica) -> "FabbricaAttiva | None":
+    """FabbricaAsset → FabbricaAttiva (appiattita jsonable, pronta al freeze)."""
+    if fabbrica is None:
+        return None
+    return FabbricaAttiva(
+        basi=tuple(
+            BaseAttiva(
+                nome=b.nome, tipo=b.tipo,
+                slot=b.slot.value if b.slot is not None else None,
+                categoria=b.categoria.value if b.categoria is not None else None,
+                taglia=b.taglia.value,
+                sede=b.sede.value if b.sede is not None else None,
+            )
+            for b in fabbrica.basi
+        ),
+        famiglie=tuple(
+            FamigliaAttiva(
+                nome=f.nome, descrizione=f.descrizione,
+                modificatori=tuple(
+                    (m.stat.value, m.fascia.value) for m in f.modificatori),
+            )
+            for f in fabbrica.famiglie
+        ),
+        affissi=tuple(
+            AffissoAttivo(
+                nome=a.nome,
+                res_contro=a.res_contro.value if a.res_contro is not None else None,
+                res_fascia=a.res_fascia.value if a.res_fascia is not None else None,
+                modificatori=tuple(
+                    (m.stat.value, m.fascia.value) for m in a.modificatori),
+            )
+            for a in fabbrica.affissi
+        ),
     )
 
 

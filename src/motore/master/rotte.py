@@ -16,6 +16,7 @@ from enum import Enum
 from pydantic import BaseModel
 
 from contracts import (
+    FabbricaAsset,
     Flavor,
     Ideazione,
     InquadramentoProva,
@@ -112,6 +113,10 @@ for _rotta in (
     # i «3 tocchi» umani, MAI la libreria — gating=True per il gate di
     # coerenza, ma niente --applica per costruzione.
     Rotta("authoring.status", LottoStatusProposti, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
+    # La FABBRICA del loot procedurale: l'AI scrive le tabelle-parti UNA volta
+    # (il vocabolario), il motore le combina seeded a ogni drop (le istanze).
+    Rotta("authoring.fabbrica", FabbricaAsset, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     # --- Premi (contratto premi, Sit.3+4): la VESTIZIONE del drop già deciso.
     # gating=True (l'esito tocca il Guardaroba), FORTE (il premio è un momento

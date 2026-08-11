@@ -625,6 +625,22 @@ def _oggetti_defs() -> tuple[Param, ...]:
             "su un oggetto: il valore vivo è fascia × rango del grado dell'oggetto.",
             CAT_OGGETTI, "intero ≥1", "int",
         ))
+    out.append(Param(
+        "LOOT.PROB_FABBRICA", 0.75,
+        "Probabilità che un drop vinto sia CONIATO dalla fabbrica procedurale "
+        "(parti combinate seeded, stile BL3 in piccolo) invece che pescato dal "
+        "pool autorato. 0 = fabbrica spenta, 1 = solo procedurale.",
+        CAT_OGGETTI, "0 – 1",
+    ))
+    for fascia in Fascia:
+        out.append(Param(
+            f"OGGETTO.RES_FASCIA.{fascia.value}",
+            {"lieve": -0.10, "marcata": -0.20, "potente": -0.30}[fascia.value],
+            f"Resistenza tipata di fascia {fascia.value.upper()} su un oggetto "
+            "(pct: negativo riduce il danno di quel tipo). L'\"elemento\" della "
+            "fabbrica procedurale.",
+            CAT_OGGETTI, "-0.5 – 0",
+        ))
     for indice, grado in enumerate(Grado, start=1):
         out.append(Param(
             f"OGGETTO.DANNO_ARMA.{grado.value}", indice,
@@ -793,6 +809,10 @@ CORREDO_RIFERIMENTO: dict[str, dict[str, object]] = {
 OGGETTO_MOD_FASCIA: dict[str, int] = {
     f.value: valore(f"OGGETTO.MOD_FASCIA.{f.value}") for f in Fascia
 }
+OGGETTO_RES_FASCIA: dict[str, float] = {
+    f.value: valore(f"OGGETTO.RES_FASCIA.{f.value}") for f in Fascia
+}
+PROB_FABBRICA = valore("LOOT.PROB_FABBRICA")
 DANNO_ARMA_PER_GRADO: dict[str, int] = {
     g.value: valore(f"OGGETTO.DANNO_ARMA.{g.value}") for g in Grado
 }

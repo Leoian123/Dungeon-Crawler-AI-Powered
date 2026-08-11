@@ -232,6 +232,83 @@ class OggettoAsset(_Asset):
         return self
 
 
+class ParteBase(BaseModel):
+    """Il CORPO di un oggetto della fabbrica (stile BL3, in piccolo): la forma
+    fisica — tipo, e i campi che quel tipo esige. Il nome è la testa del nome
+    composto («Lama …», «Elmo …»)."""
+
+    model_config = _FROZEN
+
+    nome: str = Field(min_length=1)
+    tipo: Literal["armatura", "arma", "accessorio"]
+    slot: SlotEquip | None = None         # armatura
+    categoria: CategoriaArmatura | None = None
+    taglia: Taglia = Taglia.MEDIA
+    sede: SedeAccessorio | None = None    # accessorio
+
+    @model_validator(mode="after")
+    def _coerente(self) -> "ParteBase":
+        if self.tipo == "armatura" and (self.slot is None or self.categoria is None
+                                        or self.slot not in SLOT_ARMATURA):
+            raise ValueError(f"parte base {self.nome!r}: armatura senza slot/categoria validi")
+        if self.tipo == "accessorio" and self.sede is None:
+            raise ValueError(f"parte base {self.nome!r}: accessorio senza sede")
+        return self
+
+
+class ParteFamiglia(BaseModel):
+    """La FAMIGLIA (il "produttore" di BL3): flavor + il tratto caratteristico
+    come modificatori a FASCIA. Il nome è la coda del nome composto
+    («… dei Becchini»)."""
+
+    model_config = _FROZEN
+
+    nome: str = Field(min_length=1)
+    descrizione: str = ""
+    modificatori: list[ModificatoreDati] = Field(default_factory=list, max_length=2)
+
+
+class ParteAffisso(BaseModel):
+    """L'AFFISSO (l'"elemento"/tratto di BL3): un aggettivo nel nome
+    («Fumante …») + resistenza tipata a fascia e/o un modificatore."""
+
+    model_config = _FROZEN
+
+    nome: str = Field(min_length=1)
+    res_contro: TipoDanno | None = None       # resistenza elementale...
+    res_fascia: Fascia | None = None          # ...con l'intensità a fascia
+    modificatori: list[ModificatoreDati] = Field(default_factory=list, max_length=1)
+
+    @model_validator(mode="after")
+    def _res_coerente(self) -> "ParteAffisso":
+        if (self.res_contro is None) != (self.res_fascia is None):
+            raise ValueError(f"affisso {self.nome!r}: res_contro e res_fascia vanno insieme")
+        if self.res_contro is None and not self.modificatori:
+            raise ValueError(f"affisso {self.nome!r}: un affisso deve portare qualcosa")
+        return self
+
+
+class FabbricaAsset(_Asset):
+    """La FABBRICA del loot procedurale (stile Borderlands, in piccolo): le
+    tabelle-parti che il motore combina SEEDED a ogni drop — basi × famiglie ×
+    affissi × grado. Le parti sono FASCE ed enum (mai numeri): i valori li
+    deriva il motore (fascia × rango del grado). Il precedente è la tabella
+    dei boss procedurali: si autora il vocabolario, il motore conia le
+    istanze — deterministiche, gratuite, anche offline."""
+
+    nome: str = Field(min_length=1)
+    basi: list[ParteBase] = Field(min_length=2, max_length=16)
+    famiglie: list[ParteFamiglia] = Field(min_length=2, max_length=16)
+    affissi: list[ParteAffisso] = Field(min_length=2, max_length=16)
+
+    @model_validator(mode="after")
+    def _nomi_unici(self) -> "FabbricaAsset":
+        _senza_duplicati([b.nome for b in self.basi], "basi")
+        _senza_duplicati([f.nome for f in self.famiglie], "famiglie")
+        _senza_duplicati([a.nome for a in self.affissi], "affissi")
+        return self
+
+
 class MossaAsset(_Asset):
     """Una MOSSA come asset di libreria: composizione di primitivi chiusi
     (GR2 §7.3 — «voce di catalogo + righe di Effetto, zero righe nel loop»).
@@ -463,6 +540,10 @@ class Stagione(BaseModel):
     # Le MOSSE-ASSET della stagione (stessa politica lasca: vuoto = tutta la
     # libreria mosse valida). Congelate nella run, si sommano al catalogo.
     mosse: list[str] = Field(default_factory=list)
+    # La FABBRICA del loot procedurale (slug di FabbricaAsset). None = lasca:
+    # la prima fabbrica valida in libreria (ordine di slug); assente = niente
+    # conio procedurale, restano pool e conio AI.
+    fabbrica: str | None = None
 
     @model_validator(mode="after")
     def _validi(self) -> "Stagione":
@@ -483,6 +564,8 @@ class Stagione(BaseModel):
         for slug in self.mosse:
             if not re.fullmatch(_RE_SLUG, slug):
                 raise ValueError(f"mosse: slug non valido {slug!r}")
+        if self.fabbrica is not None and not re.fullmatch(_RE_SLUG, self.fabbrica):
+            raise ValueError(f"fabbrica: slug non valido {self.fabbrica!r}")
         return self
 
 
@@ -634,6 +717,7 @@ class StagioneRisolta(BaseModel):
     # Il pool di loot risolto (D-1: `Stagione.oggetti` se dichiarato, altrimenti
     # tutta la libreria valida) — pronto al freeze come gli archetipi.
     oggetti: list[OggettoAsset] = Field(default_factory=list)
+    fabbrica: FabbricaAsset | None = None
     # Le mosse-asset risolte (stessa politica lasca), pronte al freeze.
     mosse: list[MossaAsset] = Field(default_factory=list)
 
@@ -644,7 +728,7 @@ class AssetVista(BaseModel):
     model_config = _FROZEN
 
     slug: str
-    tipo: Literal["stagione", "piano", "mob", "archetipo", "oggetto", "mossa"]
+    tipo: Literal["stagione", "piano", "mob", "archetipo", "oggetto", "mossa", "fabbrica"]
     etichetta: str
     tags: list[str] = Field(default_factory=list)
     origine: Literal["ufficiale", "locale"] = "ufficiale"

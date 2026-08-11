@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import CategoriaArmatura, Grado, SedeAccessorio, StatId, Taglia
+from contracts import CategoriaArmatura, Grado, SedeAccessorio, StatId, Taglia, TipoDanno
 from contracts.proiezione import SlotEquip
 
 from .calibrazione import (
@@ -63,14 +63,28 @@ def _valore_enum(campo, enum_cls):
     return campo if isinstance(campo, enum_cls) else enum_cls(campo)
 
 
+def _resistenze_vive(o):
+    """Le resistenze a fascia dell'attivo → `ResistenzaMod` (pct §11)."""
+    from .calibrazione import OGGETTO_RES_FASCIA
+    from .modificatori import ResistenzaMod
+
+    return tuple(
+        ResistenzaMod(
+            contro=TipoDanno(contro), valore=OGGETTO_RES_FASCIA[fascia], fonte=o.slug,
+        )
+        for contro, fascia in getattr(o, "resistenze", ())
+    )
+
+
 def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
     """Asset/attivo → oggetto vivo del canale equip. Duck-typed sulle due forme
     (`OggettoAsset` con enum, `OggettoAttivo` con stringhe): i numeri mancanti
     li mette il motore — mitigazione dalla categoria (via `mitigazione_di`),
-    danno arma dal grado."""
+    danno arma dal grado, resistenze dalle fasce."""
     tipo = o.tipo
     nome = o.nome
     mods = _modificatori_vivi(o)
+    resistenze = _resistenze_vive(o)
     if tipo == "armatura":
         return PezzoArmatura(
             fonte=o.slug,
@@ -80,6 +94,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
             taglia=_valore_enum(o.taglia, Taglia),
             mitigazione_cent=o.mitigazione_cent,
             modificatori=mods,
+            resistenze=resistenze,
         )
     if tipo == "arma":
         danno = o.danno_base
@@ -91,12 +106,14 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
             nome=nome,
             danno_base=danno,
             modificatori=mods,
+            resistenze=resistenze,
         )
     return Accessorio(
         fonte=o.slug,
         sede=_valore_enum(o.sede, SedeAccessorio),
         nome=nome,
         modificatori=mods,
+        resistenze=resistenze,
         mosse=tuple(o.mosse),
     )
 

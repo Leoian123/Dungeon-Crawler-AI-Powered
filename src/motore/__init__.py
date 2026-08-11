@@ -261,8 +261,12 @@ from .mappa import (
     uscite,
 )
 from .design import (
+    AffissoAttivo,
     ArchetipoAttivo,
+    BaseAttiva,
     EffettoAttivo,
+    FabbricaAttiva,
+    FamigliaAttiva,
     MobAttivo,
     MossaAttiva,
     OggettoAttivo,
@@ -279,6 +283,7 @@ from .design import (
     registry_archetipi_correnti,
     stagione_corrente,
 )
+from .fabbrica import conia_procedurale, fabbrica_attiva
 from .oggetti import (
     OggettiConiati,
     assicura_coniati,
@@ -641,6 +646,9 @@ __all__ = [
     "mossa_di",
     "mosse_note_correnti",
     "OggettiConiati",
+    "FabbricaAttiva",
+    "conia_procedurale",
+    "fabbrica_attiva",
     "assicura_coniati",
     "attivo_da_asset",
     "catalogo_oggetti_correnti",

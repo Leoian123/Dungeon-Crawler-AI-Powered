@@ -122,6 +122,43 @@ class MossaAttiva:
 
 
 @dataclass(frozen=True)
+class BaseAttiva:
+    """Una parte-base della fabbrica, congelata (jsonable)."""
+
+    nome: str
+    tipo: str
+    slot: str | None = None
+    categoria: str | None = None
+    taglia: str = "media"
+    sede: str | None = None
+
+
+@dataclass(frozen=True)
+class FamigliaAttiva:
+    nome: str
+    descrizione: str = ""
+    modificatori: tuple[tuple[str, str], ...] = ()   # (stat, fascia)
+
+
+@dataclass(frozen=True)
+class AffissoAttivo:
+    nome: str
+    res_contro: str | None = None
+    res_fascia: str | None = None
+    modificatori: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class FabbricaAttiva:
+    """Le tabelle-parti della fabbrica, congelate nella run: il motore le
+    combina SEEDED a ogni drop (`fabbrica.conia_procedurale`)."""
+
+    basi: tuple[BaseAttiva, ...] = ()
+    famiglie: tuple[FamigliaAttiva, ...] = ()
+    affissi: tuple[AffissoAttivo, ...] = ()
+
+
+@dataclass(frozen=True)
 class OggettoAttivo:
     """Un oggetto del pool di loot, congelato nella run (appiattito jsonable:
     enum come `.value`, coppie stat×fascia come tuple — il translator generico
@@ -141,6 +178,9 @@ class OggettoAttivo:
     danno_base: int | None = None
     modificatori: tuple[tuple[str, str], ...] = ()   # (stat, fascia)
     mosse: tuple[str, ...] = ()
+    # Resistenze tipate a fascia, (tipo_danno, fascia): l'"elemento" della
+    # fabbrica procedurale. Default vuoto = save e asset storici invariati.
+    resistenze: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -189,6 +229,9 @@ class StagioneAttiva:
     # Le mosse-asset della run (T3a): vuoto = save legacy → il solo
     # `CATALOGO_MOSSE` storico (`mosse.mossa_di`).
     mosse: list[MossaAttiva] = field(default_factory=list)
+    # La fabbrica del loot procedurale (None = save legacy / stagione senza
+    # fabbrica: il drop resta pool + conio AI).
+    fabbrica: FabbricaAttiva | None = None
 
 
 def crea_stagione(stagione: StagioneAttiva) -> int:

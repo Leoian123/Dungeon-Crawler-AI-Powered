@@ -342,6 +342,68 @@ async def genera_roster(
     return mob_accettati, tabelle, spawn, per_tier, respinti
 
 
+# --- Fabbrica (stile BL3, in piccolo): l'AI scrive le PARTI, il motore conia -----
+
+def prompt_fabbrica(stagione, respinti_prima: tuple[str, ...] = ()) -> str:
+    from contracts import CategoriaArmatura, Fascia, SedeAccessorio, Taglia, TipoDanno
+    from contracts.proiezione import SLOT_ARMATURA
+
+    righe = [
+        "[vocabolario/tipi] armatura, arma, accessorio",
+        "[vocabolario/slot-armatura] " + ", ".join(s.value for s in SLOT_ARMATURA),
+        "[vocabolario/categorie] " + ", ".join(c.value for c in CategoriaArmatura),
+        "[vocabolario/taglie] " + ", ".join(t.value for t in Taglia),
+        "[vocabolario/sedi] " + ", ".join(s.value for s in SedeAccessorio),
+        "[vocabolario/fasce] " + ", ".join(f.value for f in Fascia),
+        "[vocabolario/tipi-danno] " + ", ".join(
+            t.value for t in TipoDanno if t.value != "generico"),
+        "[compito] Scrivi la FABBRICA del loot di questo piano-mondo: le "
+        "TABELLE-PARTI che il motore combinerà seeded a ogni drop (stile "
+        "Borderlands, in piccolo). Servono: 5-10 `basi` (i corpi: nomi brevi "
+        "tipo «Elmo», «Lama», con slot/categoria/sede coerenti al tipo), 4-8 "
+        "`famiglie` (i produttori in-fiction: nome che chiude il nome composto "
+        "tipo «del Becchino», una descrizione di carattere, 1-2 modificatori a "
+        "fascia), 4-8 `affissi` (aggettivi tipo «Fumante»: o una resistenza "
+        "tipata a fascia, o un modificatore). I nomi devono comporsi bene: "
+        "«{base} {affisso} {famiglia}». NIENTE numeri: solo fasce ed enum.",
+    ]
+    if respinti_prima:
+        righe.append(
+            "[respinti] La proposta precedente è stata SCARTATA: "
+            + "; ".join(respinti_prima) + ". Correggi questi errori."
+        )
+    return "\n".join(righe)
+
+
+async def genera_fabbrica(
+    engine: MasterEngine, stagione, *,
+    ufficiali: Path | None = None, locali: Path | None = None,
+    sovrascrivi: bool = False,
+):
+    """UNA fabbrica per la stagione (il validator di `FabbricaAsset` è il gate
+    di forma; qui slug e collisioni). Ritorna (fabbrica|None, respinti)."""
+    contesto = contesto_prompt(stagione, stagione.piani[0])
+    respinti: list[str] = []
+    feedback: tuple[str, ...] = ()
+    for _ in range(1 + _GIRI_EXTRA):
+        fabbrica = await engine.genera(
+            "authoring.fabbrica", prompt_fabbrica(stagione, feedback),
+            sistema=contesto,
+        )
+        if fabbrica is None:
+            respinti.append("fabbrica: chiamata degradata (trasporto)")
+            continue
+        if not sovrascrivi and carica_asset(
+            "fabbriche", fabbrica.slug, ufficiali=ufficiali, locali=locali
+        ) is not None:
+            motivo = f"{fabbrica.slug}: slug già in libreria (usa --sovrascrivi)"
+            respinti.append(motivo)
+            feedback = (motivo,)
+            continue
+        return fabbrica, respinti
+    return None, respinti
+
+
 # --- Status (T4c, variante PROPOSTA): l'AI propone, l'umano fa i «3 tocchi» ------
 
 def prompt_lotto_status(n: int, esclusi: set[str],
@@ -706,8 +768,8 @@ def _scrivi_json(percorso: Path, dati: dict) -> None:
 
 def applica(
     slug_stagione: str, slug_piano: str, mob_nuovi, tabelle, spawn, per_tier,
-    *, oggetti_nuovi=(), mosse_nuove=(), radice: Path | None = None,
-    locali: Path | None = None,
+    *, oggetti_nuovi=(), mosse_nuove=(), fabbrica_nuova=None,
+    radice: Path | None = None, locali: Path | None = None,
 ) -> list[str]:
     """Scrive i mob e gli oggetti generati e il PianoAsset aggiornato nella
     libreria, con GATE FINALE `risolvi_stagione`: se la stagione aggiornata non
@@ -743,6 +805,10 @@ def applica(
         for mossa in mosse_nuove:
             percorso = radice / "mosse" / f"{mossa.slug}.json"
             _scrivi_json(percorso, json.loads(mossa.model_dump_json()))
+            scritti.append(percorso)
+        if fabbrica_nuova is not None:
+            percorso = radice / "fabbriche" / f"{fabbrica_nuova.slug}.json"
+            _scrivi_json(percorso, json.loads(fabbrica_nuova.model_dump_json()))
             scritti.append(percorso)
         for oggetto in oggetti_nuovi:
             percorso = radice / "oggetti" / f"{oggetto.slug}.json"
@@ -790,6 +856,8 @@ def costruisci_parser() -> "argparse.ArgumentParser":
     p.add_argument("--status", type=int, default=0,
                    help="PROPOSTE di status da generare (brief per i 3 tocchi umani, "
                         "mai libreria: finiscono in contenuti_locali/proposte/status/)")
+    p.add_argument("--fabbrica", action="store_true",
+                   help="genera le tabelle-parti della fabbrica del loot procedurale")
     return p
 
 
@@ -856,6 +924,17 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         respinti.extend(respinti_status)
         for percorso in proposte_status:
             print(f"[genera] proposta di status scritta: {percorso}")
+    fabbrica_nuova = None
+    if args.fabbrica:
+        fabbrica_nuova, respinti_fabbrica = asyncio.run(genera_fabbrica(
+            engine, stagione, sovrascrivi=args.sovrascrivi,
+        ))
+        respinti.extend(respinti_fabbrica)
+        if fabbrica_nuova is not None:
+            print(f"[genera] fabbrica generata: «{fabbrica_nuova.nome}» "
+                  f"({len(fabbrica_nuova.basi)} basi × "
+                  f"{len(fabbrica_nuova.famiglie)} famiglie × "
+                  f"{len(fabbrica_nuova.affissi)} affissi)")
     mosse_nuove: list = []
     if args.mosse > 0:
         mosse_nuove, respinti_mosse = asyncio.run(genera_mosse(
@@ -888,6 +967,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
     errori = applica(
         args.stagione, piano.slug, mob_nuovi, tabelle, spawn, per_tier,
         oggetti_nuovi=oggetti_nuovi, mosse_nuove=mosse_nuove,
+        fabbrica_nuova=fabbrica_nuova,
     )
     for riga in errori:
         print(f"[genera] ✗ {riga}")
