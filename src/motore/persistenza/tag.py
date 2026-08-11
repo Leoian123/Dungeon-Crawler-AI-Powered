@@ -26,7 +26,7 @@ import typing
 
 from ..corredo import Corredo
 from ..design import StagioneAttiva
-from ..equip import Zaino
+from ..equip import ComponenteEquip, Zaino
 from ..fase import FaseCorrente
 from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
@@ -61,11 +61,12 @@ _TAG_PER_TIPO: dict[type, str] = {
     # legame passa dal dato `stanza`, mai dall'id esper).
     EntitaMob: "entita_mob",
     Corredo: "corredo",
-    # Lo Zaino è POSSESSO (fonti di dominio): attraversa il save. Il manifest
-    # (ComponenteEquip) resta fuori DI PROPOSITO finché non c'è l'hook di
-    # re-equip (ADR-1 F5): al load tutto torna «da riequipaggiare», mai un
-    # manifest con modificatori fantasma.
+    # Lo Zaino è POSSESSO (fonti di dominio): attraversa il save.
     Zaino: "zaino",
+    # Il manifest dell'INDOSSO (ADR-1 F5): round-trippa INSIEME alla coppia
+    # filtro-di-provenienza (save) + hook `re_equipaggia` (load) — le voci
+    # derivate non viaggiano mai nel save, rinascono dal manifest.
+    ComponenteEquip: "equip",
     Resistenze: "resistenze",
     Repertorio: "repertorio",
     FaseCorrente: "fase_corrente",

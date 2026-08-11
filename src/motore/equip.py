@@ -45,7 +45,9 @@ from .intenti_coda import consuma_messaggi
 from .mosse import registra_fonte_mosse
 from .modificatori import (
     Modificatore,
+    Modificatori,
     ResistenzaMod,
+    Resistenze,
     TipoMod,
     applica_modificatore,
     applica_resistenza,
@@ -183,10 +185,8 @@ class Zaino:
     """L'inventario POSSEDUTO: fonti di dominio durevoli, mai oggetti vivi.
 
     Il possesso resta qui anche quando l'oggetto è INDOSSO (il manifest è
-    l'indosso, non la proprietà): così al load — dove il manifest non
-    round-trippa di proposito (lucchetto in attesa dell'hook di re-equip,
-    ADR-1 F5) — nulla si perde: tutto torna semplicemente «da riequipaggiare».
-    È il deposito del canale del loot: il drop scrive QUI, l'equip legge."""
+    l'indosso, non la proprietà). È il deposito del canale del loot: il drop
+    scrive QUI, l'equip legge."""
 
     fonti: list[str] = field(default_factory=list)
 
@@ -297,6 +297,38 @@ def _immetti(entita: int, oggetto) -> None:
             applica_modificatore(entita, Modificatore(
                 stat=StatId.DIFESA, tipo=TipoMod.FLAT, valore=cent, fonte=oggetto.fonte,
             ))
+
+
+def filtrato_per_save(comp, manifest: ComponenteEquip):
+    """La copia di `Modificatori`/`Resistenze` SENZA le voci derivate dall'equip
+    (ADR-1 F5, D1): nel save viaggia la SORGENTE durevole (il manifest), mai le
+    voci derivate — al load `re_equipaggia` le ri-immette. Filtro e hook sono
+    una coppia: filtrare senza hook = equip morto al load; hookare senza filtro
+    = voci doppie. Qualunque altro componente passa invariato."""
+    fonti = set(manifest.fonti())
+    if isinstance(comp, Modificatori):
+        return Modificatori(voci=[v for v in comp.voci if v.fonte not in fonti])
+    if isinstance(comp, Resistenze):
+        return Resistenze(voci=[v for v in comp.voci if v.fonte not in fonti])
+    return comp
+
+
+def re_equipaggia(entita: int) -> None:
+    """L'hook post-load (ADR-1 F5): ri-deriva dal manifest appena deserializzato
+    le voci di `Modificatori`/`Resistenze` che il save ha filtrato, poi clampa
+    gli HP (D2: un −COSTITUZIONE indossato abbassa il tetto anche dopo un load).
+    NON idempotente: si chiama solo da `applica_stato`, su canali già filtrati."""
+    comp = esper.try_component(entita, ComponenteEquip)
+    if comp is None:
+        return
+    for oggetto in (
+        *comp.armatura.values(),
+        *((comp.arma,) if comp.arma is not None else ()),
+        *comp.accessori,
+    ):
+        _immetti(entita, oggetto)
+    from .derivate import clampa_hp
+    clampa_hp(entita)
 
 
 def equipaggia(entita: int, oggetto) -> bool:

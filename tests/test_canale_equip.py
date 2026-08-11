@@ -61,8 +61,9 @@ def test_il_canale_equip_e_acceso_end_to_end(run_pulita, tmp_path, monkeypatch) 
         assert "roulette_del_sistema" not in mosse_di(pent)
         assert "dadi-truccati" in fonti_zaino(pent)
 
-        # 4. ROUND-TRIP: lo zaino attraversa il save; il manifest NO (di proposito,
-        #    lucchetto F5): al load tutto è «da riequipaggiare», niente si perde.
+        # 4. ROUND-TRIP (ADR-1 F5): zaino E manifest attraversano il save; al
+        #    load l'hook di re-equip ri-deriva gli effetti — l'oggetto indossato
+        #    resta indosso e la mossa concessa è viva senza rifare nulla.
         sessione.equipaggia("dadi-truccati")
         sessione.salva()
         uuid = sessione.uuid
@@ -72,10 +73,10 @@ def test_il_canale_equip_e_acceso_end_to_end(run_pulita, tmp_path, monkeypatch) 
         pent2, _m2, _s2 = protagonista()
         assert "dadi-truccati" in fonti_zaino(pent2), "lo zaino non ha round-trippato"
         comp2 = equip_attivo(pent2)
-        assert comp2 is None or comp2.pezzo_per_fonte("dadi-truccati") is None
-        assert "roulette_del_sistema" not in mosse_di(pent2)
-        ripresa.equipaggia("dadi-truccati")            # e si riequipaggia subito
+        assert comp2 is not None and comp2.pezzo_per_fonte("dadi-truccati") is not None
         assert "roulette_del_sistema" in mosse_di(pent2)
+        ripresa.togli("dadi-truccati")                 # e si può togliere subito
+        assert "roulette_del_sistema" not in mosse_di(pent2)
     finally:
         cronaca.chiudi()
 

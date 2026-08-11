@@ -318,19 +318,17 @@ def test_le_relazioni_darma_hanno_il_loro_coefficiente() -> None:
     assert set(COEFF_ACC) >= {"pari", "piu_piccola", "mismatch", "naturale"}
 
 
-# --- 6. Il buco di persistenza è DICHIARATO, non dimenticato -------------------
+# --- 6. La persistenza F5 è ATTIVA: tag e hook viaggiano insieme ---------------
 
-def test_equip_non_persistente_finche_F5(mondo_isolato: str) -> None:
-    """`ComponenteEquip` è deliberatamente FUORI dal registry dei tag del save.
-
-    Registrarlo senza l'hook di re-equip (ADR-1 F5) produrrebbe il desync peggiore: il
-    manifest round-trippa, i suoi modificatori no → al load l'equip **esiste ma non fa
-    niente**, e nessun test se ne accorgerebbe. Questo assert è il promemoria: quando
-    arriva F5, si registra il tag **insieme** all'hook, e questo test si aggiorna
-    diventando il suo opposto."""
+def test_equip_persistente_con_hook_F5(mondo_isolato: str) -> None:
+    """`ComponenteEquip` È nel registry dei tag del save (ADR-1 F5) — l'opposto
+    del vecchio lucchetto, capovolto INSIEME alla coppia che lo rendeva sicuro:
+    filtro di provenienza nel save (`filtrato_per_save`) + hook di re-equip al
+    load (`re_equipaggia`). Senza uno dei due, il salvataggio mentirebbe (equip
+    morto al load, o voci doppie): il round-trip byte-identico è in
+    `test_equip_f5.py`."""
+    from motore.equip import filtrato_per_save, re_equipaggia  # la coppia esiste
     from motore.persistenza.tag import _TAG_PER_TIPO
 
-    assert ComponenteEquip not in _TAG_PER_TIPO, (
-        "ComponenteEquip è entrato nel save senza l'hook di re-equip: prima di "
-        "registrarlo serve F5, altrimenti il salvataggio mente"
-    )
+    assert ComponenteEquip in _TAG_PER_TIPO
+    assert callable(filtrato_per_save) and callable(re_equipaggia)
