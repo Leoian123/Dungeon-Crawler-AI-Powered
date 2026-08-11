@@ -60,7 +60,19 @@ class SchedaProiezione(BaseModel):
 # legge oggi (mostrando "nessuno") non cambierà una riga.
 
 
-class SlotEquip(str, Enum):
+class _Snello:
+    """Gemello locale di `schema.SchemaSnello` (importarlo creerebbe il ciclo
+    proiezione↔schema): la docstring resta per chi legge il codice, ma NON
+    viaggia come `description` nel JSON schema AI-facing (dieta token)."""
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        schema = handler(core_schema)
+        schema.pop("description", None)
+        return schema
+
+
+class SlotEquip(_Snello, str, Enum):
     """Gli slot di equipaggiamento: vocabolario CHIUSO (come ogni cosa con
     conseguenza meccanica, F-4). **Un solo enum di slot in tutto il progetto.**
 

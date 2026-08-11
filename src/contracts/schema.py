@@ -27,9 +27,11 @@ Dipendenze: solo stdlib + Pydantic (F-2, §3.1).
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+from .proiezione import SlotEquip
 
 def _senza_docstring(schema: dict) -> None:
     """La docstring resta per chi legge il codice, ma NON viaggia come `description`
@@ -526,6 +528,44 @@ class RuoloMob(str, Enum):
 
     OSTILE = "ostile"
     PNG = "png"
+
+
+class ModificatoreAutorato(BaseModel):
+    """Una voce di potere su un oggetto autorato: stat + FASCIA. Niente numeri."""
+
+    model_config = _CHIUSO
+
+    stat: StatId
+    fascia: Fascia
+
+
+class OggettoAutorato(BaseModel):
+    """UN oggetto proposto dall'AI di authoring: identità narrativa + selezioni
+    da vocabolari chiusi e FASCE nominate. NESSUN campo numerico PER COSTRUZIONE
+    (F-3 strutturale): mitigazione/danno/valori li deriva il motore da
+    fascia × grado × categoria alla traduzione in `OggettoAsset`."""
+
+    model_config = _CHIUSO
+
+    slug: Slug
+    nome: str
+    descrizione: str = ""
+    tipo: Literal["armatura", "arma", "accessorio"]
+    grado: Grado
+    slot: SlotEquip | None = None         # armatura: obbligatorio
+    categoria: CategoriaArmatura | None = None
+    taglia: Taglia = Taglia.MEDIA
+    sede: SedeAccessorio | None = None    # accessorio: obbligatorio
+    mosse: list[str] = Field(default_factory=list)   # gate: mosse note (solo accessori)
+    modificatori: list[ModificatoreAutorato] = Field(default_factory=list, max_length=3)
+
+
+class LottoOggettiAutorati(BaseModel):
+    """Un lotto di oggetti (≤6 per chiamata: lotti piccoli degradano bene)."""
+
+    model_config = _CHIUSO
+
+    oggetti: list[OggettoAutorato] = Field(min_length=1, max_length=6)
 
 
 class NemicoSperimentale(BaseModel):

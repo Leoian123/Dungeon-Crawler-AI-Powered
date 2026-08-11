@@ -216,6 +216,109 @@ def test_dedup_tra_lotti_paralleli(tmp_path) -> None:
     assert sum("[respinti]" not in p for p in prov.prompt_ricevuti[:2]) == 2
 
 
+# --- Oggetti (T2a): il generatore del pool di loot -------------------------------
+
+def _oggetto_autorato(slug: str, **extra) -> dict:
+    base = dict(
+        slug=slug, nome=slug.title(), descrizione="Bottino d'epoca.",
+        tipo="armatura", grado="bronzo", slot="busto", categoria="veste",
+    )
+    base.update(extra)
+    return base
+
+
+def test_rotta_authoring_oggetto_registrata() -> None:
+    assert "authoring.oggetto" in ROTTE
+    assert ROTTE["authoring.oggetto"].gating is True
+    assert ROTTE["authoring.oggetto"].corsia.value == "forte"
+
+
+def test_oggetto_autorato_senza_numeri() -> None:
+    from contracts import ModificatoreAutorato, OggettoAutorato
+
+    campi = set(OggettoAutorato.model_fields)
+    assert not campi & {"mitigazione_cent", "danno_base", "valore"}, \
+        "un numero nello schema AI-facing romperebbe F-3 per costruzione"
+    assert set(ModificatoreAutorato.model_fields) == {"stat", "fascia"}
+
+
+def test_genera_oggetti_gate_e_topup(tmp_path) -> None:
+    from contracts import LottoOggettiAutorati
+
+    uff = _libreria_mondo(tmp_path)
+    stagione = _stagione_risolta(uff)
+
+    lotto = LottoOggettiAutorati(oggetti=[
+        _oggetto_autorato("cappa-buona"),
+        # incoerente: accessorio senza sede → respinto dal validator dell'asset
+        _oggetto_autorato("anello-rotto", tipo="accessorio", slot=None, categoria=None),
+        # mossa ignota → respinto dal lint (F-6)
+        _oggetto_autorato("anello-strano", tipo="accessorio", slot=None,
+                          categoria=None, sede="dita", mosse=["mossa-inventata"]),
+    ]).model_dump()
+    recupero = LottoOggettiAutorati(oggetti=[
+        _oggetto_autorato("anello-sano", tipo="accessorio", slot=None,
+                          categoria=None, sede="dita"),
+        _oggetto_autorato("cappa-di-scorta", slot="testa"),
+    ]).model_dump()
+    prov = FakeProvider([lotto, recupero])
+    accettati, respinti = asyncio.run(gs.genera_oggetti(
+        MasterEngine.avvolgi(prov), stagione, quanti=3,
+        ufficiali=uff, locali=uff / "mai-usata",
+    ))
+    assert [o.slug for o in accettati] == ["cappa-buona", "anello-sano", "cappa-di-scorta"]
+    assert any("sede" in r or "anello-rotto" in r for r in respinti)
+    assert any("fuori catalogo" in r for r in respinti)
+    # Il top-up porta il motivo nel prompt (dinamico) e i vocabolari nel compito.
+    assert "[respinti]" in prov.prompt_ricevuti[1]
+    assert "[vocabolario/fasce]" in prov.prompt_ricevuti[0]
+
+
+def test_applica_scrive_anche_gli_oggetti_con_rollback(tmp_path) -> None:
+    from contracts import Fascia, ModificatoreDati, OggettoAsset, StatId
+
+    uff = _libreria_mondo(tmp_path)
+    _stagione_risolta(uff)
+    buono = OggettoAsset(
+        slug="cimelio-buono", nome="Cimelio", tipo="accessorio",
+        grado=Grado.BRONZO, sede="dita",
+        modificatori=[ModificatoreDati(stat=StatId.FORTUNA, fascia=Fascia.LIEVE)],
+    )
+    errori = gs.applica(
+        "s", "mondo", [], [], [], {t: [] for t in gs._TIER_GENERABILI},
+        oggetti_nuovi=[buono], radice=uff, locali=uff / "mai-usata",
+    )
+    assert errori == []
+    assert (uff / "oggetti" / "cimelio-buono.json").exists()
+
+    # Rollback: un oggetto che il lint di risoluzione respinge (mossa ignota
+    # scritta a mano nel JSON) non lascia la libreria a metà.
+    marcio = OggettoAsset(
+        slug="cimelio-marcio", nome="Marcio", tipo="accessorio",
+        grado=Grado.BRONZO, sede="dita", mosse=["attacco"],
+    )
+    dati = json.loads(marcio.model_dump_json())
+    dati["mosse"] = ["mossa-fantasma"]  # aggira il modello: il gate finale la vede
+    errori = gs.applica(
+        "s", "mondo", [], [], [], {t: [] for t in gs._TIER_GENERABILI},
+        oggetti_nuovi=[_OggettoGrezzo(dati)], radice=uff, locali=uff / "mai-usata",
+    )
+    assert errori and "ROLLBACK" in errori[0]
+    assert not (uff / "oggetti" / "cimelio-marcio.json").exists()
+
+
+class _OggettoGrezzo:
+    """Un finto asset che serializza dati arbitrari: serve a provare che il
+    GATE FINALE (risolvi_stagione) becca ciò che il modello non può produrre."""
+
+    def __init__(self, dati: dict) -> None:
+        self._dati = dati
+        self.slug = dati["slug"]
+
+    def model_dump_json(self) -> str:
+        return json.dumps(self._dati)
+
+
 def test_applica_scrive_e_il_gate_finale_tiene(tmp_path) -> None:
     uff = _libreria_mondo(tmp_path)
     stagione = _stagione_risolta(uff)

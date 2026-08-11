@@ -20,6 +20,7 @@ from contracts import (
     Ideazione,
     InquadramentoProva,
     LottoBossGenerati,
+    LottoOggettiAutorati,
     NemicoSperimentale,
     TabellaProceduraleGen,
     TabellaSpawnGenerata,
@@ -97,6 +98,8 @@ for _rotta in (
     Rotta("authoring.tabella", TabellaProceduraleGen, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     Rotta("authoring.spawn", TabellaSpawnGenerata, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
+    Rotta("authoring.oggetto", LottoOggettiAutorati, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     # --- Dialogo PNG (T3): SOLA PROSA (mai esiti — la voce va solo a video),
     # phase-gated a NARRAZIONE: parlare in combattimento è strutturalmente

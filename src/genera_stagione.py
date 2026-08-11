@@ -336,6 +336,144 @@ async def genera_roster(
     return mob_accettati, tabelle, spawn, per_tier, respinti
 
 
+# --- Oggetti (T2a): il generatore del pool di loot -------------------------------
+
+_LOTTO_OGGETTI = 6  # come i boss: lotti piccoli degradano bene
+
+
+def prompt_lotto_oggetti(stagione, n: int, esclusi: set[str],
+                         respinti_prima: tuple[str, ...] = ()) -> str:
+    """Il compito di UN lotto di oggetti: vocabolari chiusi (slot d'armatura,
+    categorie, taglie, sedi, fasce, gradi coperti dai piani, mosse note) e
+    dinamici (vietati, feedback). Zero numeri: lo schema non ha dove metterli."""
+    from contracts import CategoriaArmatura, Fascia, SedeAccessorio, Taglia
+    from contracts.proiezione import SLOT_ARMATURA
+
+    vietati = f" Slug già usati (vietati): {', '.join(sorted(esclusi))}." if esclusi else ""
+    gradi = sorted(
+        {g.value for p in stagione.piani for g in p.budget.gradi},
+    )
+    righe = [
+        "[vocabolario/tipi] armatura, arma, accessorio",
+        "[vocabolario/slot-armatura] " + ", ".join(s.value for s in SLOT_ARMATURA),
+        "[vocabolario/categorie] " + ", ".join(c.value for c in CategoriaArmatura),
+        "[vocabolario/taglie] " + ", ".join(t.value for t in Taglia),
+        "[vocabolario/sedi] " + ", ".join(s.value for s in SedeAccessorio),
+        "[vocabolario/fasce] " + ", ".join(f.value for f in Fascia),
+        "[vocabolario/gradi] " + ", ".join(gradi),
+        "[vocabolario/mosse] " + ", ".join(sorted(mosse_note())),
+        f"[compito] Genera {n} OGGETTI di equipaggiamento per questo piano-mondo "
+        f"(bottino a tema).{vietati} Mischia i tipi (armature su slot diversi, "
+        "un'arma, accessori), copri più gradi; le mosse (opzionali) solo sugli "
+        "accessori e SOLO dal vocabolario. NIENTE numeri: scegli fasce ed enum, "
+        "i valori li deriva il motore.",
+    ]
+    if respinti_prima:
+        righe.append(
+            "[respinti] Nel giro precedente sono stati SCARTATI: "
+            + "; ".join(respinti_prima) + ". Correggi questi errori."
+        )
+    return "\n".join(righe)
+
+
+def autorato_a_oggetto_asset(o) -> "OggettoAsset":
+    """OggettoAutorato → OggettoAsset: nessun numero (li deriverà il motore);
+    la coerenza di forma la impone il validator dell'asset (un candidato
+    incoerente esplode QUI, e il gate lo riporta come motivo)."""
+    from contracts import ModificatoreDati, OggettoAsset
+
+    return OggettoAsset(
+        slug=o.slug,
+        versione=1,
+        tags=["generato", "loot"],
+        nome=o.nome,
+        descrizione=o.descrizione,
+        tipo=o.tipo,
+        grado=o.grado,
+        slot=o.slot,
+        categoria=o.categoria,
+        taglia=o.taglia,
+        sede=o.sede,
+        mosse=list(o.mosse),
+        modificatori=[
+            ModificatoreDati(stat=m.stat, fascia=m.fascia) for m in o.modificatori
+        ],
+    )
+
+
+def gate_oggetto(o, stagione, slug_visti: set[str], *, ufficiali: Path | None,
+                 locali: Path | None, sovrascrivi: bool):
+    """Gate per item degli oggetti autorati. Ritorna (asset|None, errori)."""
+    from motore import lint_oggetto
+
+    errori: list[str] = []
+    if o.slug in slug_visti:
+        errori.append(f"{o.slug}: slug duplicato nel batch")
+    elif not sovrascrivi and carica_asset(
+        "oggetti", o.slug, ufficiali=ufficiali, locali=locali
+    ) is not None:
+        errori.append(f"{o.slug}: slug già in libreria (usa --sovrascrivi)")
+    gradi_stagione = {g for p in stagione.piani for g in p.budget.gradi}
+    if o.grado not in gradi_stagione:
+        errori.append(f"{o.slug}: grado {o.grado.value} fuori dai piani della stagione")
+    try:
+        asset = autorato_a_oggetto_asset(o)
+    except ValueError as errore:
+        errori.append(f"{o.slug}: {errore}")
+        return None, errori
+    errori.extend(lint_oggetto(asset))
+    return (asset if not errori else None), errori
+
+
+async def genera_oggetti(
+    engine: MasterEngine, stagione, *, quanti: int,
+    ufficiali: Path | None = None, locali: Path | None = None,
+    sovrascrivi: bool = False,
+):
+    """Il batch oggetti: stessi giri paralleli + top-up bounded dei boss.
+    Ritorna (oggetti_accettati, respinti)."""
+    contesto = contesto_prompt(stagione, stagione.piani[0])
+    accettati: list = []
+    respinti: list[str] = []
+    slug_visti: set[str] = set()
+    feedback: tuple[str, ...] = ()
+
+    for _ in range(1 + _GIRI_EXTRA):
+        mancanti = quanti - len(accettati)
+        if mancanti <= 0:
+            break
+        prompts = [
+            prompt_lotto_oggetti(
+                stagione, min(_LOTTO_OGGETTI, mancanti - inizio), slug_visti, feedback,
+            )
+            for inizio in range(0, mancanti, _LOTTO_OGGETTI)
+        ]
+        lotti = await asyncio.gather(*(
+            engine.genera("authoring.oggetto", p, sistema=contesto) for p in prompts
+        ))
+        motivi_giro: list[str] = []
+        for lotto in lotti:
+            if lotto is None:
+                respinti.append("lotto oggetti: chiamata degradata (trasporto)")
+                continue
+            for o in lotto.oggetti:
+                if len(accettati) >= quanti:
+                    break
+                asset, errori = gate_oggetto(
+                    o, stagione, slug_visti,
+                    ufficiali=ufficiali, locali=locali, sovrascrivi=sovrascrivi,
+                )
+                if asset is None:
+                    respinti.extend(errori)
+                    motivi_giro.extend(errori)
+                    continue
+                slug_visti.add(asset.slug)
+                accettati.append(asset)
+        feedback = tuple(motivi_giro)
+
+    return accettati, respinti
+
+
 # --- Applicazione: scritture atomiche + gate finale (risolvi_stagione) ----------
 
 def _scrivi_json(percorso: Path, dati: dict) -> None:
@@ -347,11 +485,13 @@ def _scrivi_json(percorso: Path, dati: dict) -> None:
 
 def applica(
     slug_stagione: str, slug_piano: str, mob_nuovi, tabelle, spawn, per_tier,
-    *, radice: Path | None = None, locali: Path | None = None,
+    *, oggetti_nuovi=(), radice: Path | None = None, locali: Path | None = None,
 ) -> list[str]:
-    """Scrive i mob generati e il PianoAsset aggiornato nella libreria, con GATE
-    FINALE `risolvi_stagione`: se la stagione aggiornata non risolve, ROLLBACK
-    completo (l'authoring non lascia mai la libreria a metà). Ritorna gli errori
+    """Scrive i mob e gli oggetti generati e il PianoAsset aggiornato nella
+    libreria, con GATE FINALE `risolvi_stagione`: se la stagione aggiornata non
+    risolve, ROLLBACK completo (l'authoring non lascia mai la libreria a metà).
+    Gli oggetti entrano nel pool lasco della stagione (D-1: `oggetti` vuoto =
+    tutta la libreria) senza toccare il file stagione. Ritorna gli errori
     (vuota = applicato)."""
     radice = radice or DIRECTORY_CONTENUTI
     piano_path = radice / "piani" / f"{slug_piano}.json"
@@ -377,6 +517,10 @@ def applica(
         for mob in mob_nuovi:
             percorso = radice / "mob" / f"{mob.slug}.json"
             _scrivi_json(percorso, json.loads(mob.model_dump_json()))
+            scritti.append(percorso)
+        for oggetto in oggetti_nuovi:
+            percorso = radice / "oggetti" / f"{oggetto.slug}.json"
+            _scrivi_json(percorso, json.loads(oggetto.model_dump_json()))
             scritti.append(percorso)
         _scrivi_json(piano_path, piano_dati)
         risolvi_stagione(slug_stagione, ufficiali=radice, locali=locali)  # gate finale
@@ -413,6 +557,8 @@ def costruisci_parser() -> "argparse.ArgumentParser":
                    help="slug della stagione da risolvere")
     p.add_argument("--piano", default=None,
                    help="slug del piano da popolare (default: il primo della stagione)")
+    p.add_argument("--oggetti", type=int, default=0,
+                   help="oggetti di equipaggiamento da generare per il pool di loot")
     return p
 
 
@@ -468,10 +614,17 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         engine, stagione, piano, n_per_tier=n_per_tier,
         sovrascrivi=args.sovrascrivi,
     ))
+    oggetti_nuovi: list = []
+    if args.oggetti > 0:
+        oggetti_nuovi, respinti_oggetti = asyncio.run(genera_oggetti(
+            engine, stagione, quanti=args.oggetti, sovrascrivi=args.sovrascrivi,
+        ))
+        respinti.extend(respinti_oggetti)
     print(f"[genera] boss accettati: {len(mob_nuovi)} "
           f"(provincia {len(per_tier[TierTerritorio.PROVINCIA])}, "
           f"citta {len(per_tier[TierTerritorio.CITTA])}); "
-          f"tabelle: {len(tabelle)}; spawn: {len(spawn)}")
+          f"tabelle: {len(tabelle)}; spawn: {len(spawn)}; "
+          f"oggetti: {len(oggetti_nuovi)}")
     for riga in respinti:
         print(f"[genera] ✗ respinto: {riga}")
     if consumo is not None:
@@ -481,11 +634,15 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         print("[genera] DRY-RUN: nessuna scrittura (usa --applica per scrivere; "
               "il diff git è la promozione)")
         return 0
-    errori = applica(args.stagione, piano.slug, mob_nuovi, tabelle, spawn, per_tier)
+    errori = applica(
+        args.stagione, piano.slug, mob_nuovi, tabelle, spawn, per_tier,
+        oggetti_nuovi=oggetti_nuovi,
+    )
     for riga in errori:
         print(f"[genera] ✗ {riga}")
     if not errori:
-        print(f"[genera] applicato: {len(mob_nuovi)} mob + piano {piano.slug} aggiornato")
+        print(f"[genera] applicato: {len(mob_nuovi)} mob + {len(oggetti_nuovi)} "
+              f"oggetti + piano {piano.slug} aggiornato")
     return 1 if errori else 0
 
 
