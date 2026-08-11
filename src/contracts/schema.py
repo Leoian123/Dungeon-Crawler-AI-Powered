@@ -568,6 +568,38 @@ class LottoOggettiAutorati(BaseModel):
     oggetti: list[OggettoAutorato] = Field(min_length=1, max_length=6)
 
 
+class OggettoGenerato(BaseModel):
+    """La VESTIZIONE di un drop GIÀ deciso dal motore (contratto premi, Sit.3):
+    l'AI battezza nome/descrizione/aspetto sul `base` fissato. Il gate rifiuta
+    un candidato che cambia `base`, altera il `grado` o sposta lo `slot` —
+    il verdetto dell'AI è una vestizione, mai una leva (dottrina
+    `gate_beneficio`). Fallback: il nome di catalogo."""
+
+    model_config = _CHIUSO
+
+    base: Slug                       # gate: LA fonte del drop, immutabile
+    grado: Grado                     # gate: il grado del drop, immutabile
+    slot: SlotEquip | None = None    # gate: lo slot della base (ridondanza anti-tamper)
+    nome: str
+    descrizione: str
+    aspetto: str = ""
+
+
+class SkillGenerata(BaseModel):
+    """Il RIBATTEZZO narrativo di una mossa concessa da un premio (Sit.4): la
+    mossa VERA resta la voce di catalogo (costi e numeri dal §11, mai da qui).
+    `tipo_danno`/`blocco` sono selezioni dichiarative: nell'MVP non mutano la
+    meccanica della base — un valore incoerente degrada al solo nome."""
+
+    model_config = _CHIUSO
+
+    mossa_base: str = Field(min_length=1)   # gate: una chiave del catalogo mosse
+    nome: str
+    descrizione: str = ""
+    tipo_danno: TipoDanno | None = None
+    blocco: Blocco | None = None
+
+
 class NemicoSperimentale(BaseModel):
     """Il candidato del BANCO DI PROVA (confronto fra modelli): il **core** di
     `EntitaGenerata` (stessi enum chiusi, da cui il motore deriva le stat REALI)

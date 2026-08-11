@@ -174,6 +174,12 @@ def _costruisci_app(sessione):
                 testo = await self.sessione.prosa_apertura_scontro()
                 if testo:
                     self._chat_flavor(testo)
+            if fase_prima == "combattimento" and snap.fase == "narrazione" and not self._morto:
+                # VESTIZIONE del premio (Sit.3): il drop è già in zaino e in
+                # cronaca; il battesimo del cimelio arriva quando arriva.
+                testo = await self.sessione.veste_premio()
+                if testo:
+                    self._chat_flavor(f"✦ {testo}")
             if self._morto and not self._epitaffio_scritto:
                 self._epitaffio_scritto = True
                 testo = await self.sessione.epitaffio()

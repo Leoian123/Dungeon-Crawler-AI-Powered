@@ -26,7 +26,7 @@ import typing
 
 from ..corredo import Corredo
 from ..design import StagioneAttiva
-from ..equip import ComponenteEquip, Zaino
+from ..equip import ComponenteEquip, Guardaroba, Zaino
 from ..fase import FaseCorrente
 from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
@@ -67,6 +67,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     # filtro-di-provenienza (save) + hook `re_equipaggia` (load) — le voci
     # derivate non viaggiano mai nel save, rinascono dal manifest.
     ComponenteEquip: "equip",
+    # La vestizione dei premi (T2b): parole generate e gated — il cimelio
+    # battezzato non torna anonimo al load.
+    Guardaroba: "guardaroba",
     Resistenze: "resistenze",
     Repertorio: "repertorio",
     FaseCorrente: "fase_corrente",

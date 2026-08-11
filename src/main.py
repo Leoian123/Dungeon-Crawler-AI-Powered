@@ -739,8 +739,13 @@ def _equip_di(entita: int) -> tuple[EquipVista, ...]:
 def _etichetta_mossa_ricca(entita: int, chiave: str) -> str:
     """L'etichetta di menu che DICE il costo: "Dardo arcano — 3 mana", e in ricarica
     "Colpo pesante — ricarica (1)". Composizione di presentazione: vive nel port,
-    non nel motore (che possiede i numeri, non le frasi)."""
-    base = etichetta_mossa(chiave)
+    non nel motore (che possiede i numeri, non le frasi). Il ribattezzo del
+    Guardaroba (premi.skill) vince sul nome di catalogo."""
+    from motore import guardaroba_attivo
+
+    guardaroba = guardaroba_attivo(entita)
+    base = (guardaroba.mosse_vesti.get(chiave) if guardaroba is not None else None) \
+        or etichetta_mossa(chiave)
     residuo = cooldown_residuo(entita, chiave)
     if residuo > 0:
         return f"{base} — ricarica ({residuo})"
@@ -1181,6 +1186,93 @@ class SessioneGioco:
         cambiare dopo il load: il copione offline si deriva dal save)."""
         prov = self.provider
         return prov if isinstance(prov, MasterEngine) else MasterEngine.avvolgi(prov)
+
+    async def veste_premio(self) -> str | None:
+        """Sit.3+4 (contratto premi): la VESTIZIONE del drop GIÀ deciso — il
+        motore ha tirato SE e COSA (`_deposita_bottino`), l'AI battezza il
+        cimelio (rotta `premi.oggetto`, gating). Gate anti-arbitraggio:
+        base/grado/slot immutabili; rifiuto o degrado → resta il nome di
+        catalogo (il deposito non dipende MAI da questa chiamata). Se il drop
+        concede mosse, `premi.skill` le ribattezza (solo parole, D-3).
+        `None` = niente da vestire o fallback silenzioso."""
+        self._guardia_aperta()
+        if self._ultimo_drop is None:
+            return None
+        from contracts import Grado as _Grado
+        from motore import (
+            assicura_guardaroba,
+            catalogo_oggetti_correnti,
+            gate_premio,
+            rango_grado,
+        )
+
+        fonte, grado = self._ultimo_drop
+        self._ultimo_drop = None
+        oggetto = catalogo_oggetti_correnti().get(fonte)
+        if oggetto is None:
+            return None
+        slot = getattr(oggetto, "slot", None)
+        prompt = "\n".join([
+            f"[premio] Il drop è GIÀ deciso dal motore: base «{fonte}» "
+            f"({type(oggetto).__name__.lower()}"
+            f"{', slot ' + slot.value if slot is not None else ''}), "
+            f"grado {grado}. Nome di catalogo: {getattr(oggetto, 'nome', '') or fonte}.",
+            "[istruzione] Battezza il CIMELIO: `nome` memorabile (stile DCC), "
+            "`descrizione` tagliente (1-2 frasi), `aspetto` (il dettaglio che si "
+            "vede). Ricopia base/grado/slot ESATTI: sono immutabili — la "
+            "vestizione è un nome, mai una leva.",
+        ])
+        candidato = await self._engine().genera(
+            "premi.oggetto", prompt, sistema=PREFISSO_RIFINITURA
+        )
+        if candidato is None or gate_premio(candidato, fonte, grado) is not None:
+            return None
+        pent, _m, _s = protagonista()
+        guardaroba = assicura_guardaroba(pent)
+        dettagli = "; ".join(
+            x for x in (candidato.descrizione, candidato.aspetto) if x
+        )
+        guardaroba.vesti[fonte] = (candidato.nome, dettagli)
+        if (self.memoria_lunga is not None
+                and rango_grado(_Grado(grado)) >= rango_grado(_Grado.ORO)):
+            # Il premio memorabile è un EVENTO: il GM ricorda chi ha dato cosa.
+            from contracts import DocumentoMemoria, TipoDocumento
+
+            self.memoria_lunga.salva(DocumentoMemoria(
+                id=f"premio-{fonte}", tipo=TipoDocumento.EVENTO,
+                titolo=candidato.nome,
+                testo=f"{grado}: {dettagli}" if dettagli else grado,
+                tags=(fonte,),
+            ))
+        prosa = f"«{candidato.nome}» — {candidato.descrizione}"
+        mosse = tuple(getattr(oggetto, "mosse", ()) or ())
+        if mosse:
+            riga_skill = await self._veste_skill(guardaroba, mosse[0])
+            if riga_skill:
+                prosa = f"{prosa}\n{riga_skill}"
+        return prosa
+
+    async def _veste_skill(self, guardaroba, chiave: str) -> str | None:
+        """Il ribattezzo della mossa concessa (Sit.4, perimetro D-3): SOLO
+        parole — la mossa vera resta la voce di catalogo, costi e numeri
+        del §11. Un candidato che cambia la base degrada in silenzio."""
+        from motore import mosse_note
+
+        prompt = "\n".join([
+            f"[skill] Il premio concede la mossa di catalogo «{chiave}» "
+            f"({etichetta_mossa(chiave)}).",
+            "[istruzione] Ribattezzala: `nome` memorabile in stile DCC e una "
+            "`descrizione` breve. `mossa_base` DEVE restare la chiave esatta: "
+            "il ribattezzo è narrativo, la meccanica non si tocca.",
+        ])
+        candidato = await self._engine().genera(
+            "premi.skill", prompt, sistema=PREFISSO_RIFINITURA
+        )
+        if (candidato is None or candidato.mossa_base != chiave
+                or chiave not in mosse_note()):
+            return None
+        guardaroba.mosse_vesti[chiave] = candidato.nome
+        return f"La mossa {etichetta_mossa(chiave)} ora si chiama «{candidato.nome}»."
 
     def _riga_scena_nemico(self) -> str:
         """La riga `[scena/nemico]` dai dettagli dell'avversario corrente ("" se
@@ -2192,9 +2284,17 @@ def elenca_crawler(directory: Path | None = None) -> list[CrawlerVista]:
 
 def etichetta_oggetto(fonte: str) -> str:
     """Il nome diegetico di un oggetto del catalogo DELLA RUN ("" o ignoto → la
-    fonte): l'host mostra parole, mai id di dominio nudi."""
-    from motore import catalogo_oggetti_correnti
+    fonte): l'host mostra parole, mai id di dominio nudi. La VESTIZIONE del
+    Guardaroba (il nome battezzato dall'AI, gated) vince sul catalogo."""
+    import esper
 
+    from motore import catalogo_oggetti_correnti, guardaroba_attivo
+    from motore.scheda import Protagonista
+
+    for ent, _marker in esper.get_component(Protagonista):
+        guardaroba = guardaroba_attivo(ent)
+        if guardaroba is not None and fonte in guardaroba.vesti:
+            return guardaroba.vesti[fonte][0]
     oggetto = catalogo_oggetti_correnti().get(fonte)
     nome = getattr(oggetto, "nome", "") if oggetto is not None else ""
     return nome or fonte

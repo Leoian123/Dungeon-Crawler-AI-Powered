@@ -141,6 +141,24 @@ def catalogo_oggetti_correnti() -> dict[str, object]:
     return catalogo
 
 
+def gate_premio(candidato, fonte: str, grado: str) -> str | None:
+    """Anti-arbitraggio della vestizione (contratto premi): il candidato non
+    cambia la base, non altera il grado, non sposta lo slot. `None` = passa;
+    altrimenti il MOTIVO — e il chiamante degrada al nome di catalogo (il
+    deposito è già avvenuto e non dipende MAI da questa chiamata)."""
+    if candidato.base != fonte:
+        return f"base cambiata ({candidato.base!r} ≠ {fonte!r})"
+    if candidato.grado.value != grado:
+        return f"grado alterato ({candidato.grado.value} ≠ {grado})"
+    oggetto = catalogo_oggetti_correnti().get(fonte)
+    if oggetto is None:
+        return "base non nel catalogo della run"
+    slot_base = getattr(oggetto, "slot", None)
+    if candidato.slot is not None and candidato.slot is not slot_base:
+        return "slot spostato (l'AI non sposta un elmo ai piedi)"
+    return None
+
+
 def grado_oggetto(fonte: str) -> str:
     """Il grado (valore stringa) dell'oggetto congelato con quella fonte;
     gli storici senza grado valgono BRONZO."""

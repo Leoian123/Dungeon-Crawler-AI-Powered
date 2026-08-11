@@ -191,6 +191,29 @@ class Zaino:
     fonti: list[str] = field(default_factory=list)
 
 
+@dataclass
+class Guardaroba:
+    """La VESTIZIONE dei premi (contratto premi, D-2): i nomi generati dei
+    cimeli, keyed per fonte, e i ribattezzi delle mosse concesse. Solo PAROLE
+    (il nome del cimelio È il gioco): la meccanica resta del catalogo — e
+    viaggia nel save (il cimelio non torna anonimo al load)."""
+
+    vesti: dict[str, tuple[str, str]] = field(default_factory=dict)   # fonte → (nome, descrizione)
+    mosse_vesti: dict[str, str] = field(default_factory=dict)         # chiave mossa → nome
+
+
+def assicura_guardaroba(entita: int) -> Guardaroba:
+    comp = esper.try_component(entita, Guardaroba)
+    if comp is None:
+        comp = Guardaroba()
+        esper.add_component(entita, comp)
+    return comp
+
+
+def guardaroba_attivo(entita: int) -> Guardaroba | None:
+    return esper.try_component(entita, Guardaroba)
+
+
 def assicura_zaino(entita: int) -> Zaino:
     """Lo `Zaino` dell'entità, montandolo vuoto se assente (save scritti prima
     che l'inventario esistesse: migrazione lazy, nessun cambio di formato)."""

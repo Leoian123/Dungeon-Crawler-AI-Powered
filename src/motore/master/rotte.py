@@ -22,6 +22,8 @@ from contracts import (
     LottoBossGenerati,
     LottoOggettiAutorati,
     NemicoSperimentale,
+    OggettoGenerato,
+    SkillGenerata,
     TabellaProceduraleGen,
     TabellaSpawnGenerata,
     TurnoNarrazione,
@@ -101,6 +103,13 @@ for _rotta in (
           fase=None, gating=True),
     Rotta("authoring.oggetto", LottoOggettiAutorati, Corsia.FORTE, retry=1,
           fase=None, gating=True),
+    # --- Premi (contratto premi, Sit.3+4): la VESTIZIONE del drop già deciso.
+    # gating=True (l'esito tocca il Guardaroba), FORTE (il premio è un momento
+    # chiave), fase NARRAZIONE (il resoconto post-scontro è il suo posto).
+    Rotta("premi.oggetto", OggettoGenerato, Corsia.FORTE, retry=1,
+          fase=Fase.NARRAZIONE, gating=True),
+    Rotta("premi.skill", SkillGenerata, Corsia.FORTE, retry=1,
+          fase=Fase.NARRAZIONE, gating=True),
     # --- Dialogo PNG (T3): SOLA PROSA (mai esiti — la voce va solo a video),
     # phase-gated a NARRAZIONE: parlare in combattimento è strutturalmente
     # impossibile (la guardia di fase, non un check a mano). Corsia VELOCE:
