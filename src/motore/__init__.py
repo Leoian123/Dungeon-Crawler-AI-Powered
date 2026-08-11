@@ -280,7 +280,11 @@ from .design import (
     stagione_corrente,
 )
 from .oggetti import (
+    OggettiConiati,
+    assicura_coniati,
+    attivo_da_asset,
     catalogo_oggetti_correnti,
+    gate_conio,
     gate_premio,
     grado_oggetto,
     lint_oggetto,
@@ -636,7 +640,11 @@ __all__ = [
     "mossa_da_dati",
     "mossa_di",
     "mosse_note_correnti",
+    "OggettiConiati",
+    "assicura_coniati",
+    "attivo_da_asset",
     "catalogo_oggetti_correnti",
+    "gate_conio",
     "gate_premio",
     "grado_oggetto",
     "lint_oggetto",

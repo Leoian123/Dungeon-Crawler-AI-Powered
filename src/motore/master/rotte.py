@@ -24,6 +24,7 @@ from contracts import (
     LottoOggettiAutorati,
     LottoStatusProposti,
     NemicoSperimentale,
+    OggettoAutorato,
     OggettoGenerato,
     SkillGenerata,
     TabellaProceduraleGen,
@@ -116,6 +117,11 @@ for _rotta in (
     # gating=True (l'esito tocca il Guardaroba), FORTE (il premio è un momento
     # chiave), fase NARRAZIONE (il resoconto post-scontro è il suo posto).
     Rotta("premi.oggetto", OggettoGenerato, Corsia.FORTE, retry=1,
+          fase=Fase.NARRAZIONE, gating=True),
+    # Il CONIO: a chance di drop vinta l'AI genera l'oggetto NUOVO dentro il
+    # frame del motore (grado deciso seeded prima della chiamata). Stesso
+    # schema zero-numeri dell'authoring (OggettoAutorato).
+    Rotta("premi.conio", OggettoAutorato, Corsia.FORTE, retry=1,
           fase=Fase.NARRAZIONE, gating=True),
     Rotta("premi.skill", SkillGenerata, Corsia.FORTE, retry=1,
           fase=Fase.NARRAZIONE, gating=True),

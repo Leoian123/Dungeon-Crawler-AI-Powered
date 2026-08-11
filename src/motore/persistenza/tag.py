@@ -27,6 +27,7 @@ import typing
 from ..corredo import Corredo
 from ..design import StagioneAttiva
 from ..equip import ComponenteEquip, Guardaroba, Zaino
+from ..oggetti import OggettiConiati
 from ..fase import FaseCorrente
 from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
@@ -70,6 +71,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     # La vestizione dei premi (T2b): parole generate e gated — il cimelio
     # battezzato non torna anonimo al load.
     Guardaroba: "guardaroba",
+    # Gli oggetti CONIATI in-run (drop generati dall'AI, gated): posseduto
+    # persistente — il cimelio nato in run non svanisce al load.
+    OggettiConiati: "oggetti_coniati",
     Resistenze: "resistenze",
     Repertorio: "repertorio",
     FaseCorrente: "fase_corrente",

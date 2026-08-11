@@ -1048,6 +1048,9 @@ class SessioneGioco:
         # L'ultimo drop deciso dal motore, (fonte, grado): il dato FISSATO che
         # la vestizione AI dei premi potrà vestire, mai cambiare (T2b).
         self._ultimo_drop: tuple[str, str] | None = None
+        # Il drop VINTO ma non ancora coniato (solo provider live): il GRADO
+        # fissato dal motore — `veste_premio` conia, il flush lo garantisce.
+        self._drop_pendente: str | None = None
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
@@ -1240,6 +1243,8 @@ class SessioneGioco:
         concede mosse, `premi.skill` le ribattezza (solo parole, D-3).
         `None` = niente da vestire o fallback silenzioso."""
         self._guardia_aperta()
+        if self._drop_pendente is not None:
+            return await self._conia_premio()
         if self._ultimo_drop is None:
             return None
         from contracts import Grado as _Grado
@@ -1295,6 +1300,75 @@ class SessioneGioco:
             if riga_skill:
                 prosa = f"{prosa}\n{riga_skill}"
         return prosa
+
+    async def _conia_premio(self) -> str | None:
+        """Il CONIO (la richiesta dell'utente 2026-08-11): a chance di drop
+        VINTA, l'AI genera un oggetto NUOVO dentro il frame del motore — il
+        GRADO è deciso seeded PRIMA della chiamata e non si negozia; lo schema
+        (`OggettoAutorato`) non ha campi numerici; `gate_conio` valida forma,
+        banda e mosse della run. Su rifiuto o degrado: deposito deterministico
+        dal pool — il drop non dipende MAI dall'esito della chiamata."""
+        from contracts import (
+            CategoriaArmatura as _Cat,
+            Fascia as _Fascia,
+            SedeAccessorio as _Sede,
+            Taglia as _Taglia,
+        )
+        from contracts.proiezione import SLOT_ARMATURA
+        from motore import (
+            assicura_coniati,
+            gate_conio,
+            mosse_note_correnti,
+            rango_grado,
+        )
+        from contracts import Grado as _Grado
+
+        grado = self._drop_pendente
+        self._drop_pendente = None
+        prompt = "\n".join([
+            "[vocabolario/tipi] armatura, arma, accessorio",
+            "[vocabolario/slot-armatura] " + ", ".join(s.value for s in SLOT_ARMATURA),
+            "[vocabolario/categorie] " + ", ".join(c.value for c in _Cat),
+            "[vocabolario/taglie] " + ", ".join(t.value for t in _Taglia),
+            "[vocabolario/sedi] " + ", ".join(s.value for s in _Sede),
+            "[vocabolario/fasce] " + ", ".join(f.value for f in _Fascia),
+            "[vocabolario/mosse] " + ", ".join(sorted(mosse_note_correnti())),
+            f"[premio] La chance di drop è VINTA e il motore ha fissato il "
+            f"grado: {grado}.",
+            "[istruzione] CONIA il cimelio: slug nuovo kebab-case, nome "
+            "memorabile in stile DCC, descrizione tagliente (1-2 frasi); "
+            "scegli tipo/slot/categoria/taglia/sede e le FASCE dei "
+            f"modificatori dagli enum. `grado` DEVE essere \"{grado}\": è "
+            "deciso, non negoziabile. Mosse (solo accessori) SOLO dal "
+            "vocabolario. NIENTE numeri: i valori li deriva il motore.",
+        ])
+        candidato = await self._engine().genera(
+            "premi.conio", prompt, sistema=PREFISSO_RIFINITURA
+        )
+        if candidato is not None:
+            attivo, _motivo = gate_conio(
+                candidato, grado, mosse_ammesse=mosse_note_correnti(),
+            )
+            if attivo is not None:
+                pent, _m, _s = protagonista()
+                assicura_coniati(pent).voci.append(attivo)
+                assicura_zaino(pent).fonti.append(attivo.slug)
+                self._ultimo_drop = None
+                self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
+                if (self.memoria_lunga is not None
+                        and rango_grado(_Grado(grado)) >= rango_grado(_Grado.ORO)):
+                    from contracts import DocumentoMemoria, TipoDocumento
+
+                    self.memoria_lunga.salva(DocumentoMemoria(
+                        id=f"premio-{attivo.slug}", tipo=TipoDocumento.EVENTO,
+                        titolo=attivo.nome,
+                        testo=f"{grado}: {attivo.descrizione}"[:300],
+                        tags=(attivo.slug,),
+                    ))
+                return f"«{attivo.nome}» — {attivo.descrizione}"
+        # Rifiuto del gate o degrado di trasporto: il drop non si perde.
+        self._deposita_da_pool(grado)
+        return None
 
     async def _veste_skill(self, guardaroba, chiave: str) -> str | None:
         """Il ribattezzo della mossa concessa (Sit.4, perimetro D-3): SOLO
@@ -1443,52 +1517,63 @@ class SessioneGioco:
         comp = equip_attivo(pent)
         return comp.fonti() if comp is not None else ()
 
+    def _provider_offline(self) -> bool:
+        """Vero se il GM è il copione offline (FakeProvider e derivati): il
+        conio non ha un modello da chiamare — il drop resta sincrono dal pool
+        (comportamento storico, byte-identico)."""
+        prov = self.provider
+        if isinstance(prov, MasterEngine):
+            from motore import Corsia
+
+            prov = prov.provider_di(Corsia.FORTE)
+        return isinstance(prov, FakeProvider)
+
     def _deposita_bottino(self) -> None:
-        """Drop seeded a scontro VINTO, PER GRADO (T1c): il motore decide SE
-        droppa (`PROB_DROP`), poi pesca il GRADO — pesato (`LOOT.PESO_GRADO.*`)
-        dentro la finestra della profondità (`gradi_per_profondita`: il
-        budget-loot È quella mappa) — e infine la fonte del catalogo CORRENTE
-        (storico + oggetti-asset congelati) di quel grado non ancora posseduta.
-        Grado senza candidati → degrado a «qualunque non posseduto» (un buco di
-        contenuto non azzera mai il drop). Tutte le pescate vengono dallo
-        stream RNG di sessione (persistito: replay-safe) e l'ORDINE è fisso.
-        Il drop deciso resta in `self._ultimo_drop` per la vestizione AI."""
+        """Drop a scontro VINTO: il motore decide SE droppa (`PROB_DROP`) e il
+        GRADO — pesato (`LOOT.PESO_GRADO.*`) dentro la finestra della
+        profondità — SEEDED e PRIMA di qualunque chiamata AI (risolvi prima,
+        narra dopo). Col provider OFFLINE deposita subito dal pool; col
+        provider LIVE il drop resta PENDENTE e `veste_premio` prova a
+        CONIARE l'oggetto nuovo (rotta gated `premi.conio`), con fallback
+        deterministico al pool: il drop non si perde mai (flush in `salva()`
+        e a ogni drop successivo)."""
         from motore import calibrazione as _cal
-        from motore import (
-            catalogo_oggetti_correnti,
-            grado_oggetto,
-            gradi_per_profondita,
-            rango_grado,
-        )
+        from motore import gradi_per_profondita, rango_grado
+
+        self._scarica_drop_pendente()   # cintura: mai due pendenti
+        if self.rng.random() >= _cal.PROB_DROP:
+            return
+        finestra = [g.value for g in sorted(
+            gradi_per_profondita(livello_corrente()), key=rango_grado)]
+        pesi = [_cal.LOOT_PESO_GRADO[g] for g in finestra]
+        tiro = self.rng.random() * (sum(pesi) or 1)
+        cumulo, grado = 0.0, finestra[-1]
+        for g, peso in zip(finestra, pesi):
+            cumulo += peso
+            if tiro < cumulo:
+                grado = g
+                break
+        if self._provider_offline():
+            self._deposita_da_pool(grado)
+        else:
+            self._drop_pendente = grado
+
+    def _deposita_da_pool(self, grado: str) -> None:
+        """Il deposito DETERMINISTICO dal pool (storico + congelati + coniati):
+        candidati del grado deciso non posseduti; grado scoperto → qualunque
+        non posseduto (mai un drop a vuoto per un buco di contenuto). Le
+        pescate vengono dallo stream di sessione, in ordine fisso."""
+        from motore import catalogo_oggetti_correnti, grado_oggetto
 
         pent, _marker, _scheda = protagonista()
         zaino = assicura_zaino(pent)
         catalogo = catalogo_oggetti_correnti()
-        if self.rng.random() >= _cal.PROB_DROP:
+        candidate = [f for f in sorted(catalogo)
+                     if f not in zaino.fonti and grado_oggetto(f) == grado]
+        if not candidate:
+            candidate = [f for f in sorted(catalogo) if f not in zaino.fonti]
+        if not candidate:
             return
-        per_grado: dict[str, list[str]] = {}
-        for fonte in sorted(catalogo):
-            if fonte not in zaino.fonti:
-                per_grado.setdefault(grado_oggetto(fonte), []).append(fonte)
-        if not per_grado:
-            return
-        finestra = [g.value for g in sorted(
-            gradi_per_profondita(livello_corrente()), key=rango_grado)]
-        pescabili = [g for g in finestra if per_grado.get(g)]
-        if pescabili:
-            pesi = [_cal.LOOT_PESO_GRADO[g] for g in pescabili]
-            tiro = self.rng.random() * (sum(pesi) or 1)
-            cumulo, grado = 0.0, pescabili[-1]
-            for g, peso in zip(pescabili, pesi):
-                cumulo += peso
-                if tiro < cumulo:
-                    grado = g
-                    break
-            candidate = per_grado[grado]
-        else:
-            # Nessun candidato nella finestra: degrado dichiarato, mai un
-            # drop a vuoto per un buco di contenuto.
-            candidate = sorted(f for fonti in per_grado.values() for f in fonti)
         fonte = candidate[self.rng.randrange(len(candidate))]
         zaino.fonti.append(fonte)
         oggetto = catalogo[fonte]
@@ -1496,6 +1581,14 @@ class SessioneGioco:
         self.bus.pubblica(OggettoTrovato(
             nome=getattr(oggetto, "nome", "") or fonte, fonte=fonte,
         ))
+
+    def _scarica_drop_pendente(self) -> None:
+        """Flush del drop vinto ma non coniato (host che non ha atteso, save
+        imminente): deposito deterministico dal pool — il drop non si perde."""
+        if self._drop_pendente is not None:
+            grado = self._drop_pendente
+            self._drop_pendente = None
+            self._deposita_da_pool(grado)
 
     def equipaggia(self, fonte: str) -> SnapshotVista:
         """Porta dell'inventario (ADR-1 D3): Zaino → manifest, via l'intento
@@ -1520,6 +1613,7 @@ class SessioneGioco:
         timestamp alimentano l'indice dell'hub (H §5)."""
         self._guardia_aperta()
         self._guardia_fase_salvataggio()
+        self._scarica_drop_pendente()   # il drop vinto non si perde in un save
         salva_run(
             self.guscio.directory,
             archivio=self.archivio,
