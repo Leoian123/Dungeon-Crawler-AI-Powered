@@ -344,7 +344,7 @@ authoring successive.
   (`crea_protagonista` → `nuova_partita` → `SessioneGioco.nuova`): nessun literal nel
   composition root.
 
-### 2.4 Equipaggiamento (forma completa, canale SPENTO)
+### 2.4 Equipaggiamento (canale ACCESO; manca la persistenza F5 e il contenuto)
 
 La forma ADR-1 F1–F3 è atterrata: `ComponenteEquip` come manifest durevole (effetti
 sempre **derivati**, rimozione per fonte), un solo enum `SlotEquip` (9 slot + mount),
@@ -353,17 +353,22 @@ sempre **derivati**, rimozione per fonte), un solo enum `SlotEquip` (9 slot + mo
 concesse con **provenienza** (`mosse_concesse`: sfilare un anello non cancella una
 mossa innata né quella del gemello ancora indosso).
 
+**Il canale in partita è ACCESO end-to-end**: `SistemaEquip` è registrato nel bucket
+di narrazione (`guscio/macchina.py`) col gate di possesso sullo `Zaino` (persistente);
+le porte `SessioneGioco.equipaggia/togli` producono `PlayerEquipaggia/Toglie`;
+`_deposita_bottino` deposita a vittoria un drop seeded (`PROB_DROP` §11) con
+`OggettoTrovato` in cronaca; la TUI ha il menu Zaino (tasto Z). Lucchetto:
+`test_canale_equip` (loot → zaino → equip → mossa concessa → togli).
+
 I **contratti AI dei premi** (oggetti/skill generati: Sit.3+4) sono progettati SU
 CARTA in `docs/contratto-premi-ai.md` (schemi `OggettoGenerato`/`SkillGenerata` a
-zero numeri, rotte `premi.*` gating, innesto in `_deposita_bottino`): si posano
-quando questo canale si accende, non prima.
+zero numeri, rotte `premi.*` gating, innesto in `_deposita_bottino`).
 
-**Ma il canale è spento, ed è il punto del prossimo passo (§4.1):** `SistemaEquip` non
-è registrato da nessun host, `PlayerEquipaggia/Toglie` non hanno produttori,
-`ComponenteEquip` **non è persistente** (lucchettato: si registra il tag *insieme*
-all'hook di re-equip di ADR-1 F5, mai prima — il desync manifest-senza-modificatori è
-peggio dell'assenza), e `CATALOGO_OGGETTI` (provvisorio e dichiarato, in attesa del
-canale-asset del loot) è raggiungibile solo dai test.
+**Cosa resta spento**: `ComponenteEquip` **non è persistente** (lucchettato: si
+registra il tag *insieme* all'hook di re-equip di ADR-1 F5, mai prima — il desync
+manifest-senza-modificatori è peggio dell'assenza) → l'equip indossato si perde al
+load; e il contenuto: `CATALOGO_OGGETTI` è un dict provvisorio con UN oggetto
+dimostrativo, in attesa del canale-asset del loot.
 
 ### 2.5 Persistenza e ciclo di vita
 
@@ -467,16 +472,21 @@ Il **riposo vero** è già in gioco (l'opzione `RIPOSA` è di scena, recupero HP
 dalle foglie §11, seam dell'imboscata collegato — vedi §2.1: il mana non è a
 esaurimento irreversibile). Restano, in ordine (ogni passo sblocca il successivo):
 
-1. **Equip acceso** — registrare `SistemaEquip` nel bucket di narrazione, dare un
-   produttore a `PlayerEquipaggia/Toglie`, e rendere `ComponenteEquip` persistente
-   **insieme** all'hook di re-equip (ADR-1 F5 — il lucchetto che oggi vieta il tag
-   esiste esattamente per pretendere questa contemporaneità).
+1. **Persistenza equip (ADR-1 F5)** — il canale indossa/togli è ACCESO (§2.4);
+   resta rendere `ComponenteEquip` persistente **insieme** all'hook di re-equip
+   (filtro di provenienza nel save + re-immissione al load + `clampa_hp` — il
+   lucchetto che oggi vieta il tag esiste esattamente per pretendere questa
+   contemporaneità). Senza, l'equip indossato si perde al load.
 2. **Loot minimo (ADR-2 ridotto)** — un canale-asset per gli oggetti e un drop
-   deterministico-seeded alla vittoria, quanto basta perché `CORREDO_RIFERIMENTO` sia
-   *raggiungibile* scendendo. `CATALOGO_OGGETTI` diventa la lettura del canale, come
-   già dichiarato.
+   per-grado dal budget della profondità, quanto basta perché `CORREDO_RIFERIMENTO`
+   sia *raggiungibile* scendendo. `CATALOGO_OGGETTI` diventa la lettura del canale,
+   come già dichiarato.
 3. **Ri-misura** — win-rate e TTK sul piano-mondo col personaggio che si sostenta;
    POI la taratura fine dei numeri §11 (che resta l'ultimo miglio dell'MVP).
+
+> Il piano operativo che assorbe questi passi (e li estende ai generatori AI di
+> oggetti/mosse/status) è agli atti della sessione 2026-08-10; i contratti premi
+> di §2.4 si posano dentro quel cammino.
 
 ### 4.2 Registro del debito (unico, in ordine di priorità dentro ogni gruppo)
 
