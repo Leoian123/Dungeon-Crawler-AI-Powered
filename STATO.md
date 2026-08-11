@@ -10,11 +10,14 @@
 > **Come si aggiorna.** Quando un punto si chiude, si **integra** nella sezione a cui
 > appartiene (e sparisce dal registro del debito); non si appende una voce di diario.
 > Quando emerge un difetto o una decisione da prendere, entra nel registro §4.2 con la
-> sua priorità. Ultima revisione: **2026-08-10** (branch `narrative-system`) — suite
-> **925 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
+> sua priorità. Ultima revisione: **2026-08-11** (branch `narrative-system`) — suite
+> **991 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
 > territoriale «Pianoterra dei Morti» (stagione «Nascondino con il Morto»);
 > l'authoring AI dei roster (`genera_stagione`) è verificato LIVE (dry-run 8/8
-> boss, cache attiva, zero guasti).
+> boss, cache attiva, zero guasti). La vincibilità è ora MISURABILE
+> (`misura_run.py`, §4.1): la misura corrente è **0 vittorie su 40** — col
+> sostentamento acceso — e indica la causa strutturale candidata (finestra dei
+> drop legata alla profondità, nemici al tier di zona).
 >
 > **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
 > `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive
@@ -214,7 +217,10 @@ fascicolo, mai stato.
   (+ tick **e hash SHA-256 del testo dell'azione** per la fase azione — il tick da solo
   non discrimina quando un'azione spende 0 tick). Congela-una-volta-rileggi-sempre: la
   stanza rivisitata e l'azione ripetuta rileggono a **zero chiamate**; la memoria di
-  run è **derivata** dall'Archivio, mai persistita come chat (H §11).
+  run è **derivata** dall'Archivio, mai persistita come chat (H §11). La rilettura di
+  un reveal **segna la visita** (`segna_visitata`): al rientro in una zona la mappa
+  rinasce con `visitate` vuoto e senza quel segno il cache-hit lasciava il menu vuoto
+  per sempre (soft-lock scovato da `misura_run`, lucchetto in `test_misura_run`).
 - **Economia del tempo**: l'AI propone una `Durata` dal vocabolario chiuso, il
   `gate_beneficio` applica il pavimento della classe di beneficio (§11) e la durata
   **dichiarata dal giocatore** (`parse_durata_dichiarata`, forme esatte con `\b` —
@@ -410,7 +416,7 @@ scontro aperto; `rng_state` davvero serializzato e ripristinato.
 
 ### 2.6 Verifica
 
-**925 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
+**991 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
 `src/host_web`, che su questo branch non esiste — skip **esplicito**, mai verde per
 vacuità). La suite è headless, senza rete, con contesto esper isolato per test
 (ESP §0.1). Oltre ai lucchetti citati nei sistemi: membrana e purezza import (con
@@ -463,40 +469,57 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
 
 ## 4. Il prossimo passo, il registro del debito, il post-MVP
 
-### 4.1 LO STEP SUCCESSIVO: accendere il ciclo di sostentamento
+### 4.1 LO STEP SUCCESSIVO: allineare il loot al tier di zona (la misura ora esiste)
 
-I gate di release sono chiusi, ma **il gioco consegnato gioca la matrice "nudo"**: il
-TTK è tarato a parità di `CORREDO_RIFERIMENTO` e **non esiste alcun canale in partita
-per ottenere quel corredo** — la progressione dichiarata (in assenza di XP, l'equip)
-non è raggiungibile giocando. Nessun singolo pezzo è un bug — insieme sono il divario
-fra "i gate passano" e "il gioco è coerente".
+Il **riposo vero** è in gioco, la **persistenza equip (F5)** e il **loot** sono chiusi
+(§2.4) e la **misura della vincibilità è uno strumento del repo**: `misura_run.py`
+(launcher `misura_run.bat`) gioca run automatiche via porte — offline, seeded,
+riproducibili run-per-run (`test_misura_run`) — con politiche × seed e riporta
+win-rate, profondità, scontri, drop, equip. La storica «40 run, zero vittorie»
+(pre-loot, harness mai versionato) è superata: ora la si rilancia con un comando.
 
-> **Misurato in partita (40 run automatiche via porte, offline, sul contenuto
-> pre-territorio):** quattro politiche — combatti-sempre, fuga sotto 12/20 HP,
-> scappa-sempre — su 10 seed ciascuna: **zero vittorie, 40 permadeath**. Il budget
-> di danno dell'intera run è i 30 HP di partenza e ogni stanza ne costa 1–5
-> comunque la giochi: senza sostentamento la vittoria è **matematicamente
-> irraggiungibile**, non solo difficile. Il contenuto da allora è cambiato
-> (piano-mondo territoriale, riposo acceso) ma il buco strutturale — nessun
-> equip/loot in partita — è lo stesso; la ri-misura è il passo 3 qui sotto.
-> È il lavoro da fare **prima** di qualsiasi taratura fine dei numeri §11
-> (tararli sul gioco nudo significherebbe tararli due volte).
+> **Misurato il 2026-08-11 (4 politiche × 10 seed, max 400 interazioni, sul
+> piano-mondo con sostentamento acceso): 0 vittorie su 40.** Ma il quadro è
+> cambiato: il sostentamento FUNZIONA (fino a 16 drop e 9 pezzi indossati per
+> run; la politica combatti-sempre vince fino a 26 scontri e attraversa 3 zone
+> prima di cadere) — e non basta. Nessuna run supera la città (tier 3 di 6);
+> `scappa-sempre` non progredisce mai (i boss-gate esigono la vittoria: corretto
+> per design, quindi 10 timeout a zona 0).
+>
+> **Causa strutturale candidata (verificata in codice, non ancora corretta):
+> sul piano-mondo il loot e i nemici seguono due orologi diversi.** La finestra
+> dei drop è `gradi_per_profondita(livello_corrente())` (`_deposita_bottino`) e
+> la profondità resta **1** per tutta la spina — la discesa sta in fondo alla
+> tana; i nemici e i boss scalano invece col **tier di zona** (`GRADO_DA_TIER`,
+> 6↔6). Risultato: a metà spina si affrontano gradi da tier 3-4 col corredo
+> della finestra di profondità 1, e il `CORREDO_RIFERIMENTO` su cui il TTK è
+> tarato è irraggiungibile proprio dove servirebbe. (Il lucchetto
+> `test_corredo_di_riferimento_raggiungibile` non lo vede: verifica la filiera
+> con `PROB_DROP=1` sulla finestra corrente — in vitro, non in partita.)
 
-Il **riposo vero** è già in gioco (l'opzione `RIPOSA` è di scena, recupero HP/mana
-dalle foglie §11, seam dell'imboscata collegato — vedi §2.1: il mana non è a
-esaurimento irreversibile). La **persistenza equip (F5)** e il **loot** sono
-CHIUSI e integrati in §2.4: l'equip round-trippa nel save, il drop per grado
-esce dalla filiera fabbrica→conio→pool e il corredo di riferimento è
-raggiungibile scendendo (test falsificabile). Resta UN passo:
+I passi, in ordine:
 
-1. **Ri-misura** — win-rate e TTK sul piano-mondo col personaggio che ora si
-   sostenta (equip persistente + loot vivo); POI la taratura fine dei numeri
-   §11 — incluse le fasce nuove del canale oggetti/mosse (tarabili da console
-   senza codice) — che resta l'ultimo miglio dell'MVP.
+1. **Decisione di design + fix**: la finestra dei drop sui piani-mondo deve
+   seguire il tier della zona corrente (o un equivalente scelto), non la
+   profondità nuda. È una scelta di §11/G, non un patch: tocca `_deposita_bottino`
+   e forse il budget del gate.
+2. **Ri-misura** (`misura_run.bat`, stesso protocollo) fino a un win-rate > 0
+   sul percorso inteso; POI la taratura fine dei numeri §11 — incluse le fasce
+   del canale oggetti/mosse (tarabili da console senza codice) — che resta
+   l'ultimo miglio dell'MVP.
 
 ### 4.2 Registro del debito (unico, in ordine di priorità dentro ogni gruppo)
 
 **A. Coerenza del motore**
+- **Custode despawnato = varco chiuso al rientro** (scovato da `misura_run`): uscire
+  da una zona col boss NON battuto lo elimina (`_despawna_mob_di_zona`), e al rientro
+  la rilettura del reveal non lo ri-materializza (il record d'Archivio porta solo il
+  nome) — `attraversamento_consentito` resta falso per sempre, salvo una vittoria
+  d'imboscata nella stanza-boss (`collega_boss`). Due strade possibili: esentare il
+  custode dal despawn (serve una `zona` su `EntitaMob` + ri-aggancio in
+  `rigenera_mappa_zona`) o ri-materializzarlo deterministicamente all'ingresso zona.
+  Da decidere; intanto le deviazioni sono una trappola a senso unico se prese prima
+  del boss. (La politica di `misura_run` le evita per questo.)
 - **Doppio proprietario della mutazione HP**: `status._applica_delta_hp` (clampa la
   cura) e `combattimento.infliggi_danno` (sottrazione secca) scrivono lo stesso campo
   con clamp diversi; la logica "dove vivono gli HP" è replicata in quattro funzioni.
@@ -594,6 +617,10 @@ va ritoccata per rispecchiare la realtà del branch headless:
 
 # Authoring AI del piano-mondo (dry-run; --applica scrive, il diff git è la promozione)
 ./genera_stagione.bat
+
+# Misura della vincibilità (§4.1): politiche × seed, offline, riproducibile
+./misura_run.bat
+
 
 # Giocare un incontro headless (driver di riferimento)
 PYTHONPATH="src;vendor" .venv/Scripts/python.exe -m main   # Windows/PowerShell: usa ; nel PYTHONPATH

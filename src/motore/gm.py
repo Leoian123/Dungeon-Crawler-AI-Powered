@@ -1091,6 +1091,13 @@ async def esegui_turno_gm(
         # Anche la rilettura muove il filo: la stanza riletta È l'ultima scena
         # mostrata — il turno successivo riprende da lì.
         memoria.registra_prosa(messaggio.prosa)
+        if fase == "reveal":
+            # La rilettura di un reveal CONTA come visita: al rientro in una zona
+            # la mappa rinasce con `visitate` vuoto e senza questo segno il menu
+            # resterebbe vuoto per sempre (host in loop: scena vuota → turno GM →
+            # cache-hit → scena ancora vuota). Il contratto verso l'host è "dopo
+            # un turno GM la scena esiste", da cache o meno.
+            segna_visitata()
         return EsitoTurnoGM(messaggio=messaggio, risultato=None, da_cache=True)
 
     # Il design ATTIVO (stagione congelata nella run): colora il canale sistema
