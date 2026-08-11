@@ -604,6 +604,34 @@ class LottoMosseAutorate(BaseModel):
     mosse: list[MossaAutorata] = Field(min_length=1, max_length=6)
 
 
+class StatusProposto(BaseModel):
+    """UNO status PROPOSTO dall'AI di authoring (variante D-4, «proposta»):
+    la spec completa e strutturata che l'UMANO promuove coi «3 tocchi»
+    (membro `Blocco` + classe componente + riga `SPEC_STATUS` — con
+    `effetti_tick` e le foglie §11 generate dall'enum, il comportamento è già
+    dato). NON si applica mai da solo: l'output del generatore è un file di
+    PROPOSTA, mai la libreria — uno status resta un'estensione di vocabolario
+    (Corsia 1), e il vocabolario lo apre il motore."""
+
+    model_config = _CHIUSO
+
+    nome: Slug
+    descrizione: str
+    valenza: Literal["benefico", "dannoso", "neutro"]
+    trasmissibile: bool
+    tick: Literal["ferisce", "cura", "nessuno"]      # → DeltaHp (segno) o nulla
+    fascia_intensita: FasciaPotenza = FasciaPotenza.STANDARD
+    fascia_durata: FasciaRicarica = FasciaRicarica.BREVE
+
+
+class LottoStatusProposti(BaseModel):
+    """Un lotto di proposte di status (≤4: il vocabolario si allarga piano)."""
+
+    model_config = _CHIUSO
+
+    status: list[StatusProposto] = Field(min_length=1, max_length=4)
+
+
 class ModificatoreAutorato(BaseModel):
     """Una voce di potere su un oggetto autorato: stat + FASCIA. Niente numeri."""
 

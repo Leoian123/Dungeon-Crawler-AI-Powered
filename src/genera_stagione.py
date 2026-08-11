@@ -342,6 +342,94 @@ async def genera_roster(
     return mob_accettati, tabelle, spawn, per_tier, respinti
 
 
+# --- Status (T4c, variante PROPOSTA): l'AI propone, l'umano fa i «3 tocchi» ------
+
+def prompt_lotto_status(n: int, esclusi: set[str],
+                        respinti_prima: tuple[str, ...] = ()) -> str:
+    from contracts import Blocco
+
+    vietati = f" Nomi già usati o esistenti (vietati): {', '.join(sorted(esclusi))}." if esclusi else ""
+    righe = [
+        "[status-esistenti] " + ", ".join(b.value for b in Blocco),
+        f"[compito] PROPONI {n} STATUS nuovi a tema (vocabolario, non contenuto "
+        f"di scena).{vietati} Per ciascuno: nome slug, descrizione del carattere, "
+        "valenza (benefico|dannoso|neutro), trasmissibile (passa col colpo?), "
+        "tick (ferisce|cura|nessuno — coerente con la valenza) e le fasce. "
+        "Sono PROPOSTE per la promozione umana: niente doppioni concettuali "
+        "degli esistenti.",
+    ]
+    if respinti_prima:
+        righe.append(
+            "[respinti] Nel giro precedente sono stati SCARTATI: "
+            + "; ".join(respinti_prima) + ". Correggi questi errori."
+        )
+    return "\n".join(righe)
+
+
+def gate_status(s, gia_visti: set[str]) -> list[str]:
+    """Gate di coerenza delle proposte: nome non collidente col vocabolario
+    esistente, valenza↔tick coerente. (La composizione è già forma: schema.)"""
+    from contracts import Blocco
+
+    errori: list[str] = []
+    if s.nome in {b.value for b in Blocco}:
+        errori.append(f"{s.nome}: collide con uno status esistente")
+    if s.nome in gia_visti:
+        errori.append(f"{s.nome}: duplicato nel batch")
+    coerenza = {"benefico": "cura", "dannoso": "ferisce"}
+    atteso = coerenza.get(s.valenza)
+    if atteso is not None and s.tick not in (atteso, "nessuno"):
+        errori.append(f"{s.nome}: tick {s.tick} incoerente con valenza {s.valenza}")
+    if s.valenza == "neutro" and s.tick != "nessuno":
+        errori.append(f"{s.nome}: uno status neutro non muove HP")
+    return errori
+
+
+async def genera_status(
+    engine: MasterEngine, stagione, *, quanti: int, directory_proposte: Path,
+):
+    """Il batch delle PROPOSTE di status: il file scritto è il brief per i
+    «3 tocchi» umani (contenuti_locali/proposte/status/), MAI la libreria —
+    per costruzione non esiste un --applica per gli status. Ritorna
+    (percorsi_scritti, respinti)."""
+    contesto = contesto_prompt(stagione, stagione.piani[0])
+    accettati: list = []
+    respinti: list[str] = []
+    visti: set[str] = set()
+    feedback: tuple[str, ...] = ()
+
+    for _ in range(1 + _GIRI_EXTRA):
+        mancanti = quanti - len(accettati)
+        if mancanti <= 0:
+            break
+        lotto = await engine.genera(
+            "authoring.status", prompt_lotto_status(mancanti, visti, feedback),
+            sistema=contesto,
+        )
+        if lotto is None:
+            respinti.append("lotto status: chiamata degradata (trasporto)")
+            continue
+        motivi_giro: list[str] = []
+        for s in lotto.status:
+            if len(accettati) >= quanti:
+                break
+            errori = gate_status(s, visti)
+            if errori:
+                respinti.extend(errori)
+                motivi_giro.extend(errori)
+                continue
+            visti.add(s.nome)
+            accettati.append(s)
+        feedback = tuple(motivi_giro)
+
+    percorsi: list[Path] = []
+    for s in accettati:
+        percorso = directory_proposte / f"{s.nome}.json"
+        _scrivi_json(percorso, json.loads(s.model_dump_json()))
+        percorsi.append(percorso)
+    return percorsi, respinti
+
+
 # --- Mosse (T3b): il generatore delle meccaniche (composizione di primitivi) -----
 
 _LOTTO_MOSSE = 6
@@ -699,6 +787,9 @@ def costruisci_parser() -> "argparse.ArgumentParser":
                    help="oggetti di equipaggiamento da generare per il pool di loot")
     p.add_argument("--mosse", type=int, default=0,
                    help="mosse di combattimento da generare (composizione di primitivi)")
+    p.add_argument("--status", type=int, default=0,
+                   help="PROPOSTE di status da generare (brief per i 3 tocchi umani, "
+                        "mai libreria: finiscono in contenuti_locali/proposte/status/)")
     return p
 
 
@@ -754,6 +845,17 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         engine, stagione, piano, n_per_tier=n_per_tier,
         sovrascrivi=args.sovrascrivi,
     ))
+    proposte_status: list = []
+    if args.status > 0:
+        from main import DIRECTORY_CONTENUTI_LOCALI
+
+        proposte_status, respinti_status = asyncio.run(genera_status(
+            engine, stagione, quanti=args.status,
+            directory_proposte=DIRECTORY_CONTENUTI_LOCALI / "proposte" / "status",
+        ))
+        respinti.extend(respinti_status)
+        for percorso in proposte_status:
+            print(f"[genera] proposta di status scritta: {percorso}")
     mosse_nuove: list = []
     if args.mosse > 0:
         mosse_nuove, respinti_mosse = asyncio.run(genera_mosse(

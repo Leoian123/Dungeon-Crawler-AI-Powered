@@ -170,12 +170,28 @@ def nome_status(tipo: type[Status]) -> str:
 # --- Derivazioni (mai una seconda dichiarazione) --------------------------------
 
 @dataclass(frozen=True)
+class DeltaHp:
+    """Il primitivo di tick «muovi HP» (GR2 §7.3): `per_rango × rango` a ogni
+    tick — negativo ferisce, positivo cura (clampata al massimo). È il primo
+    membro del vocabolario chiuso degli effetti-tick: un primitivo NUOVO
+    (es. drenaggio-mana) è CODICE qui (Corsia 3), mai un dato più ricco."""
+
+    per_rango: int
+
+
+@dataclass(frozen=True)
 class ProfiloStatus:
-    """Vista comoda per i system: comportamento + durata d'afflizione (§11)."""
+    """Vista comoda per i system: comportamento + durata d'afflizione (§11).
+
+    `effetti_tick` è il comportamento del tick COME DATO (GR2 §7.3): il system
+    generico la ITERA — «veleno letale», «rigenerazione celestiale» diventano
+    righe di dati, non sistemi dedicati. `delta_per_rango` resta come vista
+    comoda dei consumatori storici, derivato dallo stesso numero §11."""
 
     trasmissibile: bool
     delta_per_rango: int
     durata_afflizione: int
+    effetti_tick: tuple = ()
 
 
 def _profili_status() -> dict[type[Status], ProfiloStatus]:
@@ -185,14 +201,19 @@ def _profili_status() -> dict[type[Status], ProfiloStatus]:
     default — non è un buco: è uno status a risoluzione AI, senza tick deterministico."""
     from .calibrazione import DELTA_PER_RANGO, DURATA_AFFLIZIONE, DURATA_BLOCCO_DEFAULT
 
-    return {
-        s.componente: ProfiloStatus(
+    profili: dict[type[Status], ProfiloStatus] = {}
+    for s in SPEC_STATUS:
+        delta = DELTA_PER_RANGO.get(nome_status(s.componente), 0)
+        profili[s.componente] = ProfiloStatus(
             s.trasmissibile,
-            DELTA_PER_RANGO.get(nome_status(s.componente), 0),
+            delta,
             DURATA_AFFLIZIONE.get(nome_status(s.componente), DURATA_BLOCCO_DEFAULT),
+            # Il dato riproduce lo storico bit-per-bit (oracolo in
+            # test_status_tick_oracolo): delta 0 = tupla vuota, nessun effetto
+            # (lo Stordito consuma il turno, non gli HP).
+            effetti_tick=(DeltaHp(per_rango=delta),) if delta != 0 else (),
         )
-        for s in SPEC_STATUS
-    }
+    return profili
 
 
 PROFILO_STATUS: dict[type[Status], ProfiloStatus] = _profili_status()
@@ -338,21 +359,23 @@ class SistemaStatus(SistemaSempreAttivo):
                 ))
 
     def applica_effetto(self, entita: int, comp: Status) -> None:
-        """Effetto al tick: `delta_per_rango × rango` HP (0 = nessun effetto)."""
-        if self._profilo.delta_per_rango == 0:
-            return
-        delta = self._profilo.delta_per_rango * comp.rango
-        _applica_delta_hp(entita, delta)
-        if self.bus is not None:
-            from contracts import EffettoStatus
+        """Il tick ITERA gli effetti-DATO del profilo (GR2 §7.3): il
+        comportamento per-status è una tupla di primitivi chiusi, mai un ramo
+        per-status nel system. Tupla vuota = nessun effetto (Stordito)."""
+        for effetto in self._profilo.effetti_tick:
+            if isinstance(effetto, DeltaHp):
+                delta = effetto.per_rango * comp.rango
+                _applica_delta_hp(entita, delta)
+                if self.bus is not None:
+                    from contracts import EffettoStatus
 
-            self.bus.pubblica(
-                EffettoStatus(
-                    bersaglio=_nome_diegetico(entita),
-                    status=self.tipo_status.__name__.lower(),
-                    delta_hp=delta,
-                )
-            )
+                    self.bus.pubblica(
+                        EffettoStatus(
+                            bersaglio=_nome_diegetico(entita),
+                            status=self.tipo_status.__name__.lower(),
+                            delta_hp=delta,
+                        )
+                    )
 
 
 def sistemi_status(bus=None) -> list[SistemaStatus]:

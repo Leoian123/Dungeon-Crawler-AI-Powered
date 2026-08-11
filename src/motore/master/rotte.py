@@ -22,6 +22,7 @@ from contracts import (
     LottoBossGenerati,
     LottoMosseAutorate,
     LottoOggettiAutorati,
+    LottoStatusProposti,
     NemicoSperimentale,
     OggettoGenerato,
     SkillGenerata,
@@ -105,6 +106,11 @@ for _rotta in (
     Rotta("authoring.oggetto", LottoOggettiAutorati, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     Rotta("authoring.mossa", LottoMosseAutorate, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
+    # authoring.status (D-4, variante PROPOSTA): l'esito è un file-brief per
+    # i «3 tocchi» umani, MAI la libreria — gating=True per il gate di
+    # coerenza, ma niente --applica per costruzione.
+    Rotta("authoring.status", LottoStatusProposti, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     # --- Premi (contratto premi, Sit.3+4): la VESTIZIONE del drop già deciso.
     # gating=True (l'esito tocca il Guardaroba), FORTE (il premio è un momento
