@@ -47,6 +47,7 @@ from contracts import (
     TurnoSaltato,
     CrawlerVista,
     MobAsset,
+    MossaAsset,
     OggettoAsset,
     ArchetipoAsset,
     PianoAsset,
@@ -90,6 +91,8 @@ from motore import (
     MODEL_ID_DEFAULT,
     Archivio,
     ArchetipoAttivo,
+    EffettoAttivo,
+    MossaAttiva,
     OggettoAttivo,
     MasterEngine,
     MemoriaSuArchivio,
@@ -143,7 +146,7 @@ from motore import (
     lint_registry,
     nemici_in_scontro,
     prossimo_attivo_e_protagonista,
-    CATALOGO_MOSSE,
+    mossa_di as mossa_di_catalogo,
     cooldown_residuo,
     assicura_mana,
     etichetta_mossa,
@@ -225,18 +228,36 @@ STAGIONE_DEFAULT = "stagione-1"
 TipoAsset = str  # "stagioni" | "piani" | "mob" | "archetipi" (le collezioni della libreria)
 MODELLI_ASSET: dict[str, type] = {
     "stagioni": Stagione, "piani": PianoAsset, "mob": MobAsset,
-    "archetipi": ArchetipoAsset, "oggetti": OggettoAsset,
+    "archetipi": ArchetipoAsset, "oggetti": OggettoAsset, "mosse": MossaAsset,
 }
 
 
+def mosse_note_authoring(
+    ufficiali: Path | None = None, locali: Path | None = None,
+) -> frozenset[str]:
+    """Le mosse citabili in AUTHORING: il catalogo storico del motore + le
+    mosse-asset valide in libreria (il motore non scandisce mai il disco: la
+    libreria è del composition root — per questo il set si calcola QUI e si
+    passa ai lint)."""
+    note = set(mosse_note())
+    note |= {
+        slug for slug, (asset, _vista)
+        in _collezione("mosse", ufficiali, locali).items()
+        if asset is not None
+    }
+    return frozenset(note)
+
+
 def _etichetta_asset(tipo: str, asset) -> str:
+    if tipo == "mosse":
+        return asset.etichetta
     return asset.nome if tipo in ("mob", "archetipi", "oggetti") else asset.titolo
 
 
 def _tipo_vista(tipo: str) -> str:
     return {
         "stagioni": "stagione", "piani": "piano", "mob": "mob",
-        "archetipi": "archetipo", "oggetti": "oggetto",
+        "archetipi": "archetipo", "oggetti": "oggetto", "mosse": "mossa",
     }[tipo]
 
 
@@ -314,12 +335,13 @@ _CAMPI_RESISTENZE = {
 }
 
 
-def _lint_mob_espressivo(mob: MobAsset, errori: list[str]) -> None:
-    """Lint dell'espressività per-mob (Fase 5): mosse nel catalogo del motore,
-    chiavi gear dell'override valide. Accumula errori di authoring."""
+def _lint_mob_espressivo(mob: MobAsset, errori: list[str], note=None) -> None:
+    """Lint dell'espressività per-mob (Fase 5): mosse nel catalogo (storico +
+    mosse-asset note al chiamante), chiavi gear dell'override valide."""
     from motore.calibrazione import COEFF_ACC, M_ARMATURA, M_TAGLIA
 
-    fuori = [m for m in mob.mosse if m not in mosse_note()]
+    note = note if note is not None else mosse_note()
+    fuori = [m for m in mob.mosse if m not in note]
     if fuori:
         errori.append(f"mob {mob.slug}: mosse fuori catalogo: " + ", ".join(fuori))
     if mob.override is not None:
@@ -343,7 +365,7 @@ def _archetipi_noti(ufficiali: Path | None, locali: Path | None) -> set[str]:
 
 
 def _risolvi_archetipo(
-    slug: str, asset: ArchetipoAsset | None, errori: list[str]
+    slug: str, asset: ArchetipoAsset | None, errori: list[str], note=None
 ) -> ArchetipoAsset | None:
     """Completa il profilo di un archetipo (merge coi valori di calibrazione per gli
     storici; completo obbligatorio per gli slug nuovi) e valida chiavi gear e mosse.
@@ -394,7 +416,8 @@ def _risolvi_archetipo(
     # authoring, sollevato alla risoluzione invece che scoperto giocando.
     errori.extend(lint_profilo(slug, pieno))
     mosse = list(asset.mosse) if asset is not None else []
-    fuori = [m for m in mosse if m not in mosse_note()]
+    note = note if note is not None else mosse_note()
+    fuori = [m for m in mosse if m not in note]
     if fuori:
         errori.append(f"archetipo {slug}: mosse fuori catalogo: " + ", ".join(fuori))
     return ArchetipoAsset(
@@ -472,7 +495,7 @@ def vocabolario(
         "blocchi": [b.value for b in Blocco],
         "durate": [d.value for d in Durata],
         "tipi_danno": [t.value for t in TipoDanno if t is not TipoDanno.GENERICO],
-        "mosse": sorted(mosse_note()),
+        "mosse": sorted(mosse_note_authoring(ufficiali, locali)),
         "archetipi": sorted(_archetipi_noti(ufficiali, locali)),
         "armature": list(M_ARMATURA),
         "taglie": list(M_TAGLIA),
@@ -482,7 +505,7 @@ def vocabolario(
 
 def _risolvi_territorio(
     territorio, slug_piano: str, errori: list[str],
-    *, ufficiali: Path | None, locali: Path | None,
+    *, ufficiali: Path | None, locali: Path | None, note_mosse=None,
 ):
     """Scioglie i riferimenti del territorio (roster boss e tabelle di spawn):
     slug → MobAsset con lo stesso lint espressivo del cast. `None` = riferimenti
@@ -501,7 +524,7 @@ def _risolvi_territorio(
             )
             pendenti = True
             return None
-        _lint_mob_espressivo(mob, errori)
+        _lint_mob_espressivo(mob, errori, note_mosse)
         return mob
 
     boss = {}
@@ -544,6 +567,9 @@ def risolvi_stagione(
             raise ValueError(f"stagione assente o corrotta: {stagione}")
         stagione = caricata
     errori: list[str] = []
+    # Il set delle mosse citabili (storico + mosse-asset in libreria): un mob o
+    # un archetipo può citare una mossa nuova appena scritta (T3a).
+    note_mosse = mosse_note_authoring(ufficiali, locali)
     piani_risolti: list[PianoRisolto] = []
     slug_archetipi: list[str] = []  # in ordine di prima apparizione (deterministico)
     for slug_piano in stagione.piani:
@@ -559,7 +585,7 @@ def risolvi_stagione(
                 errori.append(f"mob riferito ma assente: {slug_mob} (piano {slug_piano})")
                 mancanti = True
             else:
-                _lint_mob_espressivo(mob, errori)
+                _lint_mob_espressivo(mob, errori, note_mosse)
                 cast.append(mob)
         if mancanti:
             continue
@@ -571,7 +597,7 @@ def risolvi_stagione(
         if piano.territorio is not None:
             territorio_risolto = _risolvi_territorio(
                 piano.territorio, slug_piano, errori,
-                ufficiali=ufficiali, locali=locali,
+                ufficiali=ufficiali, locali=locali, note_mosse=note_mosse,
             )
             if territorio_risolto is None and piano.territorio is not None:
                 continue  # slug pendenti già a registro: il piano non si monta
@@ -607,7 +633,7 @@ def risolvi_stagione(
     archetipi_risolti: list[ArchetipoAsset] = []
     for slug_arch in slug_archetipi:
         asset_arch = carica_asset("archetipi", slug_arch, ufficiali=ufficiali, locali=locali)
-        risolto = _risolvi_archetipo(slug_arch, asset_arch, errori)
+        risolto = _risolvi_archetipo(slug_arch, asset_arch, errori, note_mosse)
         if risolto is not None:
             archetipi_risolti.append(risolto)
     # Il POOL DI LOOT (T1b, D-1): gli slug dichiarati dalla stagione, oppure —
@@ -629,8 +655,24 @@ def risolvi_stagione(
         if ogg is None:
             errori.append(f"oggetto riferito ma assente: {slug_ogg}")
             continue
-        errori.extend(lint_oggetto(ogg))
+        errori.extend(lint_oggetto(ogg, mosse_ammesse=note_mosse))
         oggetti_risolti.append(ogg)
+    # Le MOSSE-ASSET (T3a, stessa politica lasca): il validator Pydantic è il
+    # gate di composizione (PMF-6.4) — qui si risolvono i riferimenti.
+    slug_mosse = list(stagione.mosse)
+    if not slug_mosse:
+        slug_mosse = [
+            slug for slug, (asset, _vista)
+            in sorted(_collezione("mosse", ufficiali, locali).items())
+            if asset is not None
+        ]
+    mosse_risolte: list[MossaAsset] = []
+    for slug_mossa in slug_mosse:
+        mossa = carica_asset("mosse", slug_mossa, ufficiali=ufficiali, locali=locali)
+        if mossa is None:
+            errori.append(f"mossa riferita ma assente: {slug_mossa}")
+            continue
+        mosse_risolte.append(mossa)
     if errori:
         raise ValueError("stagione non risolvibile:\n- " + "\n- ".join(errori))
     return StagioneRisolta(
@@ -638,6 +680,7 @@ def risolvi_stagione(
         numero=stagione.numero, titolo=stagione.titolo, tagline=stagione.tagline,
         mondo=stagione.mondo, stile=stagione.stile, lore=stagione.lore,
         piani=piani_risolti, archetipi=archetipi_risolti, oggetti=oggetti_risolti,
+        mosse=mosse_risolte,
     )
 
 
@@ -692,7 +735,7 @@ def _skills_di(entita: int) -> tuple[SkillVista, ...]:
     a riposare."""
     voci = []
     for chiave in mosse_di(entita):
-        mossa = CATALOGO_MOSSE.get(chiave)
+        mossa = mossa_di_catalogo(chiave)
         if mossa is None:
             continue  # chiave fuori catalogo (dato incompleto): non si inventa nulla
         voci.append(SkillVista(
@@ -749,7 +792,8 @@ def _etichetta_mossa_ricca(entita: int, chiave: str) -> str:
     residuo = cooldown_residuo(entita, chiave)
     if residuo > 0:
         return f"{base} — ricarica ({residuo})"
-    costo = CATALOGO_MOSSE[chiave].costo_mana if chiave in CATALOGO_MOSSE else 0
+    _mossa = mossa_di_catalogo(chiave)
+    costo = _mossa.costo_mana if _mossa is not None else 0
     return f"{base} — {costo} mana" if costo else base
 
 
@@ -2029,6 +2073,26 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
                 mosse=tuple(ogg.mosse),
             )
             for ogg in risolta.oggetti
+        ],
+        mosse=[
+            MossaAttiva(
+                chiave=mossa.slug,
+                etichetta=mossa.etichetta,
+                effetti=tuple(
+                    EffettoAttivo(
+                        primitivo=e.primitivo,
+                        tipo_danno=e.tipo_danno.value if e.tipo_danno else None,
+                        blocco=e.blocco.value if e.blocco else None,
+                        potenza=e.potenza.value if e.potenza else None,
+                        rischio=e.rischio.value if e.rischio else None,
+                    )
+                    for e in mossa.effetti
+                ),
+                costo=mossa.costo.value,
+                ricarica=mossa.ricarica.value,
+                azzardo=mossa.azzardo,
+            )
+            for mossa in risolta.mosse
         ],
     )
 

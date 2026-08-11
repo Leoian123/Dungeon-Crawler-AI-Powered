@@ -1,0 +1,11 @@
+{
+  "slug": "colpo-di-sipario",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "etichetta": "Colpo di Sipario",
+  "effetti": [
+    {"primitivo": "danno", "tipo_danno": "mischia", "potenza": "pesante"}
+  ],
+  "costo": "standard",
+  "ricarica": "breve"
+}

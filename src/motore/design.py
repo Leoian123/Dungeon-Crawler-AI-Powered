@@ -98,6 +98,30 @@ class TerritorioAttivo:
 
 
 @dataclass(frozen=True)
+class EffettoAttivo:
+    """Un effetto di mossa-asset congelato (jsonable: stringhe dei vocabolari)."""
+
+    primitivo: str
+    tipo_danno: str | None = None
+    blocco: str | None = None
+    potenza: str | None = None
+    rischio: str | None = None
+
+
+@dataclass(frozen=True)
+class MossaAttiva:
+    """Una mossa-asset congelata nella run: la traduzione a `Mossa` viva (coi
+    numeri dalle fasce §11) è di `mosse.mossa_da_dati` — unico traduttore."""
+
+    chiave: str
+    etichetta: str = ""
+    effetti: tuple[EffettoAttivo, ...] = ()
+    costo: str = "gratuita"
+    ricarica: str = "nessuna"
+    azzardo: bool = False
+
+
+@dataclass(frozen=True)
 class OggettoAttivo:
     """Un oggetto del pool di loot, congelato nella run (appiattito jsonable:
     enum come `.value`, coppie stat×fascia come tuple — il translator generico
@@ -162,6 +186,9 @@ class StagioneAttiva:
     # Il pool di loot della run (T1b): vuoto = save legacy → il solo catalogo
     # storico dimostrativo (`oggetti.catalogo_oggetti_correnti`).
     oggetti: list[OggettoAttivo] = field(default_factory=list)
+    # Le mosse-asset della run (T3a): vuoto = save legacy → il solo
+    # `CATALOGO_MOSSE` storico (`mosse.mossa_di`).
+    mosse: list[MossaAttiva] = field(default_factory=list)
 
 
 def crea_stagione(stagione: StagioneAttiva) -> int:

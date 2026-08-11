@@ -177,6 +177,7 @@ def motivi_fuori_budget(
     blocchi_ammessi,
     mosse=(),
     con_registry: bool = True,
+    mosse_ammesse=None,
 ) -> list[str]:
     """Le regole CONDIVISE dei gate (catalogo + budget + mosse) come motivi
     leggibili; `[]` = passa. UNICA implementazione per i tre consumatori —
@@ -188,6 +189,8 @@ def motivi_fuori_budget(
     dell'archetipo nel registry della RUN (authoring: nessuna run attiva — il
     binding lo verifica il gate finale `risolvi_stagione`). Il binding dei
     blocchi resta sempre attivo: è un invariante di runtime (F-6).
+    `mosse_ammesse=None` = il catalogo storico; l'authoring che conosce la
+    libreria (mosse-asset) passa il SUO set.
     """
     from .mosse import mosse_note
 
@@ -205,7 +208,8 @@ def motivi_fuori_budget(
     if grado is not None and gradi_ammessi is not None and grado not in gradi_ammessi:
         ammessi = ", ".join(sorted(g.value for g in gradi_ammessi))
         motivi.append(f"grado '{grado.value}' fuori budget (ammessi: {ammessi})")
-    fuori_mosse = [m for m in mosse if m not in mosse_note()]
+    note = mosse_note() if mosse_ammesse is None else mosse_ammesse
+    fuori_mosse = [m for m in mosse if m not in note]
     if fuori_mosse:
         motivi.append("mosse fuori catalogo: " + ", ".join(fuori_mosse))
     return motivi

@@ -52,7 +52,7 @@ from .calibrazione import (
 from .derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
 from .mob import EntitaMob, Repertorio
 from .modificatori import Resistenze
-from .mosse import CATALOGO_MOSSE, MOSSE_DEFAULT, azione_da_mossa, mosse_concesse
+from .mosse import MOSSE_DEFAULT, azione_da_mossa, mossa_di, mosse_concesse
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
 from .prove import margine_prova
 from .scheda import ActionPoint, Mana, Protagonista, Scheda, assicura_mana, protagonista
@@ -396,7 +396,7 @@ def mossa_pagabile(entita: int, chiave: str) -> bool:
 
     È la stessa domanda che si fanno il menu (per disabilitare) e il risolutore
     (per rifiutare): una sola definizione, mai due che divergono."""
-    mossa = CATALOGO_MOSSE.get(chiave)
+    mossa = mossa_di(chiave)     # unico lookup: anche le mosse-asset congelate
     if mossa is None:
         return False
     if cooldown_residuo(entita, chiave) > 0:
@@ -415,7 +415,7 @@ def richiedi_mossa(chiave: str) -> bool:
     Repertorio: una chiave estranea è rifiutata (`False`) e non tocca lo stato —
     il motore dispone, l'host propone."""
     st = stato_combattimento()
-    if st is None or chiave not in CATALOGO_MOSSE:
+    if st is None or mossa_di(chiave) is None:
         return False
     pent, _marker, _scheda = protagonista()
     if chiave not in mosse_di(pent) or not mossa_pagabile(pent, chiave):
@@ -663,7 +663,8 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
             mana.attuale -= costo_mana
         # La mossa va in ricarica appena risolta (il decremento è a inizio turno:
         # `cooldown=2` costa esattamente un proprio turno d'attesa).
-        ricarica = CATALOGO_MOSSE[azione.mossa].cooldown if azione.mossa in CATALOGO_MOSSE else 0
+        _mossa = mossa_di(azione.mossa)
+        ricarica = _mossa.cooldown if _mossa is not None else 0
         if ricarica > 0:
             ric = esper.try_component(attivo, Ricariche)
             if ric is None:

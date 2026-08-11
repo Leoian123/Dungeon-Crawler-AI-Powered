@@ -191,8 +191,12 @@ from .mosse import (
     MOSSE_DEFAULT,
     Mossa,
     azione_da_mossa,
+    catalogo_mosse_correnti,
     etichetta_mossa,
+    mossa_da_dati,
+    mossa_di,
     mosse_note,
+    mosse_note_correnti,
 )
 from .catalogo import (
     REGISTRY_BLOCCHI,
@@ -258,7 +262,9 @@ from .mappa import (
 )
 from .design import (
     ArchetipoAttivo,
+    EffettoAttivo,
     MobAttivo,
+    MossaAttiva,
     OggettoAttivo,
     PianoAttivo,
     StagioneAttiva,
@@ -623,7 +629,13 @@ __all__ = [
     "EsitoProva",
     # stagione attiva (design di contenuto congelato nella run)
     "ArchetipoAttivo",
+    "EffettoAttivo",
+    "MossaAttiva",
     "OggettoAttivo",
+    "catalogo_mosse_correnti",
+    "mossa_da_dati",
+    "mossa_di",
+    "mosse_note_correnti",
     "catalogo_oggetti_correnti",
     "gate_premio",
     "grado_oggetto",

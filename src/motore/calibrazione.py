@@ -27,7 +27,22 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from contracts import Blocco, ClasseBeneficio, ClasseProva, Durata, Fascia, Frequenza, Grado, StatId, TipoAzione, TipoDanno
+from contracts import (
+    Blocco,
+    ClasseBeneficio,
+    ClasseProva,
+    Durata,
+    Fascia,
+    FasciaCosto,
+    FasciaPotenza,
+    FasciaRicarica,
+    FasciaRischio,
+    Frequenza,
+    Grado,
+    StatId,
+    TipoAzione,
+    TipoDanno,
+)
 
 
 # --- Il catalogo: ogni placeholder con la sua spiegazione (cosa dovrebbe essere) -
@@ -551,6 +566,53 @@ _PESO_GRADO_DEFAULT = {
 }
 
 
+# Le fasce delle mosse-asset (T3a): il numero vive QUI, l'asset nomina la fascia.
+_FASCIA_COSTO_DEFAULT = {"gratuita": 0, "economica": 2, "standard": 4, "costosa": 7}
+_FASCIA_RICARICA_DEFAULT = {"nessuna": 0, "breve": 2, "lunga": 3}
+_FASCIA_POTENZA_DEFAULT = {"lieve": 1.0, "standard": 1.25, "pesante": 1.5}
+_FASCIA_RISCHIO_DEFAULT = {"contenuto": (1, 12), "spinto": (1, 20)}
+
+
+def _mosse_fascia_defs() -> tuple[Param, ...]:
+    """Le foglie delle fasce-mossa, GENERATE dagli enum del contratto: una
+    mossa-asset non richiede MAI una Param nuova (chiude il buco delle
+    `MOSSA.<chiave>.*` per-chiave, che restano alle 6 storiche già tarate)."""
+    out: list[Param] = []
+    for f in FasciaCosto:
+        out.append(Param(
+            f"MOSSA_FASCIA.costo.{f.value}", _FASCIA_COSTO_DEFAULT[f.value],
+            f"Mana di una mossa-asset di fascia {f.value.upper()}.",
+            CAT_MOSSE, "intero ≥0", "int", "mana",
+        ))
+    for f in FasciaRicarica:
+        out.append(Param(
+            f"MOSSA_FASCIA.ricarica.{f.value}", _FASCIA_RICARICA_DEFAULT[f.value],
+            f"Turni di ricarica di una mossa-asset di fascia {f.value.upper()} "
+            "(N=2 blocca un proprio turno; N=1 è di fatto nullo).",
+            CAT_MOSSE, "intero ≥0", "int", "turni",
+        ))
+    for f in FasciaPotenza:
+        out.append(Param(
+            f"MOSSA_FASCIA.potenza.{f.value}", _FASCIA_POTENZA_DEFAULT[f.value],
+            f"Moltiplicatore del danno di fascia {f.value.upper()}: entra UNA "
+            "volta nel check 2, dentro l'unico arrotondamento (PMF-6.4).",
+            CAT_MOSSE, "1 – 3",
+        ))
+    for f in FasciaRischio:
+        minimo, massimo = _FASCIA_RISCHIO_DEFAULT[f.value]
+        out.append(Param(
+            f"MOSSA_FASCIA.rischio.{f.value}.min", minimo,
+            f"Danno minimo di un azzardo {f.value.upper()}.",
+            CAT_MOSSE, "intero ≥1", "int", "HP",
+        ))
+        out.append(Param(
+            f"MOSSA_FASCIA.rischio.{f.value}.max", massimo,
+            f"Danno massimo di un azzardo {f.value.upper()}.",
+            CAT_MOSSE, "≥ min", "int", "HP",
+        ))
+    return tuple(out)
+
+
 def _oggetti_defs() -> tuple[Param, ...]:
     """Le foglie del canale oggetti, GENERATE dagli enum (`Fascia`, `Grado`):
     una fascia o un grado nuovi senza foglia = KeyError all'import, mai un
@@ -609,7 +671,7 @@ def _status_defs() -> tuple[Param, ...]:
 
 # Le foglie per-status, per-archetipo e del canale oggetti sono GENERATE (dagli
 # enum Blocco/Fascia/Grado e dai profili base), sotto la categoria propria.
-_DEFS = _DEFS + _status_defs() + _archetipi_defs() + _oggetti_defs()
+_DEFS = _DEFS + _status_defs() + _archetipi_defs() + _oggetti_defs() + _mosse_fascia_defs()
 
 CATALOGO: dict[str, Param] = {p.chiave: p for p in _DEFS}
 
@@ -736,6 +798,24 @@ DANNO_ARMA_PER_GRADO: dict[str, int] = {
 }
 LOOT_PESO_GRADO: dict[str, int] = {
     g.value: valore(f"LOOT.PESO_GRADO.{g.value}") for g in Grado
+}
+
+# Fasce delle mosse-asset (T3a) — generate dagli enum del contratto.
+FASCIA_COSTO_MOSSA: dict[str, int] = {
+    f.value: valore(f"MOSSA_FASCIA.costo.{f.value}") for f in FasciaCosto
+}
+FASCIA_RICARICA_MOSSA: dict[str, int] = {
+    f.value: valore(f"MOSSA_FASCIA.ricarica.{f.value}") for f in FasciaRicarica
+}
+FASCIA_POTENZA_MOSSA: dict[str, float] = {
+    f.value: valore(f"MOSSA_FASCIA.potenza.{f.value}") for f in FasciaPotenza
+}
+FASCIA_RISCHIO_MOSSA: dict[str, tuple[int, int]] = {
+    f.value: (
+        valore(f"MOSSA_FASCIA.rischio.{f.value}.min"),
+        valore(f"MOSSA_FASCIA.rischio.{f.value}.max"),
+    )
+    for f in FasciaRischio
 }
 
 HP_BASE = valore("HP_BASE")

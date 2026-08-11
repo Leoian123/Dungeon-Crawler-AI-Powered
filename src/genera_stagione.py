@@ -40,8 +40,13 @@ from contracts import (
     TabellaSpawnGenerata,
     TierTerritorio,
 )
-from main import DIRECTORY_CONTENUTI, carica_asset, risolvi_stagione
-from motore import Corsia, GRADO_DA_TIER, MasterEngine, mosse_note, motivi_fuori_budget
+from main import (
+    DIRECTORY_CONTENUTI,
+    carica_asset,
+    mosse_note_authoring,
+    risolvi_stagione,
+)
+from motore import Corsia, GRADO_DA_TIER, MasterEngine, motivi_fuori_budget
 
 STAGIONE_DEFAULT_SLUG = "stagione-1"
 
@@ -75,7 +80,7 @@ def contesto_prompt(stagione, piano) -> str:
     righe += [
         "[vocabolario/archetipi] " + ", ".join(piano.budget.archetipi),
         "[vocabolario/blocchi] " + (", ".join(b.value for b in piano.budget.blocchi) or "nessuno"),
-        "[vocabolario/mosse] " + ", ".join(sorted(mosse_note())),
+        "[vocabolario/mosse] " + ", ".join(sorted(mosse_note_authoring())),
         "[regole] Slug kebab-case minuscolo, unico. NIENTE numeri di gioco: il "
         "grado lo impone il tier, i profili la calibrazione. Ogni boss è "
         "un'epoca storica o un cult su non-morti andato a male: nome memorabile, "
@@ -154,6 +159,7 @@ def gate_boss(b: BossGenerato, piano, tier: TierTerritorio,
             blocchi_ammessi=frozenset(piano.budget.blocchi),
             mosse=b.mosse,
             con_registry=False,
+            mosse_ammesse=mosse_note_authoring(ufficiali, locali),
         )
     ]
     if b.slug in slug_visti:
@@ -336,6 +342,128 @@ async def genera_roster(
     return mob_accettati, tabelle, spawn, per_tier, respinti
 
 
+# --- Mosse (T3b): il generatore delle meccaniche (composizione di primitivi) -----
+
+_LOTTO_MOSSE = 6
+
+
+def prompt_lotto_mosse(stagione, n: int, esclusi: set[str],
+                       respinti_prima: tuple[str, ...] = ()) -> str:
+    """Il compito di UN lotto di mosse: primitivi chiusi, fasce, vocabolari.
+    Zero numeri per costruzione (lo schema non ha dove metterli)."""
+    from contracts import (
+        FasciaCosto,
+        FasciaPotenza,
+        FasciaRicarica,
+        FasciaRischio,
+        TipoDanno,
+    )
+
+    vietati = f" Slug già usati (vietati): {', '.join(sorted(esclusi))}." if esclusi else ""
+    blocchi = sorted({b.value for p in stagione.piani for b in p.budget.blocchi})
+    righe = [
+        "[vocabolario/primitivi] danno, applica_status, danno_variabile",
+        "[vocabolario/tipi-danno] " + ", ".join(
+            t.value for t in TipoDanno if t.value != "generico"),
+        "[vocabolario/blocchi] " + (", ".join(blocchi) or "nessuno"),
+        "[vocabolario/potenza] " + ", ".join(f.value for f in FasciaPotenza),
+        "[vocabolario/costo] " + ", ".join(f.value for f in FasciaCosto),
+        "[vocabolario/ricarica] " + ", ".join(f.value for f in FasciaRicarica),
+        "[vocabolario/rischio] " + ", ".join(f.value for f in FasciaRischio),
+        f"[compito] Componi {n} MOSSE di combattimento a tema (etichetta "
+        f"diegetica memorabile).{vietati} Regole di composizione: ESATTAMENTE un "
+        "primitivo di danno per mossa; `applica_status` (opzionale) DOPO il "
+        "danno e con un blocco del vocabolario; `azzardo: true` SOLO se usi "
+        "danno_variabile. Una mossa costosa/lunga deve valere il prezzo.",
+    ]
+    if respinti_prima:
+        righe.append(
+            "[respinti] Nel giro precedente sono stati SCARTATI: "
+            + "; ".join(respinti_prima) + ". Correggi questi errori."
+        )
+    return "\n".join(righe)
+
+
+def gate_mossa(m, stagione, slug_visti: set[str], *, ufficiali: Path | None,
+               locali: Path | None, sovrascrivi: bool):
+    """Gate per item delle mosse autorate: la CONVERSIONE a `MossaAsset` è il
+    gate di composizione (PMF-6.4, validator unico); qui i check di contesto.
+    Ritorna (asset|None, errori)."""
+    from contracts import MossaAsset
+
+    errori: list[str] = []
+    if m.slug in slug_visti:
+        errori.append(f"{m.slug}: slug duplicato nel batch")
+    elif not sovrascrivi and carica_asset(
+        "mosse", m.slug, ufficiali=ufficiali, locali=locali
+    ) is not None:
+        errori.append(f"{m.slug}: slug già in libreria (usa --sovrascrivi)")
+    blocchi_stagione = {b for p in stagione.piani for b in p.budget.blocchi}
+    for e in m.effetti:
+        if e.blocco is not None and e.blocco not in blocchi_stagione:
+            errori.append(
+                f"{m.slug}: blocco {e.blocco.value} fuori dai budget della stagione")
+    try:
+        asset = MossaAsset(
+            slug=m.slug, versione=1, tags=["generato"],
+            etichetta=m.etichetta, effetti=list(m.effetti),
+            costo=m.costo, ricarica=m.ricarica, azzardo=m.azzardo,
+        )
+    except ValueError as errore:
+        errori.append(f"{m.slug}: {errore}")
+        return None, errori
+    return (asset if not errori else None), errori
+
+
+async def genera_mosse(
+    engine: MasterEngine, stagione, *, quanti: int,
+    ufficiali: Path | None = None, locali: Path | None = None,
+    sovrascrivi: bool = False,
+):
+    """Il batch mosse: giri paralleli + top-up bounded (pattern boss).
+    Ritorna (mosse_accettate, respinti)."""
+    contesto = contesto_prompt(stagione, stagione.piani[0])
+    accettate: list = []
+    respinti: list[str] = []
+    slug_visti: set[str] = set()
+    feedback: tuple[str, ...] = ()
+
+    for _ in range(1 + _GIRI_EXTRA):
+        mancanti = quanti - len(accettate)
+        if mancanti <= 0:
+            break
+        prompts = [
+            prompt_lotto_mosse(
+                stagione, min(_LOTTO_MOSSE, mancanti - inizio), slug_visti, feedback,
+            )
+            for inizio in range(0, mancanti, _LOTTO_MOSSE)
+        ]
+        lotti = await asyncio.gather(*(
+            engine.genera("authoring.mossa", p, sistema=contesto) for p in prompts
+        ))
+        motivi_giro: list[str] = []
+        for lotto in lotti:
+            if lotto is None:
+                respinti.append("lotto mosse: chiamata degradata (trasporto)")
+                continue
+            for m in lotto.mosse:
+                if len(accettate) >= quanti:
+                    break
+                asset, errori = gate_mossa(
+                    m, stagione, slug_visti,
+                    ufficiali=ufficiali, locali=locali, sovrascrivi=sovrascrivi,
+                )
+                if asset is None:
+                    respinti.extend(errori)
+                    motivi_giro.extend(errori)
+                    continue
+                slug_visti.add(asset.slug)
+                accettate.append(asset)
+        feedback = tuple(motivi_giro)
+
+    return accettate, respinti
+
+
 # --- Oggetti (T2a): il generatore del pool di loot -------------------------------
 
 _LOTTO_OGGETTI = 6  # come i boss: lotti piccoli degradano bene
@@ -361,7 +489,7 @@ def prompt_lotto_oggetti(stagione, n: int, esclusi: set[str],
         "[vocabolario/sedi] " + ", ".join(s.value for s in SedeAccessorio),
         "[vocabolario/fasce] " + ", ".join(f.value for f in Fascia),
         "[vocabolario/gradi] " + ", ".join(gradi),
-        "[vocabolario/mosse] " + ", ".join(sorted(mosse_note())),
+        "[vocabolario/mosse] " + ", ".join(sorted(mosse_note_authoring())),
         f"[compito] Genera {n} OGGETTI di equipaggiamento per questo piano-mondo "
         f"(bottino a tema).{vietati} Mischia i tipi (armature su slot diversi, "
         "un'arma, accessori), copri più gradi; le mosse (opzionali) solo sugli "
@@ -402,7 +530,8 @@ def autorato_a_oggetto_asset(o) -> "OggettoAsset":
 
 
 def gate_oggetto(o, stagione, slug_visti: set[str], *, ufficiali: Path | None,
-                 locali: Path | None, sovrascrivi: bool):
+                 locali: Path | None, sovrascrivi: bool,
+                 mosse_extra: frozenset = frozenset()):
     """Gate per item degli oggetti autorati. Ritorna (asset|None, errori)."""
     from motore import lint_oggetto
 
@@ -421,14 +550,17 @@ def gate_oggetto(o, stagione, slug_visti: set[str], *, ufficiali: Path | None,
     except ValueError as errore:
         errori.append(f"{o.slug}: {errore}")
         return None, errori
-    errori.extend(lint_oggetto(asset))
+    errori.extend(lint_oggetto(
+        asset,
+        mosse_ammesse=mosse_note_authoring(ufficiali, locali) | mosse_extra,
+    ))
     return (asset if not errori else None), errori
 
 
 async def genera_oggetti(
     engine: MasterEngine, stagione, *, quanti: int,
     ufficiali: Path | None = None, locali: Path | None = None,
-    sovrascrivi: bool = False,
+    sovrascrivi: bool = False, mosse_extra: frozenset = frozenset(),
 ):
     """Il batch oggetti: stessi giri paralleli + top-up bounded dei boss.
     Ritorna (oggetti_accettati, respinti)."""
@@ -462,6 +594,7 @@ async def genera_oggetti(
                 asset, errori = gate_oggetto(
                     o, stagione, slug_visti,
                     ufficiali=ufficiali, locali=locali, sovrascrivi=sovrascrivi,
+                    mosse_extra=mosse_extra,
                 )
                 if asset is None:
                     respinti.extend(errori)
@@ -485,7 +618,8 @@ def _scrivi_json(percorso: Path, dati: dict) -> None:
 
 def applica(
     slug_stagione: str, slug_piano: str, mob_nuovi, tabelle, spawn, per_tier,
-    *, oggetti_nuovi=(), radice: Path | None = None, locali: Path | None = None,
+    *, oggetti_nuovi=(), mosse_nuove=(), radice: Path | None = None,
+    locali: Path | None = None,
 ) -> list[str]:
     """Scrive i mob e gli oggetti generati e il PianoAsset aggiornato nella
     libreria, con GATE FINALE `risolvi_stagione`: se la stagione aggiornata non
@@ -517,6 +651,10 @@ def applica(
         for mob in mob_nuovi:
             percorso = radice / "mob" / f"{mob.slug}.json"
             _scrivi_json(percorso, json.loads(mob.model_dump_json()))
+            scritti.append(percorso)
+        for mossa in mosse_nuove:
+            percorso = radice / "mosse" / f"{mossa.slug}.json"
+            _scrivi_json(percorso, json.loads(mossa.model_dump_json()))
             scritti.append(percorso)
         for oggetto in oggetti_nuovi:
             percorso = radice / "oggetti" / f"{oggetto.slug}.json"
@@ -559,6 +697,8 @@ def costruisci_parser() -> "argparse.ArgumentParser":
                    help="slug del piano da popolare (default: il primo della stagione)")
     p.add_argument("--oggetti", type=int, default=0,
                    help="oggetti di equipaggiamento da generare per il pool di loot")
+    p.add_argument("--mosse", type=int, default=0,
+                   help="mosse di combattimento da generare (composizione di primitivi)")
     return p
 
 
@@ -614,17 +754,26 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         engine, stagione, piano, n_per_tier=n_per_tier,
         sovrascrivi=args.sovrascrivi,
     ))
+    mosse_nuove: list = []
+    if args.mosse > 0:
+        mosse_nuove, respinti_mosse = asyncio.run(genera_mosse(
+            engine, stagione, quanti=args.mosse, sovrascrivi=args.sovrascrivi,
+        ))
+        respinti.extend(respinti_mosse)
     oggetti_nuovi: list = []
     if args.oggetti > 0:
+        # Sinergia (--mosse --oggetti): un accessorio può concedere una mossa
+        # accettata NELLO STESSO giro (pattern `disponibili` degli spawn).
         oggetti_nuovi, respinti_oggetti = asyncio.run(genera_oggetti(
             engine, stagione, quanti=args.oggetti, sovrascrivi=args.sovrascrivi,
+            mosse_extra=frozenset(m.slug for m in mosse_nuove),
         ))
         respinti.extend(respinti_oggetti)
     print(f"[genera] boss accettati: {len(mob_nuovi)} "
           f"(provincia {len(per_tier[TierTerritorio.PROVINCIA])}, "
           f"citta {len(per_tier[TierTerritorio.CITTA])}); "
           f"tabelle: {len(tabelle)}; spawn: {len(spawn)}; "
-          f"oggetti: {len(oggetti_nuovi)}")
+          f"oggetti: {len(oggetti_nuovi)}; mosse: {len(mosse_nuove)}")
     for riga in respinti:
         print(f"[genera] ✗ respinto: {riga}")
     if consumo is not None:
@@ -636,13 +785,13 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
         return 0
     errori = applica(
         args.stagione, piano.slug, mob_nuovi, tabelle, spawn, per_tier,
-        oggetti_nuovi=oggetti_nuovi,
+        oggetti_nuovi=oggetti_nuovi, mosse_nuove=mosse_nuove,
     )
     for riga in errori:
         print(f"[genera] ✗ {riga}")
     if not errori:
         print(f"[genera] applicato: {len(mob_nuovi)} mob + {len(oggetti_nuovi)} "
-              f"oggetti + piano {piano.slug} aggiornato")
+              f"oggetti + {len(mosse_nuove)} mosse + piano {piano.slug} aggiornato")
     return 1 if errori else 0
 
 

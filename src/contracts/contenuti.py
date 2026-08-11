@@ -30,14 +30,20 @@ from .schema import (
     CategoriaArmatura,
     Durata,
     Fascia,
+    FasciaCosto,
+    FasciaPotenza,
+    FasciaRicarica,
+    FasciaRischio,
     Frequenza,
     Grado,
     SedeAccessorio,
     StatId,
     Taglia,
     TierTerritorio,
+    TipoDanno,
 )
 from .proiezione import SLOT_ARMATURA, SlotEquip
+from .schema import EffettoDati
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 
@@ -226,6 +232,58 @@ class OggettoAsset(_Asset):
         return self
 
 
+class MossaAsset(_Asset):
+    """Una MOSSA come asset di libreria: composizione di primitivi chiusi
+    (GR2 §7.3 — «voce di catalogo + righe di Effetto, zero righe nel loop»).
+
+    Il VALIDATORE è il gate di composizione (PMF-6.3/6.4) e vale identico per
+    umano, AI e file scritto a mano: esattamente UN primitivo di danno per
+    mossa (il moltiplicatore entra una volta nel check 2, dentro l'unico
+    arrotondamento — stacking additivo preservato); `applica_status` mai prima
+    del danno (la legatura a_segno del risolutore è semantica, non stile);
+    `azzardo` ⟺ c'è un `danno_variabile` (il consenso resta dichiarativo).
+    Costi e ricariche sono FASCE (foglie §11), mai numeri."""
+
+    etichetta: str = Field(min_length=1)      # il nome diegetico nel menu
+    effetti: list[EffettoDati] = Field(min_length=1, max_length=2)
+    costo: FasciaCosto = FasciaCosto.GRATUITA
+    ricarica: FasciaRicarica = FasciaRicarica.NESSUNA
+    azzardo: bool = False
+
+    @model_validator(mode="after")
+    def _composizione_valida(self) -> "MossaAsset":
+        danni = [e for e in self.effetti if e.primitivo in ("danno", "danno_variabile")]
+        if len(danni) != 1:
+            raise ValueError(
+                f"mossa {self.slug}: serve ESATTAMENTE un primitivo di danno "
+                f"(trovati {len(danni)}) — un solo round, stacking additivo (PMF-6.4)"
+            )
+        indice_danno = self.effetti.index(danni[0])
+        for indice, e in enumerate(self.effetti):
+            if e.primitivo == "applica_status":
+                if indice < indice_danno:
+                    raise ValueError(
+                        f"mossa {self.slug}: applica_status prima del danno — "
+                        "lo status passa SOLO col colpo che connette (a_segno)"
+                    )
+                if e.blocco is None:
+                    raise ValueError(f"mossa {self.slug}: applica_status senza blocco")
+                if e.tipo_danno is not None or e.potenza is not None or e.rischio is not None:
+                    raise ValueError(f"mossa {self.slug}: campi di danno su applica_status")
+            if e.primitivo == "danno" and (e.blocco is not None or e.rischio is not None):
+                raise ValueError(f"mossa {self.slug}: campi impropri sul primitivo danno")
+            if e.primitivo == "danno_variabile" and (e.blocco is not None or e.potenza is not None):
+                raise ValueError(f"mossa {self.slug}: campi impropri su danno_variabile")
+        con_azzardo = any(e.primitivo == "danno_variabile" for e in self.effetti)
+        if self.azzardo != con_azzardo:
+            raise ValueError(
+                f"mossa {self.slug}: azzardo={self.azzardo} ma "
+                f"danno_variabile={'presente' if con_azzardo else 'assente'} — "
+                "il consenso è della mossa e deve dire il vero (F10)"
+            )
+        return self
+
+
 # --- Territorio: la gerarchia di un piano-mondo (2026-08-10) --------------------
 #
 # Un piano che ospita miliardi non si autora stanza per stanza: si autorano le
@@ -402,6 +460,9 @@ class Stagione(BaseModel):
     # VUOTO = lasco: tutta la libreria oggetti valida (D-1) — la stagione può
     # stringere il pool quando il loot diventa curatela editoriale.
     oggetti: list[str] = Field(default_factory=list)
+    # Le MOSSE-ASSET della stagione (stessa politica lasca: vuoto = tutta la
+    # libreria mosse valida). Congelate nella run, si sommano al catalogo.
+    mosse: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validi(self) -> "Stagione":
@@ -418,6 +479,10 @@ class Stagione(BaseModel):
         for slug in self.oggetti:
             if not re.fullmatch(_RE_SLUG, slug):
                 raise ValueError(f"oggetti: slug non valido {slug!r}")
+        _senza_duplicati(self.mosse, "mosse")
+        for slug in self.mosse:
+            if not re.fullmatch(_RE_SLUG, slug):
+                raise ValueError(f"mosse: slug non valido {slug!r}")
         return self
 
 
@@ -569,6 +634,8 @@ class StagioneRisolta(BaseModel):
     # Il pool di loot risolto (D-1: `Stagione.oggetti` se dichiarato, altrimenti
     # tutta la libreria valida) — pronto al freeze come gli archetipi.
     oggetti: list[OggettoAsset] = Field(default_factory=list)
+    # Le mosse-asset risolte (stessa politica lasca), pronte al freeze.
+    mosse: list[MossaAsset] = Field(default_factory=list)
 
 
 class AssetVista(BaseModel):
@@ -577,7 +644,7 @@ class AssetVista(BaseModel):
     model_config = _FROZEN
 
     slug: str
-    tipo: Literal["stagione", "piano", "mob", "archetipo", "oggetto"]
+    tipo: Literal["stagione", "piano", "mob", "archetipo", "oggetto", "mossa"]
     etichetta: str
     tags: list[str] = Field(default_factory=list)
     origine: Literal["ufficiale", "locale"] = "ufficiale"

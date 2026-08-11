@@ -20,6 +20,7 @@ from contracts import (
     Ideazione,
     InquadramentoProva,
     LottoBossGenerati,
+    LottoMosseAutorate,
     LottoOggettiAutorati,
     NemicoSperimentale,
     OggettoGenerato,
@@ -102,6 +103,8 @@ for _rotta in (
     Rotta("authoring.spawn", TabellaSpawnGenerata, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     Rotta("authoring.oggetto", LottoOggettiAutorati, Corsia.FORTE, retry=1,
+          fase=None, gating=True),
+    Rotta("authoring.mossa", LottoMosseAutorate, Corsia.FORTE, retry=1,
           fase=None, gating=True),
     # --- Premi (contratto premi, Sit.3+4): la VESTIZIONE del drop già deciso.
     # gating=True (l'esito tocca il Guardaroba), FORTE (il premio è un momento

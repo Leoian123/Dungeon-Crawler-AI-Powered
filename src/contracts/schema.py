@@ -220,6 +220,41 @@ class CategoriaArmatura(SchemaSnello, str, Enum):
     PESANTE = "pesante"
 
 
+class FasciaCosto(SchemaSnello, str, Enum):
+    """Il costo in mana di una mossa, NOMINATO: il numero è la foglia §11
+    `MOSSA_FASCIA.costo.<fascia>` — mai nell'asset."""
+
+    GRATUITA = "gratuita"
+    ECONOMICA = "economica"
+    STANDARD = "standard"
+    COSTOSA = "costosa"
+
+
+class FasciaRicarica(SchemaSnello, str, Enum):
+    """I turni di ricarica, NOMINATI (foglia §11 `MOSSA_FASCIA.ricarica.*`)."""
+
+    NESSUNA = "nessuna"
+    BREVE = "breve"
+    LUNGA = "lunga"
+
+
+class FasciaPotenza(SchemaSnello, str, Enum):
+    """Il moltiplicatore del danno, NOMINATO (foglia §11 `MOSSA_FASCIA.potenza.*`):
+    entra UNA volta nel check 2, dentro l'unico arrotondamento (PMF-6.4)."""
+
+    LIEVE = "lieve"
+    STANDARD = "standard"
+    PESANTE = "pesante"
+
+
+class FasciaRischio(SchemaSnello, str, Enum):
+    """La banda min/max di un danno d'azzardo, NOMINATA (foglia §11
+    `MOSSA_FASCIA.rischio.*`)."""
+
+    CONTENUTO = "contenuto"
+    SPINTO = "spinto"
+
+
 class Fascia(SchemaSnello, str, Enum):
     """Il POTERE nominato di un modificatore da oggetto: l'autore (umano o AI)
     sceglie la FASCIA, il motore deriva il numero (§11: fascia × rango del
@@ -528,6 +563,45 @@ class RuoloMob(str, Enum):
 
     OSTILE = "ostile"
     PNG = "png"
+
+
+class EffettoDati(BaseModel):
+    """UN effetto di una mossa, come DATO categoriale (GR2 §7, Corsia 2): il
+    primitivo è una PAROLA del vocabolario chiuso del motore (`danno`,
+    `applica_status`, `danno_variabile` — un primitivo NUOVO è codice, Corsia 3,
+    mai un dato più ricco); i parametri sono enum e FASCE, mai numeri.
+    Condiviso da `MossaAsset` (libreria) e `MossaAutorata` (AI-facing)."""
+
+    model_config = _CHIUSO
+
+    primitivo: Literal["danno", "applica_status", "danno_variabile"]
+    tipo_danno: TipoDanno | None = None       # danno / danno_variabile
+    blocco: Blocco | None = None              # applica_status
+    potenza: FasciaPotenza | None = None      # danno (default: standard)
+    rischio: FasciaRischio | None = None      # danno_variabile (default: contenuto)
+
+
+class MossaAutorata(BaseModel):
+    """UNA mossa proposta dall'AI di authoring: composizione di primitivi chiusi
+    + fasce, NESSUN numero per costruzione. Il gate di composizione (PMF-6.4)
+    è il validator di `MossaAsset`, applicato alla conversione."""
+
+    model_config = _CHIUSO
+
+    slug: Slug
+    etichetta: str
+    effetti: list[EffettoDati] = Field(min_length=1, max_length=2)
+    costo: FasciaCosto = FasciaCosto.GRATUITA
+    ricarica: FasciaRicarica = FasciaRicarica.NESSUNA
+    azzardo: bool = False
+
+
+class LottoMosseAutorate(BaseModel):
+    """Un lotto di mosse (≤6 per chiamata)."""
+
+    model_config = _CHIUSO
+
+    mosse: list[MossaAutorata] = Field(min_length=1, max_length=6)
 
 
 class ModificatoreAutorato(BaseModel):

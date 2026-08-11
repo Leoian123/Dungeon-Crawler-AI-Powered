@@ -1,0 +1,12 @@
+{
+  "slug": "alito-di-cimitero",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "etichetta": "Alito di Cimitero",
+  "effetti": [
+    {"primitivo": "danno", "tipo_danno": "veleno", "potenza": "lieve"},
+    {"primitivo": "applica_status", "blocco": "veleno"}
+  ],
+  "costo": "economica",
+  "ricarica": "breve"
+}

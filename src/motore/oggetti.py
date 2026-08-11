@@ -96,11 +96,12 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
     )
 
 
-def lint_oggetto(asset) -> list[str]:
+def lint_oggetto(asset, *, mosse_ammesse=None) -> list[str]:
     """Il gate numerico dell'authoring oggetti (trasposizione di `lint_profilo`):
     la banda è DERIVATA dal catalogo §11 (`max(storici) × TETTO_AUTHORING`) —
     alzare la scala del gioco allarga la banda da sé, il refuso resta fuori.
-    Le mosse concesse devono esistere nel catalogo (F-6)."""
+    Le mosse concesse devono esistere (F-6): `mosse_ammesse=None` = il catalogo
+    storico; il chiamante che conosce la libreria (mosse-asset) passa il suo set."""
     from .mosse import mosse_note
 
     errori: list[str] = []
@@ -120,7 +121,8 @@ def lint_oggetto(asset) -> list[str]:
                 f"oggetto {asset.slug}: danno_base={asset.danno_base} fuori "
                 f"banda (tetto {tetto:g}, derivato da §11)."
             )
-    fuori = [m for m in asset.mosse if m not in mosse_note()]
+    note = mosse_note() if mosse_ammesse is None else mosse_ammesse
+    fuori = [m for m in asset.mosse if m not in note]
     if fuori:
         errori.append(f"oggetto {asset.slug}: mosse fuori catalogo: {', '.join(fuori)}")
     return errori
