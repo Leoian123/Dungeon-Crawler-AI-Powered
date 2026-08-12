@@ -352,6 +352,30 @@ class TierTerritorio(SchemaSnello, str, Enum):
         return list(Grado)[self.ordine]
 
 
+class TipoStanza(SchemaSnello, str, Enum):
+    """Il TIPO di una stanza della mappa: vocabolario chiuso, «Borderlands della
+    mappa» — le categorie sono queste, la composizione la fa il MOTORE (seeded,
+    a vincoli), l'AI le *narra* e mai le concede (stessa disciplina di
+    SCENDI/ATTRAVERSA). È dato del `Piano`, persistito con la mappa; una stanza
+    senza tipo dichiarato è NORMALE (i save storici migrano gratis).
+
+    Tre tipi sono meccanici (BOSS, CORRIDOIO, SAFE_ROOM — la meccanica arriva
+    per fasi); tre sono CONTRATTI DORMIENTI posati prima delle feature (BAGNO →
+    sponsor system; ZONA_PERSONALE → economia; GILDA_* → sistema skill): il
+    valore esiste, la meccanica è dichiaratamente spenta finché il sistema
+    proprietario non nasce.
+    """
+
+    NORMALE = "normale"                # bottino, mob o strane interazioni
+    BOSS = "boss"                      # il custode del varco/piano
+    CORRIDOIO = "corridoio"            # transizione; mob possibili
+    BAGNO = "bagno"                    # l'unica sala privata (niente sponsor/almanacco)
+    SAFE_ROOM = "safe_room"            # cibo, ricompense, il mega schermo degli episodi
+    ZONA_PERSONALE = "zona_personale"  # acquistabile dal 4° piano (mod di abitazione)
+    GILDA_TUTORIAL = "gilda_tutorial"  # la prima prova: la guida PNG e la lore
+    GILDA_SKILL = "gilda_skill"        # RARISSIMA: 1h ogni 12 → +1 livello skill
+
+
 class Frequenza(SchemaSnello, str, Enum):
     """Quanto spesso una voce di spawn compare — CATEGORIA, mai un peso (F-14).
 

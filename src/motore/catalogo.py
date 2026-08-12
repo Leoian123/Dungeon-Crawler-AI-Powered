@@ -158,6 +158,24 @@ def gradi_per_profondita(livello: int) -> frozenset[Grado]:
     return frozenset(scala[primo:ultimo])
 
 
+def gradi_del_tier(tier: TierTerritorio) -> frozenset[Grado]:
+    """La finestra di gradi «correnti» di un tier territoriale (§11) — il gemello
+    di `gradi_per_profondita` per i piani-mondo, dove la profondità resta 1 per
+    tutta la spina ed è il TIER l'orologio della progressione.
+
+    Stessa forma: parte dal grado del tier (`GRADO_DA_TIER`) e ne contiene
+    `GRADI_PER_PROFONDITA` — al primo tier coincide con la finestra della
+    profondità 1 (il quartiere non è più generoso di prima). In CIMA la finestra
+    CLAMPA invece di stringersi: la tana loota {leggendario, celestiale}, non
+    solo celestiale — i suoi riempitivi sono leggendari (il CELESTIALE è il
+    Lich, mai lo spawn) e il bottino deve inseguire ciò che affronti davvero."""
+    scala = list(Grado)
+    primo = min(scala.index(GRADO_DA_TIER[tier]),
+                max(0, len(scala) - GRADI_PER_PROFONDITA))
+    ultimo = min(primo + GRADI_PER_PROFONDITA, len(scala))
+    return frozenset(scala[primo:ultimo])
+
+
 def _budget_normale(livello: int) -> Budget:
     """Budget ordinario per profondità (SEGNAPOSTO Gruppo 2)."""
     gradi = gradi_per_profondita(livello)

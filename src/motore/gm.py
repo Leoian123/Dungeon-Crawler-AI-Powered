@@ -56,6 +56,7 @@ from contracts import (
     InquadramentoProva,
     IntenzioneScena,
     MessaggioGM,
+    TipoStanza,
     ProvaVista,
     RiepilogoAzione,
     SchedaProiezione,
@@ -87,7 +88,9 @@ from .mappa import (
     registra_mob,
     scala_presente,
     segna_visitata,
+    stanza_quieta,
     stanza_visitata,
+    tipo_stanza_corrente,
     uscite,
 )
 from .master import Corsia, MasterEngine
@@ -384,6 +387,9 @@ class Fascicolo:
     # invece di re-inventarlo. "" = nessun atteso (turno-azione, piano piatto…).
     mob_atteso_riga: str = ""
     mob_atteso_query: str = ""              # "nome slug" per il recupero memoria
+    # Il TIPO della stanza corrente ("" = normale, che non aggiunge nulla): il
+    # GM lo NARRA — safe room da safe room, bagno da bagno — mai lo sceglie.
+    stanza_tipo: str = ""
 
 
 def componi_fascicolo(
@@ -452,7 +458,7 @@ def componi_fascicolo(
     # viene toccato (replay e imboscate restano al loro posto, F-13).
     riga_mob_atteso, query_mob_atteso = "", ""
     if (zona is not None and not azione and not stanza_visitata()
-            and mob_corrente() is None):
+            and mob_corrente() is None and not stanza_quieta()):
         if stanza_corrente_e_del_boss() and not boss_sconfitto(zona):
             atteso, imperativo = custode, True
         else:
@@ -476,10 +482,14 @@ def componi_fascicolo(
                     f'riferimento="{atteso.slug}")'
                 )
             query_mob_atteso = f"{atteso.nome} {atteso.slug}"
+    tipo_corrente = tipo_stanza_corrente()
     return Fascicolo(
         tick=tempo_piano_corrente(),
         livello=livello_corrente(),
         stanza=stanza,
+        stanza_tipo=(
+            "" if tipo_corrente is TipoStanza.NORMALE else tipo_corrente.value
+        ),
         uscite=uscite(),
         scala=scala_presente(),
         visitate=visitate,
@@ -505,6 +515,29 @@ def _come(f: Fascicolo) -> str:
     return f.azione if f.azione else "esplorando la stanza appena varcata"
 
 
+# La glossa diegetica per tipo di stanza: parole per il GM, mai meccanica — la
+# riga entra nel fascicolo (prompt utente, dinamica), il tipo l'ha deciso la mappa.
+_GLOSSA_TIPO_STANZA = {
+    TipoStanza.BOSS.value: "la stanza del custode: qui si decide il varco",
+    TipoStanza.CORRIDOIO.value: "spazio di transizione, di passaggio",
+    TipoStanza.BAGNO.value: (
+        "l'UNICA sala privata del piano: niente sponsor, niente almanacco, "
+        "nessun occhio addosso"
+    ),
+    TipoStanza.SAFE_ROOM.value: (
+        "un rifugio del dungeon: cibo, ricompense da aprire, e il mega schermo "
+        "che a fine giornata trasmette gli episodi riassuntivi"
+    ),
+    TipoStanza.ZONA_PERSONALE.value: "una zona personale acquistabile (mod di abitazione)",
+    TipoStanza.GILDA_TUTORIAL.value: (
+        "la sede della Gilda del Tutorial: qui i nuovi crawler ricevono una guida"
+    ),
+    TipoStanza.GILDA_SKILL.value: (
+        "una RARISSIMA sede di Gilda delle Skill: un luogo dove allenarsi"
+    ),
+}
+
+
 def sezione_fascicolo(f: Fascicolo) -> str:
     """Il fascicolo come sezione di prompt (formato stabile, dati proiettati)."""
     palesi = ", ".join(f"{k}={v}" for k, v in f.proiezione.primarie.items()) or "ignote"
@@ -517,6 +550,20 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append(f"[fascicolo/territorio] {f.territorio_riga}")
     if f.mob_atteso_riga:
         righe.append(f"[fascicolo/mob-atteso] {f.mob_atteso_riga}")
+    if f.stanza_tipo:
+        glossa = _GLOSSA_TIPO_STANZA.get(f.stanza_tipo, "")
+        if f.stanza_tipo in (TipoStanza.SAFE_ROOM.value, TipoStanza.BAGNO.value):
+            # Il luogo quieto NON materializza: l'entità che lo schema esige non
+            # va mai messa in scena — la stanza È la scena (T2).
+            glossa += (
+                ". Qui NESSUN nemico entra in scena: narra il LUOGO e il "
+                "respiro — l'entità richiesta dal formato NON va nominata "
+                "nella prosa"
+            )
+        righe.append(
+            f"[fascicolo/stanza] tipo: {f.stanza_tipo}"
+            + (f" — {glossa}" if glossa else "")
+        )
     righe += [
         f"[fascicolo/tempo] tick di piano: {f.tick}",
         f"[fascicolo/mappa] stanza {f.stanza}; visitate {f.visitate}/{f.totale}; "
@@ -1078,11 +1125,21 @@ async def esegui_turno_gm(
     if record is not None:
         _nota(avanzamento, "Il GM rilegge i suoi appunti…", 1.0)
         messaggio = _messaggio_da_record(record)
+        if fase == "reveal":
+            # Il rientro in zona: la rilettura non materializza nulla, ma il
+            # CUSTODE non battuto deve tornare in scena — il despawn di zona
+            # l'aveva eliminato e senza di lui il varco resterebbe chiuso per
+            # sempre. Deterministico, prima della coda "non c'è più" (che così
+            # non mente: se il custode torna, il mob C'È).
+            from .territorio import rimaterializza_custode
+
+            rimaterializza_custode()
         # Rilettura ONESTA: se il record del reveal descrive un mob che non è più
         # in scena (ucciso o dissolto), il motore appende una coda deterministica
         # — il testo più riletto del giro non deve contraddire il mondo.
         nome_mob = record.get("entita", "")
-        if fase == "reveal" and nome_mob and mob_corrente() is None:
+        if (fase == "reveal" and nome_mob and mob_corrente() is None
+                and not stanza_quieta()):  # il luogo quieto non ha mai avuto mob
             messaggio = messaggio.model_copy(update={
                 "prosa": f"{messaggio.prosa}\n\n"
                          f"{nome_mob} non c'è più: restano solo i segni di ciò "
@@ -1267,7 +1324,13 @@ async def esegui_turno_gm(
     if guardia_scrittura is not None:
         guardia_scrittura()  # barriera: ultimo await passato, il World si tocca ORA
     _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
-    if reveal:  # materializza SOLO al reveal: il mob appartiene alla stanza
+    quiete_reveal = reveal and stanza_quieta()
+    if quiete_reveal:
+        # Il luogo QUIETO (safe room/bagno, T2) non materializza: la stanza È la
+        # scena — l'entità del turno gated resta un requisito di formato, mai
+        # un abitante. La visita si segna comunque (il menu deve esistere).
+        segna_visitata()
+    elif reveal:  # materializza SOLO al reveal: il mob appartiene alla stanza
         ent = materializza_turno(risultato, bus)
         registra_mob(ent)
         segna_visitata()
@@ -1300,7 +1363,8 @@ async def esegui_turno_gm(
 
     if not riga_memoria:
         riga_memoria = riassunto_turno(
-            risultato, fascicolo, prova_vista, materializzato=reveal
+            risultato, fascicolo, prova_vista,
+            materializzato=reveal and not quiete_reveal,
         )
     memoria.registra(riga_memoria)
     memoria.registra_prosa(prosa)  # il filo di continuità per il turno successivo
@@ -1326,9 +1390,10 @@ async def esegui_turno_gm(
     archivio.congela(chiave, {
         "seq": fascicolo.tick,
         "turno": risultato.turno.model_dump(),
-        # Il nome del mob MATERIALIZZATO (solo reveal): serve alla rilettura
-        # onesta — la stanza ripulita lo dice, invece di descriverlo vivo.
-        "entita": risultato.turno.entita.nome if reveal else "",
+        # Il nome del mob MATERIALIZZATO (solo reveal, MAI nel luogo quieto: lì
+        # l'entità è un requisito di formato, non un abitante): serve alla
+        # rilettura onesta — la stanza ripulita lo dice, invece di descriverlo vivo.
+        "entita": risultato.turno.entita.nome if reveal and not quiete_reveal else "",
         "prosa": prosa,
         "dove": messaggio.dove,
         "come": messaggio.come,

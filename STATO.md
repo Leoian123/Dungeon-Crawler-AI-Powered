@@ -11,13 +11,14 @@
 > appartiene (e sparisce dal registro del debito); non si appende una voce di diario.
 > Quando emerge un difetto o una decisione da prendere, entra nel registro §4.2 con la
 > sua priorità. Ultima revisione: **2026-08-11** (branch `narrative-system`) — suite
-> **991 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
+> **1033 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
 > territoriale «Pianoterra dei Morti» (stagione «Nascondino con il Morto»);
 > l'authoring AI dei roster (`genera_stagione`) è verificato LIVE (dry-run 8/8
-> boss, cache attiva, zero guasti). La vincibilità è ora MISURABILE
-> (`misura_run.py`, §4.1): la misura corrente è **0 vittorie su 40** — col
-> sostentamento acceso — e indica la causa strutturale candidata (finestra dei
-> drop legata alla profondità, nemici al tier di zona).
+> boss, cache attiva, zero guasti). La vincibilità è MISURABILE (`misura_run.py`,
+> §4.1): con loot a tier + stanze tipizzate (safe room quieta) la misura resta
+> **0 vittorie su 40**, ma il muro ARRETRA — la run migliore batte anche il
+> custode di provincia e cade nel paese (tier 5). Il gap residuo è la
+> taratura §11: è LO step successivo.
 >
 > **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
 > `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive
@@ -172,9 +173,32 @@ fascicolo, mai stato.
   persistita), `StatoTerritorio` persistente (zona, boss battuti, zone viste),
   `SistemaAttraversamento` unico proprietario dell'avanzamento (gate:
   stanza-passaggio ∧ boss sconfitto), anti-softlock (il custode non si dissolve
-  col disimpegno: ritirata), `boss_procedurale` (nome×gimmick×archetipo seeded),
+  col disimpegno: ritirata; e **torna in scena al rientro in zona** —
+  `rimaterializza_custode`, chiamato dalla rilettura del reveal: l'uscita di
+  zona lo despawnava e il varco restava chiuso per sempre, scovato da
+  `misura_run`), `boss_procedurale` (nome×gimmick×archetipo seeded),
   `pesca_spawn` pesata con fallback di tier. `firma_turno` porta la ZONA
   (chiave legacy byte-identica: niente collisioni d'Archivio fra zone).
+- **Tipi di stanza (T1 — «Borderlands della mappa»)**: `TipoStanza` è vocabolario
+  chiuso nel contratto (8 tipi: normale, boss, corridoio, bagno, safe_room,
+  zona_personale, gilda_tutorial, gilda_skill); la **stampa** è del motore
+  (`stampa_tipi`, seeded su stream dedicato `…:tipi` — topologia pubblicata
+  byte-identica), a vincoli: partenza/scala mai speciali, boss = stanza del
+  custode, SAFE ROOM al più una — **garantita per quota di spina**
+  (`STANZE.safe_ogni_zone`, rara e da trovare) o a pescata nei vicoli laterali
+  (`STANZE.prob_safe_laterale`: il premio della deviazione) — bagno raro,
+  corridoi su stanze connettive. Frequenze = foglie §11 (`STANZE.*`). Il tipo è
+  dato del `Piano`, round-trippa nel save (assente = normale: i save storici
+  migrano gratis) e al reveal entra nel fascicolo (`[fascicolo/stanza]` con
+  glossa diegetica): l'AI lo NARRA, mai lo sceglie. **La QUIETE è meccanica
+  (T2)**: safe room e bagno non materializzano mai un mob al reveal (la stanza
+  è la scena — pipeline live E copione offline, con istruzione esplicita al GM)
+  e il dado-imboscata lì non tira (`stanza_quieta` → fattore 0: il riposo in
+  safe room non è interrompibile PER COSTRUZIONE); il corridoio moltiplica il
+  dado (`STANZE.molt_imboscata_corridoio`, §11). La pescata del dado avviene
+  comunque una volta per tick: lo stream replay-safe non cambia forma col tipo.
+  I tipi dormienti sono contratti (registro §4.2-A). Lucchetti:
+  `test_tipi_stanza`, `test_stanze_quiete`.
 - **Copione offline zona-aware**: `ProviderCopione` COMPUTA il turno dalla zona
   on-demand (stanza-boss → IL custode; ordinaria → riempitivo seeded) — identico
   dopo un load, zero liste precompilate.
@@ -279,6 +303,26 @@ il dialogo; il giocatore al più risponde). Fuori scope dichiarato: spawn
 automatico, commercio, quest. Lucchetti: `test_png` (materializzazione,
 esenzioni, roundtrip del ruolo, phase-gate, zero-mutazioni, memoria).
 
+**La tassonomia NPC (decisione utente 2026-08-11)**: NPC di combattimento =
+`RuoloMob.OSTILE` (spawn/cast); amichevoli = `RuoloMob.PNG`; importanti = i
+custodi/boss. La lore è un OBBLIGO DI FORMA: ogni `MobAsset` ha `prosa_stanza`
+obbligatoria (nessun mob senza narrazione) e ora porta anche
+`aspetto`/`tratto` (l'identità che dialogo e reveal vestono).
+
+**ELITÉ — i contratti sono ATTIVI, la meccanica è futura**: l'Elité è **il PNG
+che tutti idolatrano** — il nome dell'ambientazione (i Garrosh/Arthas di questo
+mondo). È IDENTITÀ sopra il comportamento (`MobAsset.elite` → `MobAttivo` →
+`EntitaMob.elite`, default False: save storici invariati; il ruolo resta PNG).
+Contratti imposti per costruzione: **lore piena obbligatoria** (descrizione +
+aspetto + tratto: un Elité senza biografia non può esistere come asset); **mai
+nei posti-boss** (nessun tier — e mai boss di piano), **mai nelle spawn, mai
+nel cast** (l'idolo si incontra, non spawna: vive in libreria, solo canale
+PNG); **gate di profondità** — incontrabile dal piano `ELITE.piano_minimo`
+(§11, default 3; `materializza_png` rifiuta sotto). Il dialogo annuncia al GM
+chi ha davanti (`[png/elite]`: parla da leggenda vivente). **Futuro
+dichiarato**: mortalità/scontro con un Elité, apparizioni pilotate dal GM.
+Lucchetti: `test_elite` (10).
+
 ### 2.2 Combattimento
 
 **Due check, e nessuno dei due è un dado da JRPG**: check 1 = il *se* colpisci (gate
@@ -371,7 +415,9 @@ di possesso sullo `Zaino`, porte `equipaggia/togli`, menu Zaino in TUI —
    accessori che le concedono.
 2. **Runtime, il grosso — conio PROCEDURALE** (stile Borderlands, in piccolo):
    a chance vinta (`PROB_DROP`) il motore fissa il GRADO (pesato,
-   `LOOT.PESO_GRADO`, finestra della profondità) e con `LOOT.PROB_FABBRICA`
+   `LOOT.PESO_GRADO`, dentro `finestra_gradi_loot`: sul piano-mondo la finestra
+   segue il **tier della zona corrente** — `gradi_del_tier`, il bottino insegue
+   il territorio — sui piani piatti la profondità) e con `LOOT.PROB_FABBRICA`
    assembla seeded base × famiglia × affissi (bronzo=liscio, argento+=elemento,
    oro+=doppio tratto; merge per stat con fascia alta, cap 4; nome composto
    «Lama Fumante del Becchino») — deterministico, gratuito, identico offline e
@@ -416,7 +462,7 @@ scontro aperto; `rng_state` davvero serializzato e ripristinato.
 
 ### 2.6 Verifica
 
-**991 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
+**1033 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
 `src/host_web`, che su questo branch non esiste — skip **esplicito**, mai verde per
 vacuità). La suite è headless, senza rete, con contesto esper isolato per test
 (ESP §0.1). Oltre ai lucchetti citati nei sistemi: membrana e purezza import (con
@@ -469,57 +515,65 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
 
 ## 4. Il prossimo passo, il registro del debito, il post-MVP
 
-### 4.1 LO STEP SUCCESSIVO: allineare il loot al tier di zona (la misura ora esiste)
+### 4.1 LO STEP SUCCESSIVO: la taratura §11 contro il muro della provincia
 
-Il **riposo vero** è in gioco, la **persistenza equip (F5)** e il **loot** sono chiusi
-(§2.4) e la **misura della vincibilità è uno strumento del repo**: `misura_run.py`
-(launcher `misura_run.bat`) gioca run automatiche via porte — offline, seeded,
-riproducibili run-per-run (`test_misura_run`) — con politiche × seed e riporta
-win-rate, profondità, scontri, drop, equip. La storica «40 run, zero vittorie»
-(pre-loot, harness mai versionato) è superata: ora la si rilancia con un comando.
+La **struttura del ciclo di sostentamento è completa e misurata**: riposo in gioco,
+equip F5 e loot chiusi (§2.4), **finestra dei drop agganciata al tier di zona**
+(`finestra_gradi_loot`/`gradi_del_tier`: sul piano-mondo il bottino insegue il
+territorio, non la profondità che resta 1 per tutta la spina — lucchetti in
+`test_loot_a_tier`), e la **misura della vincibilità è uno strumento del repo**:
+`misura_run.py` (launcher `misura_run.bat`) gioca run automatiche via porte —
+offline, seeded, riproducibili run-per-run (`test_misura_run`) — con politiche ×
+seed e riporta win-rate, zone, scontri, drop, equip, riposi. La storica «40 run,
+zero vittorie» (pre-loot, harness mai versionato) si rilancia oggi con un comando.
 
-> **Misurato il 2026-08-11 (4 politiche × 10 seed, max 400 interazioni, sul
-> piano-mondo con sostentamento acceso): 0 vittorie su 40.** Ma il quadro è
-> cambiato: il sostentamento FUNZIONA (fino a 16 drop e 9 pezzi indossati per
-> run; la politica combatti-sempre vince fino a 26 scontri e attraversa 3 zone
-> prima di cadere) — e non basta. Nessuna run supera la città (tier 3 di 6);
-> `scappa-sempre` non progredisce mai (i boss-gate esigono la vittoria: corretto
-> per design, quindi 10 timeout a zona 0).
->
-> **Causa strutturale candidata (verificata in codice, non ancora corretta):
-> sul piano-mondo il loot e i nemici seguono due orologi diversi.** La finestra
-> dei drop è `gradi_per_profondita(livello_corrente())` (`_deposita_bottino`) e
-> la profondità resta **1** per tutta la spina — la discesa sta in fondo alla
-> tana; i nemici e i boss scalano invece col **tier di zona** (`GRADO_DA_TIER`,
-> 6↔6). Risultato: a metà spina si affrontano gradi da tier 3-4 col corredo
-> della finestra di profondità 1, e il `CORREDO_RIFERIMENTO` su cui il TTK è
-> tarato è irraggiungibile proprio dove servirebbe. (Il lucchetto
-> `test_corredo_di_riferimento_raggiungibile` non lo vede: verifica la filiera
-> con `PROB_DROP=1` sulla finestra corrente — in vitro, non in partita.)
+> **Misurato il 2026-08-11 (4 politiche × 10 seed, max 600 interazioni, col
+> loot a tier): 0 vittorie su 40 — e il muro è nitido.** La run migliore
+> (fuga-sotto-12, seed 9) vince **40 scontri**, raccoglie 25 drop, indossa 14
+> pezzi, riposa 31 volte, attraversa 3 zone — e muore in **provincia (tier 4)**
+> come ogni altra politica che progredisce: nessuna run supera le 3 zone.
+> `scappa-sempre` non avanza mai (i boss-gate esigono la vittoria: corretto per
+> design). Il sostentamento, la ritirata e il riposo FUNZIONANO tutti: quello
+> che resta non è struttura, sono i **numeri** — curve `K_RANGO_HP/DANNO` ai
+> gradi alti, recupero del riposo, `PROB_DROP`/pesi, margine di fuga — cioè
+> esattamente la **taratura fine §11**, tarabile da console (`calibra.bat`)
+> senza toccare codice, con `misura_run.bat` come oracolo del prima/dopo.
+> (Nota di lettura: `test_corredo_di_riferimento_raggiungibile` verifica la
+> filiera in vitro con `PROB_DROP=1` — la vincibilità in partita la dice solo
+> questa misura.)
 
-I passi, in ordine:
+La fetta «tipi di stanza» è ATTERRATA (T1+T2, §2.1-bis: tarare prima della safe
+room avrebbe significato tarare due volte) e la ri-misura post-T2 dice che il
+muro ARRETRA: la run migliore (combatti/seed 7) batte 4 custodi — quartiere,
+distretto, città e PROVINCIA — e cade nel paese (tier 5) con 30 scontri vinti,
+15 drop e 18 riposi; fuga-sotto-12 tiene le medie migliori mai misurate (20.9
+scontri, 11.7 drop per run). Ancora 0/40: il gap residuo non è più struttura.
 
-1. **Decisione di design + fix**: la finestra dei drop sui piani-mondo deve
-   seguire il tier della zona corrente (o un equivalente scelto), non la
-   profondità nuda. È una scelta di §11/G, non un patch: tocca `_deposita_bottino`
-   e forse il budget del gate.
-2. **Ri-misura** (`misura_run.bat`, stesso protocollo) fino a un win-rate > 0
-   sul percorso inteso; POI la taratura fine dei numeri §11 — incluse le fasce
-   del canale oggetti/mosse (tarabili da console senza codice) — che resta
-   l'ultimo miglio dell'MVP.
+> **La vittoria attesa non passa dal celestiale.** Il punto della run è
+> raggiungere la SCALA: si battono i custodi fino al paese (leggendario), poi
+> nella tana si gioca il nascondino — il cammino che EVITA il Lich esiste per
+> lucchetto (BFS, GL-2). Le politiche di `misura_run` lo giocano: nella tana la
+> stanza-boss non si imbocca mai e davanti al custode della tana qualunque
+> politica arretra (`test_la_politica_gioca_il_nascondino`) — così, quando la
+> taratura sbloccherà il paese, la misura proverà la vittoria FURTIVA, non un
+> suicidio contro il celestiale.
+
+Il passo: **iterare taratura §11 → `misura_run.bat`** fino a un win-rate > 0
+sul percorso inteso, poi rifinire (incluse le fasce del canale oggetti/mosse).
+È l'ultimo miglio dell'MVP, ed è lavoro di console, non di codice. Le leve
+candidate, in ordine (analisi 2026-08-11): `RIPOSO.hp_per_tick` 2→4-5;
+`PROB_DROP` 0.5→0.65; `LOOT.PESO_GRADO` appiattito sulla coda alta;
+solo se serve ancora, `K_RANGO_DANNO` 0.4→0.3 (con `test_ttk` come rete).
+
+Più avanti, sull'asse mappa: la **generazione a chunk «stile sudoku»** (zone
+enormi per costruzione lazy: griglia di chunk seeded per cella, vincoli di zona
+risolti come quote per chunk al freeze — la garanzia c'è senza generare nulla;
+alla scala chunk la quota safe torna PER ZONA). Costi noti: refactor della
+`Mappa`, chunk nella firma di turno, lucchetti di attraversabilità per chunk.
 
 ### 4.2 Registro del debito (unico, in ordine di priorità dentro ogni gruppo)
 
 **A. Coerenza del motore**
-- **Custode despawnato = varco chiuso al rientro** (scovato da `misura_run`): uscire
-  da una zona col boss NON battuto lo elimina (`_despawna_mob_di_zona`), e al rientro
-  la rilettura del reveal non lo ri-materializza (il record d'Archivio porta solo il
-  nome) — `attraversamento_consentito` resta falso per sempre, salvo una vittoria
-  d'imboscata nella stanza-boss (`collega_boss`). Due strade possibili: esentare il
-  custode dal despawn (serve una `zona` su `EntitaMob` + ri-aggancio in
-  `rigenera_mappa_zona`) o ri-materializzarlo deterministicamente all'ingresso zona.
-  Da decidere; intanto le deviazioni sono una trappola a senso unico se prese prima
-  del boss. (La politica di `misura_run` le evita per questo.)
 - **Doppio proprietario della mutazione HP**: `status._applica_delta_hp` (clampa la
   cura) e `combattimento.infliggi_danno` (sottrazione secca) scrivono lo stesso campo
   con clamp diversi; la logica "dove vivono gli HP" è replicata in quattro funzioni.
@@ -528,7 +582,11 @@ I passi, in ordine:
 - **Contratti dormienti senza produttore** (posati prima delle feature, da accendere o
   espungere quando §4.1 decide): `RiposoConcluso`/`RIPOSA`, `PlayerEquipaggia/Toglie`,
   `PlayerTentaProva`, `TiroAzzardo`/`EsitoAzzardo.etichetta`, `SistemaRinforzi`
-  registrato ma senza componenti in produzione.
+  registrato ma senza componenti in produzione; i **tipi di stanza dormienti**
+  (decisione utente 2026-08-11, regola d'oro: contratto ora, meccanica col sistema
+  proprietario): `BAGNO` → sponsor system, `ZONA_PERSONALE` → economia (dal 4°
+  piano), `GILDA_TUTORIAL`/`GILDA_SKILL` → sistema skill + piazzamento garantito
+  (la gilda tutorial sarà la prima utenza del canale PNG, GM-pilotata).
 - **`main.py` ~2.200 righe**: il composition root ha assorbito la libreria contenuti.
   Va spaccato in pacchetto (taglio di file, non refactor): `libreria/`, `authoring/`,
   `sessione.py`.

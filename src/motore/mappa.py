@@ -29,9 +29,13 @@ from typing import Callable
 
 import esper
 
-from contracts import DiscesaPiano, PlayerSiMuove, TipoAzione
+from contracts import DiscesaPiano, PlayerSiMuove, TipoAzione, TipoStanza
 
-from .calibrazione import MAPPA_STANZE
+from .calibrazione import (
+    MAPPA_STANZE,
+    STANZE_FRAZ_CORRIDOI,
+    STANZE_PROB_BAGNO,
+)
 from .intenti_coda import consuma_messaggi
 from .mob import EntitaMob
 from .phased import SistemaSoloNarrazione
@@ -76,11 +80,91 @@ def genera_topologia(rng: random.Random, n_stanze: int | None = None) -> Piano:
     return validato
 
 
+def stampa_tipi(
+    piano: Piano,
+    rng: random.Random,
+    *,
+    boss: int | None = None,
+    safe_garantita: bool = False,
+    prob_safe: float = 0.0,
+) -> None:
+    """Stampa i `TipoStanza` sulla topologia — il «Borderlands della mappa»:
+    vocabolario chiuso × pescate seeded × vincoli. L'AI non c'entra: narra i
+    tipi, mai li sceglie (stessa disciplina di SCENDI/ATTRAVERSA).
+
+    Vincoli: partenza e stanze-scala restano NORMALI (il primo reveal e la
+    discesa non sono mai "speciali"); `boss` è imposto dal chiamante (il
+    territorio sa qual è la stanza del custode); SAFE ROOM al più una —
+    garantita (`safe_garantita`, la quota di spina §11) o a pescata
+    (`prob_safe`, il premio del vicolo laterale); BAGNO raro, al più uno;
+    CORRIDOIO solo su stanze connettive (grado ≥2), a frazione seeded.
+    Le stanze non stampate sono NORMALI per assenza (`Piano.tipi`).
+
+    Va chiamata con un RNG **dedicato** (stream `…:tipi`): la topologia già
+    pubblicata resta byte-identica, i replay non si muovono.
+    """
+    tipi: dict[int, TipoStanza] = {}
+    speciali = {piano.partenza} | set(piano.discese)
+    if boss is not None:
+        tipi[boss] = TipoStanza.BOSS
+        speciali.add(boss)
+    libere = [s for s in sorted(piano.adiacenze) if s not in speciali]
+    if (safe_garantita or (prob_safe > 0 and rng.random() < prob_safe)) and libere:
+        scelta = rng.choice(libere)
+        tipi[scelta] = TipoStanza.SAFE_ROOM
+        libere.remove(scelta)
+    if libere and rng.random() < STANZE_PROB_BAGNO:
+        scelta = rng.choice(libere)
+        tipi[scelta] = TipoStanza.BAGNO
+        libere.remove(scelta)
+    for stanza in libere:
+        if len(piano.adiacenze[stanza]) >= 2 and rng.random() < STANZE_FRAZ_CORRIDOI:
+            tipi[stanza] = TipoStanza.CORRIDOIO
+    piano.tipi = tipi
+
+
+def tipo_di(piano: Piano, stanza: int) -> TipoStanza:
+    """Il tipo di una stanza (assente dal dict = NORMALE: save storici inclusi)."""
+    return piano.tipi.get(stanza, TipoStanza.NORMALE)
+
+
+def tipo_stanza_corrente() -> TipoStanza:
+    """Il tipo della stanza corrente (NORMALE senza mappa: harness/test legacy)."""
+    m = mappa_corrente()
+    if m is None:
+        return TipoStanza.NORMALE
+    return tipo_di(m[1].piano, m[1].stanza_corrente)
+
+
+def stanza_quieta(tipo: TipoStanza | None = None) -> bool:
+    """SAFE ROOM e BAGNO sono quieti PER DESIGN (non per numero): nessun mob al
+    reveal, il dado-imboscata non tira — il rifugio è un rifugio e la privacy è
+    privacy. Senza argomento legge la stanza corrente."""
+    t = tipo if tipo is not None else tipo_stanza_corrente()
+    return t in (TipoStanza.SAFE_ROOM, TipoStanza.BAGNO)
+
+
+def fattore_imboscata_stanza() -> float:
+    """Il moltiplicatore del dado-imboscata per la stanza corrente: 0 nei luoghi
+    quieti (design), la foglia §11 nei corridoi (passaggio esposto), 1 altrove.
+    Il tiro resta del motore (`tira_dado_evento`): qui solo il contesto spaziale."""
+    from .calibrazione import STANZE_MOLT_IMBOSCATA_CORRIDOIO
+
+    tipo = tipo_stanza_corrente()
+    if stanza_quieta(tipo):
+        return 0.0
+    if tipo is TipoStanza.CORRIDOIO:
+        return float(STANZE_MOLT_IMBOSCATA_CORRIDOIO)
+    return 1.0
+
+
 def crea_mappa(rng: random.Random, n_stanze: int | None = None) -> int:
     """Crea il singleton `Mappa` nel World corrente (confine di run, come gli altri
     singleton). La partenza è la stanza iniziale, non ancora visitata: il primo turno
-    di narrazione la popola."""
+    di narrazione la popola. I tipi sono stampati qui (piani piatti: corridoi e
+    bagno; boss e safe room sono concetti del territorio)."""
     piano = genera_topologia(rng, n_stanze)
+    stampa_tipi(piano, rng)
     return esper.create_entity(Mappa(piano=piano, stanza_corrente=piano.partenza))
 
 
@@ -391,6 +475,9 @@ def mappa_to_dict() -> dict | None:
         "partenza": mappa.piano.partenza,
         "adiacenze": {str(k): list(v) for k, v in mappa.piano.adiacenze.items()},
         "discese": sorted(mappa.piano.discese),
+        # Solo i tipi DICHIARATI (assente = NORMALE): il save resta piccolo e i
+        # load storici senza chiave migrano gratis.
+        "tipi": {str(k): v.value for k, v in sorted(mappa.piano.tipi.items())},
         "stanza_corrente": mappa.stanza_corrente,
         "visitate": sorted(mappa.visitate),
     }
@@ -402,10 +489,18 @@ def mappa_da_dict(dati: dict) -> int:
     `mob_stanza` (id runtime, mai serializzati — H-4) si RICOLLEGA dai dati: le entità
     con `EntitaMob.stanza` valorizzata sono i mob di scena persistiti (i caduti sono
     stati eliminati dal World a fine scontro, quindi non rinascono)."""
+    tipi: dict[int, TipoStanza] = {}
+    for k, v in dati.get("tipi", {}).items():
+        try:
+            tipi[int(k)] = TipoStanza(v)
+        except ValueError:
+            pass  # vocabolario di una versione futura: assente = NORMALE (H-12,
+            #       degrado — mai un crash a World già ricostruito)
     piano = Piano(
         partenza=int(dati["partenza"]),
         adiacenze={int(k): [int(x) for x in v] for k, v in dati["adiacenze"].items()},
         discese={int(x) for x in dati["discese"]},
+        tipi=tipi,
     )
     # I PNG restano fuori dal re-link (T3): un PNG in `mob_stanza` verrebbe
     # trattato da nemico della stanza (menu Combatti, varco chiuso) al load.

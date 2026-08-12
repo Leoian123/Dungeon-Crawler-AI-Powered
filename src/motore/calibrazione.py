@@ -542,6 +542,30 @@ _DEFS: tuple[Param, ...] = (
     Param("MAPPA_STANZE", 6, "Numero di stanze del piano generato dalla mappa (catena + un "
           "ramo trasversale seeded; la scala di discesa è garantita raggiungibile, G-18).",
           CAT_MAPPA, "intero ≥2", "int", "stanze"),
+    # --- Tipi di stanza (stampa seeded a vincoli; l'AI narra, mai concede) ---
+    Param("STANZE.prob_bagno", 0.15, "Probabilità che una mappa generata contenga un BAGNO "
+          "(l'unica sala privata, lontana da sponsor e almanacco — contratto ora, "
+          "meccanica con lo sponsor system). Al più uno per mappa.",
+          CAT_MAPPA, "0 – 1", "float"),
+    Param("STANZE.fraz_corridoi", 0.5, "Probabilità (seeded, per stanza) che una stanza "
+          "connettiva — grado ≥2 sul grafo, non speciale — sia stampata CORRIDOIO: "
+          "transizione, mob possibili.", CAT_MAPPA, "0 – 1", "float"),
+    Param("STANZE.prob_safe_laterale", 0.35, "Probabilità che una zona LATERALE contenga "
+          "una SAFE ROOM: il premio del vicolo (la deviazione costa tick e rischio). "
+          "Sulla spina la garanzia è strutturale (STANZE.safe_ogni_zone).",
+          CAT_MAPPA, "0 – 1", "float"),
+    Param("STANZE.safe_ogni_zone", 2, "Garanzia di spina: una SAFE ROOM ogni N zone "
+          "(stampata nelle zone di spina con ordine ≡ N-1 mod N). Rara e da trovare, "
+          "mai regalata; alla scala dei chunk diventerà per-zona.",
+          CAT_MAPPA, "intero ≥1", "int", "zone"),
+    Param("STANZE.molt_imboscata_corridoio", 1.5, "Moltiplicatore del dado-imboscata "
+          "nei CORRIDOI (spazio di passaggio: più esposto). SAFE ROOM e BAGNO sono "
+          "quieti PER DESIGN (fattore 0, non è una foglia): lì il dado non tira.",
+          CAT_MAPPA, "≥0", "float"),
+    Param("ELITE.piano_minimo", 3, "Il piano da cui gli ELITÉ — i PNG idolatrati, "
+          "i nomi dell'ambientazione — diventano incontrabili. Sotto, il canale "
+          "PNG rifiuta di materializzarli (gate in `materializza_png`).",
+          CAT_MAPPA, "intero ≥1", "int", "piano"),
 )
 
 # Durata di default delle afflizioni per nome-blocco: eccezioni qui, il resto 3.
@@ -891,6 +915,12 @@ MAPPA_STANZE = valore("MAPPA_STANZE")
 RIPOSO_HP_PER_TICK = valore("RIPOSO.hp_per_tick")
 RIPOSO_MANA_PER_TICK = valore("RIPOSO.mana_per_tick")
 PROB_DROP = valore("PROB_DROP")
+STANZE_PROB_BAGNO = valore("STANZE.prob_bagno")
+STANZE_FRAZ_CORRIDOI = valore("STANZE.fraz_corridoi")
+STANZE_PROB_SAFE_LATERALE = valore("STANZE.prob_safe_laterale")
+STANZE_SAFE_OGNI_ZONE = valore("STANZE.safe_ogni_zone")
+STANZE_MOLT_IMBOSCATA_CORRIDOIO = valore("STANZE.molt_imboscata_corridoio")
+ELITE_PIANO_MINIMO = valore("ELITE.piano_minimo")
 
 M_ARMATURA: dict[str, float] = {
     "veste": valore("M_ARMATURA.veste"), "leggera": valore("M_ARMATURA.leggera"),

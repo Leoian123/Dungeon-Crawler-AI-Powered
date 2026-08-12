@@ -38,6 +38,10 @@ class EntitaMob:
     # trattato da nemico della stanza. È identità del mob quanto il grado:
     # campo qui, non componente a parte (un solo dato da tenere in fase).
     ruolo: RuoloMob = RuoloMob.OSTILE
+    # ELITÉ: il PNG che tutti idolatrano — IDENTITÀ sopra il comportamento
+    # (il ruolo resta PNG). Default False: i save storici deserializzano
+    # invariati. Il dialogo lo dice al GM; la mortalità è roba del futuro.
+    elite: bool = False
 
 
 @dataclass

@@ -112,10 +112,15 @@ class EsitoDado:
     imboscata: bool
 
 
-def tira_dado_evento(rng: random.Random) -> EsitoDado:
+def tira_dado_evento(rng: random.Random, fattore: float = 1.0) -> EsitoDado:
     """Tira il dado-evento. È un **tiro del motore**: decide il *fatto*; l'AI semmai ne
-    veste il verdetto dopo (§8). Mai una chiamata LLM, mai non-seeded (J-10)."""
-    return EsitoDado(imboscata=rng.random() < PROB_IMBOSCATA)
+    veste il verdetto dopo (§8). Mai una chiamata LLM, mai non-seeded (J-10).
+
+    `fattore` è il contesto SPAZIALE del tiro (`fattore_imboscata_stanza`, T2):
+    0 nei luoghi quieti (safe room/bagno), >1 nei corridoi. La pescata avviene
+    COMUNQUE (una per tick): lo stream per-tick non cambia forma col tipo di
+    stanza — replay-safe anche attraversando luoghi quieti."""
+    return EsitoDado(imboscata=rng.random() < PROB_IMBOSCATA * fattore)
 
 
 def _rng_dado(tick: int) -> random.Random:
@@ -158,8 +163,14 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
     if not scheda.vivo:
         return RisultatoTick(morte=True, imboscata=False)
 
-    # 4. Dado-evento (seeded a questo tick): token-zero salvo evento (§8).
-    esito = tira_dado_evento(_rng_dado(tempo_piano_corrente()))
+    # 4. Dado-evento (seeded a questo tick): token-zero salvo evento (§8). Il
+    #    contesto spaziale modula la probabilità (quiete/corridoio, T2); import
+    #    locale: il tempo non importa la mappa in testa.
+    from .mappa import fattore_imboscata_stanza
+
+    esito = tira_dado_evento(
+        _rng_dado(tempo_piano_corrente()), fattore_imboscata_stanza()
+    )
 
     # 5. Effetto a confine di tick — solo su protagonista vivo (J-12). L'imboscata emette
     #    `EncounterStarted` (l'unica via di transizione, FNC §4); la *composizione* dello

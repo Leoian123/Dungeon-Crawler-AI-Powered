@@ -184,3 +184,81 @@ def test_disimpegno_dal_boss_ritira_senza_dissolvere(run_pulita, tmp_path) -> No
     assert esper.entity_exists(ent), "il custode NON si dissolve"
     em = esper.component_for_entity(ent, EntitaMob)
     assert em.stanza == stanza_boss  # resta registrato al varco
+
+
+def test_rimaterializza_custode_solo_quando_serve(mondo_isolato) -> None:
+    """Il ritorno del custode è chirurgico: solo nella stanza-boss, solo se il
+    boss è in piedi, mai due in scena, mai dopo la sconfitta."""
+    import esper
+
+    from motore import registra_boss_sconfitto, rimaterializza_custode, stanza_boss_di
+
+    _arma_mondo()
+    assert rimaterializza_custode() is None  # partenza: non è la stanza-boss
+    _e, mappa = mappa_corrente()
+    mappa.stanza_corrente = stanza_boss_di(zona_corrente(), mappa.piano)
+    ent = rimaterializza_custode()
+    assert ent is not None  # stanza-boss, custode in piedi: torna in scena
+    assert rimaterializza_custode() is None  # mob già in scena: mai due custodi
+    esper.delete_entity(ent, immediate=True)
+    registra_boss_sconfitto()
+    assert rimaterializza_custode() is None  # battuto: non torna (il varco è aperto)
+
+
+def test_il_custode_torna_al_rientro_in_zona(run_pulita, tmp_path) -> None:
+    """Anti-softlock del RIENTRO (scovato da `misura_run`): l'uscita di zona
+    despawna anche il custode NON battuto e la stanza-boss già narrata, al
+    rientro, RILEGGE l'Archivio — che non materializza nulla. Il ramo cache
+    della pipeline rimette in scena il custode: senza, `attraversamento_consentito`
+    resterebbe falso per sempre (varco chiuso, run morta)."""
+    import esper
+
+    from main import costruisci_sessione
+    from motore import EntitaMob, boss_della_zona, mob_corrente, stanza_boss_di
+    from motore.territorio import _despawna_mob_di_zona, rigenera_mappa_zona
+
+    sessione = costruisci_sessione(
+        nome="Rientro", seed=5, directory=tmp_path,
+        stagione=stagione_sintetica(piani=[piano_territoriale(1)], slug="s-rientro"),
+    )
+    asyncio.run(sessione.prossima_narrazione())  # reveal della partenza
+    zona = zona_corrente()
+    _e, mappa = mappa_corrente()
+    mappa.stanza_corrente = stanza_boss_di(zona, mappa.piano)
+    asyncio.run(sessione.prossima_narrazione())  # reveal stanza-boss: custode in scena
+    assert mob_corrente() is not None
+
+    # Uscita e rientro (la via della deviazione): despawn + mappa rinata.
+    _despawna_mob_di_zona()
+    rigenera_mappa_zona(1, zona)
+    _e, mappa = mappa_corrente()
+    mappa.stanza_corrente = stanza_boss_di(zona, mappa.piano)
+    assert mob_corrente() is None
+
+    snapshot = asyncio.run(sessione.prossima_narrazione())  # RILETTURA (cache)
+    ent = mob_corrente()
+    assert ent is not None, "il custode deve tornare in scena al rientro"
+    em = esper.component_for_entity(ent, EntitaMob)
+    assert em.nome == boss_della_zona(1, zona).nome
+    assert "non c'è più" not in snapshot.prosa  # la coda onesta non deve mentire
+    assert {o.etichetta for o in snapshot.opzioni} == {"Combatti", "Scappi"}
+
+
+def test_la_discesa_non_richiede_il_custode_della_tana(mondo_isolato) -> None:
+    """Il nascondino al livello del GATE: la vittoria è RAGGIUNGERE la scala,
+    non battere il celestiale — `discesa_consentita` chiede la scala nella
+    stanza, MAI il boss di tana sconfitto (a differenza del varco di zona,
+    che il suo custode lo esige)."""
+    from motore import discesa_consentita, rigenera_mappa_zona, stanza_boss_di
+
+    _arma_mondo()
+    tana = spina_del_piano(1)[-1]
+    rigenera_mappa_zona(1, tana)
+    _e, mappa = mappa_corrente()
+    scala = next(iter(mappa.piano.discese))
+    assert scala != stanza_boss_di(tana, mappa.piano)  # la scala non È il boss
+    assert boss_sconfitto(tana) is False
+    mappa.stanza_corrente = scala
+    assert discesa_consentita() is True, (
+        "col Lich ancora in piedi la scala DEVE aprirsi: la tagline è meccanica"
+    )

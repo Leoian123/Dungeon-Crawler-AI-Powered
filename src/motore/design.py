@@ -59,6 +59,11 @@ class MobAttivo:
     tags: list[str] = field(default_factory=list)
     mosse: list[str] = field(default_factory=list)
     override: dict = field(default_factory=dict)
+    # Identità cinematografica + Elité (default retro-compatibili: le stagioni
+    # congelate nei save vecchi deserializzano invariate).
+    aspetto: str = ""
+    tratto: str = ""
+    elite: bool = False
 
 
 @dataclass(frozen=True)

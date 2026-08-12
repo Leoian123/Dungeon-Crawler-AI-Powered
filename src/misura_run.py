@@ -88,6 +88,7 @@ class EsitoRun:
     discese: int = 0
     drop_raccolti: int = 0
     equip_indossati: int = 0
+    riposi: int = 0
     hp_finale: int = 0
 
 
@@ -154,6 +155,9 @@ def _migliora_equip(sessione) -> tuple[int, object | None]:
     from motore.equip import Accessorio, Arma, PezzoArmatura, equip_di, fonti_zaino
     from motore.oggetti import catalogo_oggetti_correnti
 
+    from contracts import Grado
+    from motore import grado_oggetto, rango_grado
+
     pent, _marker, _scheda = protagonista()
     comp = equip_di(pent)
     catalogo = catalogo_oggetti_correnti()
@@ -165,22 +169,41 @@ def _migliora_equip(sessione) -> tuple[int, object | None]:
         except ValueError:
             return -1
 
+    def _rango_fonte(fonte: str) -> int:
+        try:
+            return rango_grado(Grado(grado_oggetto(fonte)))
+        except ValueError:
+            return 0
+
     for fonte in fonti_zaino(pent):
         oggetto = catalogo.get(fonte)
         if oggetto is None or comp.pezzo_per_fonte(fonte) is not None:
             continue
         if isinstance(oggetto, PezzoArmatura):
             attuale = comp.armatura.get(oggetto.slot)
-            if attuale is not None and _rango(attuale.categoria) >= _rango(oggetto.categoria):
-                continue
+            if attuale is not None:
+                # Prima la categoria (l'asse del corredo di riferimento), poi il
+                # GRADO a parità: i modificatori scalano col grado, e senza il
+                # tie-break una veste platino perderebbe per sempre contro la
+                # prima veste bronzo indossata.
+                chiave_att = (_rango(attuale.categoria), _rango_fonte(attuale.fonte))
+                chiave_new = (_rango(oggetto.categoria), _rango_fonte(fonte))
+                if chiave_att >= chiave_new:
+                    continue
         elif isinstance(oggetto, Arma):
-            if comp.arma is not None and comp.arma.danno_base >= oggetto.danno_base:
+            if comp.arma is not None and (
+                comp.arma.danno_base, _rango_fonte(comp.arma.fonte)
+            ) >= (oggetto.danno_base, _rango_fonte(fonte)):
                 continue
         elif not isinstance(oggetto, Accessorio):
             continue
         snapshot = sessione.equipaggia(fonte)
-        indossati += 1
-        comp = equip_di(pent)  # il manifest è cambiato: rileggi prima del prossimo pezzo
+        comp = equip_di(pent)  # rileggi il manifest: la verità, non l'intento
+        if comp.pezzo_per_fonte(fonte) is not None:
+            indossati += 1  # contato SOLO se davvero indosso (l'intento può
+            # restare in coda: phase-gate durante un'imboscata scattata qui)
+        if snapshot.fase == "combattimento" or snapshot.run_conclusa:
+            break  # lo scontro è partito a metà vestizione: si torna al loop
     return indossati, snapshot
 
 
@@ -198,6 +221,22 @@ def _scelta_combattimento(politica: Politica, opzioni) -> int:
     return 0  # nessuna mossa pagabile: l'attacco base è sempre la prima voce
 
 
+def _stanze_da_evitare() -> set[int]:
+    """Il NASCONDINO (la clausola della tana): il punto della run non è battere
+    il celestiale, è raggiungere la scala EVITANDOLO — un cammino che scavalca
+    la sua stanza esiste per lucchetto (BFS). Nella tana la stanza-boss va
+    quindi esclusa dal movimento; nelle altre zone il custode è un gate da
+    battere, mai da evitare. Sensore di laboratorio (tipo T1 = dato)."""
+    from contracts import TierTerritorio
+    from motore import mappa_corrente, stanza_boss_di, zona_corrente
+
+    zona = zona_corrente()
+    m = mappa_corrente()
+    if zona is None or m is None or zona.tier is not TierTerritorio.PIANO:
+        return set()
+    return {stanza_boss_di(zona, m[1].piano)}
+
+
 def _scelta_scena(
     politica: Politica, opzioni, viste: Counter, rng: random.Random
 ) -> tuple[int, str]:
@@ -209,13 +248,25 @@ def _scelta_scena(
         per_tipo.setdefault(opz.tipo, []).append(opz)
 
     if TipoAzione.COMBATTI in per_tipo:
-        scelta = (per_tipo[TipoAzione.COMBATTI][0] if politica.ingaggia
+        hp, _massimo = _hp_correnti()
+        ferito = politica.soglia_fuga is not None and hp < politica.soglia_fuga
+        # Il custode della TANA non si ingaggia MAI (qualunque politica): la
+        # vittoria è la scala, non il celestiale — davanti a lui si arretra.
+        from motore import mappa_corrente as _mc
+
+        m = _mc()
+        nella_tana_dal_lich = (
+            m is not None and m[1].stanza_corrente in _stanze_da_evitare()
+        )
+        ingaggia = politica.ingaggia and not ferito and not nella_tana_dal_lich
+        # Sotto soglia NON si re-ingaggia: ritirata e riposo, non il livelock.
+        scelta = (per_tipo[TipoAzione.COMBATTI][0] if ingaggia
                   else per_tipo.get(TipoAzione.SCAPPA, per_tipo[TipoAzione.COMBATTI])[0])
         return scelta.indice, ""
     if politica.riposa_sotto is not None and TipoAzione.RIPOSA in per_tipo:
         hp, massimo = _hp_correnti()
         if massimo > 0 and hp < politica.riposa_sotto * massimo:
-            return per_tipo[TipoAzione.RIPOSA][0].indice, ""
+            return per_tipo[TipoAzione.RIPOSA][0].indice, "@riposa"
     if TipoAzione.SCENDI in per_tipo:
         return per_tipo[TipoAzione.SCENDI][0].indice, ""
     if TipoAzione.ATTRAVERSA in per_tipo:
@@ -223,19 +274,33 @@ def _scelta_scena(
         # deviazioni sono anch'esse ATTRAVERSA e si distinguono solo per
         # etichetta ("Deviazione: …" / "Torna sulla via principale"). Il
         # rientro si prende (non si resta chiusi in un vicolo); la deviazione
-        # si ignora — anche perché il custode despawnato al cambio zona rende
-        # oggi il rientro un vicolo cieco (bug B, riportato).
+        # si ignora: la misura di base è il percorso inteso, il loot laterale
+        # è una politica a parte se servirà.
         avanti = [o for o in per_tipo[TipoAzione.ATTRAVERSA]
                   if not o.etichetta.startswith("Deviazione")]
         if avanti:
             return avanti[0].indice, "@attraversa"
     if TipoAzione.MUOVI in per_tipo:
         candidate = per_tipo[TipoAzione.MUOVI]
+        evita = _stanze_da_evitare()
+        if evita:
+            # Nascondino: la stanza del Lich non si imbocca. Il cammino che la
+            # scavalca esiste per lucchetto; se il menu offrisse SOLO lei si
+            # ripiega (mai bloccarsi), ma non deve succedere per costruzione.
+            sicure = [o for o in candidate if _stanza_di(o.etichetta) not in evita]
+            candidate = sicure or candidate
         minimo = min(viste[o.etichetta] for o in candidate)
         meno_viste = [o for o in candidate if viste[o.etichetta] == minimo]
         scelta = rng.choice(meno_viste)
         return scelta.indice, scelta.etichetta
     return opzioni[0].indice, ""
+
+
+def _stanza_di(etichetta: str) -> int | None:
+    """L'id-stanza da un'etichetta di movimento («Vai: stanza N»): il DTO di
+    membrana non porta l'id, il laboratorio lo rilegge dalle parole."""
+    coda = etichetta.rsplit(" ", 1)[-1]
+    return int(coda) if coda.isdigit() else None
 
 
 # --- Il loop di una run ----------------------------------------------------------
@@ -286,6 +351,8 @@ async def gioca_run(
             if etichetta == "@attraversa":
                 esito.zone_attraversate += 1
                 viste.clear()  # zona nuova: il registro delle stanze riparte
+            elif etichetta == "@riposa":
+                esito.riposi += 1
             elif etichetta:
                 viste[etichetta] += 1
             snapshot = _passo(indice)
@@ -428,7 +495,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"prof. {esito.profondita}, {esito.turni} turni, "
                 f"{esito.scontri_vinti}V/{esito.scontri_fuggiti}F/{esito.scontri_persi}P, "
                 f"{esito.zone_attraversate} zone, "
-                f"{esito.drop_raccolti} drop, {esito.equip_indossati} equip"
+                f"{esito.drop_raccolti} drop, {esito.equip_indossati} equip, "
+                f"{esito.riposi} riposi"
                 + (f" ({esito.causa_morte})" if esito.causa_morte else "")
             )
 

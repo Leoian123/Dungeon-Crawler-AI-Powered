@@ -210,11 +210,37 @@ def _topologia_zona(livello: int, zona: Zona, territorio: TerritorioAttivo) -> P
             a = rng.randrange(0, boss)  # un arco seeded da PRIMA del boss alla scala
             adiacenze[a].append(stanze - 1)
             adiacenze[stanze - 1].append(a)
-        return Piano(partenza=base.partenza, adiacenze=adiacenze, discese=set(base.discese))
-    base = genera_topologia(rng, n)
-    # Le zone NON-tana non hanno scala: il passaggio (ATTRAVERSA) sta in n-1,
-    # custodito dal boss di zona — `discese` vuoto tiene SCENDI fuori dal menu.
-    return Piano(partenza=base.partenza, adiacenze=base.adiacenze, discese=set())
+        piano_zona = Piano(
+            partenza=base.partenza, adiacenze=adiacenze, discese=set(base.discese)
+        )
+    else:
+        base = genera_topologia(rng, n)
+        # Le zone NON-tana non hanno scala: il passaggio (ATTRAVERSA) sta in n-1,
+        # custodito dal boss di zona — `discese` vuoto tiene SCENDI fuori dal menu.
+        piano_zona = Piano(partenza=base.partenza, adiacenze=base.adiacenze, discese=set())
+    _stampa_tipi_zona(livello, zona, piano_zona)
+    return piano_zona
+
+
+def _stampa_tipi_zona(livello: int, zona: Zona, piano_zona: Piano) -> None:
+    """La stampa dei tipi con i vincoli DEL TERRITORIO: la stanza del custode è
+    BOSS; la SAFE ROOM è garantita per quota di spina (`STANZE.safe_ogni_zone` —
+    rara e da trovare, mai regalata) e a pescata nei vicoli laterali (il premio
+    della deviazione, `STANZE.prob_safe_laterale`). RNG su stream DEDICATO
+    (`…:tipi`): la topologia già pubblicata resta byte-identica."""
+    from .calibrazione import STANZE_PROB_SAFE_LATERALE, STANZE_SAFE_OGNI_ZONE
+    from .mappa import stampa_tipi
+
+    rng_tipi = random.Random(f"{master_seed()}:piano:{livello}:zona:{zona.chiave}:tipi")
+    di_spina = e_di_spina(zona, livello)
+    ogni = max(1, int(STANZE_SAFE_OGNI_ZONE))
+    stampa_tipi(
+        piano_zona,
+        rng_tipi,
+        boss=stanza_boss_di(zona, piano_zona),
+        safe_garantita=di_spina and zona.tier.ordine % ogni == ogni - 1,
+        prob_safe=0.0 if di_spina else STANZE_PROB_SAFE_LATERALE,
+    )
 
 
 def stanza_boss_di(zona: Zona, piano_mappa: Piano) -> int:
@@ -351,6 +377,63 @@ def pesca_spawn(rng: random.Random) -> MobAttivo | None:
         return None
     pesi = [PESO_FREQUENZA[v.frequenza] for v in voci]
     return rng.choices([v.mob for v in voci], weights=pesi, k=1)[0]
+
+
+def finestra_gradi_loot(livello: int) -> frozenset:
+    """La finestra di gradi per il LOOT qui e ora: sul piano-mondo segue il TIER
+    della zona corrente (`gradi_del_tier` — il bottino insegue il territorio,
+    non la profondità, che resta 1 su tutta la spina); sui piani piatti resta
+    `gradi_per_profondita`. Senza questo aggancio il corredo di riferimento dei
+    gradi alti era irraggiungibile proprio nelle zone che li schierano (misura
+    2026-08-11: nessuna run oltre la città)."""
+    from .catalogo import gradi_del_tier, gradi_per_profondita
+
+    zona = zona_corrente()
+    if zona is not None:
+        return gradi_del_tier(zona.tier)
+    return gradi_per_profondita(livello)
+
+
+def rimaterializza_custode() -> int | None:
+    """Il custode NON battuto torna in scena nella SUA stanza al rientro in zona.
+
+    Uscire dalla zona lo despawna (`_despawna_mob_di_zona`: la zona nuova nasce
+    pulita); al rientro la stanza-boss già narrata RILEGGE l'Archivio, che non
+    materializza nulla — senza di lui `attraversamento_consentito` resterebbe
+    falso per sempre (soft-lock scovato da `misura_run`). Deterministico, zero
+    AI: stesso asset del fascicolo (`boss_della_zona`) e stessa strada
+    dell'imboscata (`istanzia_entita` + `registra_mob`) — il motore rimette in
+    scena contenuto già suo. `None` = niente da fare (non è la stanza-boss,
+    boss battuto, mob già in scena, o boss inesistente)."""
+    from contracts import EntitaGenerata
+
+    from .mappa import registra_mob
+    from .narrazione import istanzia_entita
+    from .piano import livello_corrente
+
+    zona = zona_corrente()
+    if (zona is None or not stanza_corrente_e_del_boss()
+            or boss_sconfitto(zona) or mob_corrente() is not None):
+        return None
+    livello = livello_corrente()
+    custode = boss_della_zona(livello, zona)
+    if custode is None:
+        return None
+    from .design import registry_archetipi_correnti
+
+    if custode.archetipo not in registry_archetipi_correnti():
+        # Questo call-site NON passa dal gate (`istanzia_entita` presume il
+        # post-gate): un archetipo driftato (save vecchio, stagione diversa)
+        # deve degradare — mai un KeyError dentro una RILETTURA d'Archivio.
+        return None
+    eg = EntitaGenerata(
+        archetipo=custode.archetipo, grado=custode.grado, blocchi=[],
+        nome=custode.nome, descrizione=custode.descrizione,
+        riferimento=custode.slug,
+    )
+    ent = istanzia_entita(eg, livello)
+    registra_mob(ent)
+    return ent
 
 
 def stanza_corrente_e_del_boss() -> bool:

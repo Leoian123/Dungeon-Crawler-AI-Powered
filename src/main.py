@@ -1206,7 +1206,12 @@ class SessioneGioco:
             self._fatti_scontro = None
         self.ultimo_messaggio = esito.messaggio
         if esito.risultato is not None:
-            self._nome_mob = esito.risultato.turno.entita.nome
+            from motore import stanza_quieta
+
+            if not stanza_quieta():
+                # Nel luogo quieto l'entità del turno è un segnaposto di formato
+                # («Quiete»): non deve mai diventare il nome-ripiego del nemico.
+                self._nome_mob = esito.risultato.turno.entita.nome
         self._sincronizza_scena()
         return self._snapshot_corrente(esito.messaggio.prosa)
 
@@ -1622,13 +1627,15 @@ class SessioneGioco:
         deterministico al pool: il drop non si perde mai (flush in `salva()`
         e a ogni drop successivo)."""
         from motore import calibrazione as _cal
-        from motore import gradi_per_profondita, rango_grado
+        from motore import finestra_gradi_loot, rango_grado
 
         self._scarica_drop_pendente()   # cintura: mai due pendenti
         if self.rng.random() >= _cal.PROB_DROP:
             return
+        # Sul piano-mondo la finestra segue il TIER della zona corrente (il
+        # bottino insegue il territorio); sui piani piatti la profondità.
         finestra = [g.value for g in sorted(
-            gradi_per_profondita(livello_corrente()), key=rango_grado)]
+            finestra_gradi_loot(livello_corrente()), key=rango_grado)]
         pesi = [_cal.LOOT_PESO_GRADO[g] for g in finestra]
         tiro = self.rng.random() * (sum(pesi) or 1)
         cumulo, grado = 0.0, finestra[-1]
@@ -2201,6 +2208,7 @@ def _mob_a_attivo(mob: MobAsset) -> MobAttivo:
         grado=mob.grado, blocchi=list(mob.blocchi),
         descrizione=mob.descrizione, prosa_stanza=mob.prosa_stanza,
         durata=mob.durata, tags=list(mob.tags),
+        aspetto=mob.aspetto, tratto=mob.tratto, elite=mob.elite,
         mosse=list(mob.mosse),
         override=(
             mob.override.model_dump(exclude_none=True)
@@ -2421,6 +2429,12 @@ class ProviderCopione(FakeProvider):
         if not turni or trovata is None:
             return None
         stanza = trovata[1].stanza_corrente
+        # La QUIETE vale anche sui piani PIATTI (review 2026-08-11): senza questo
+        # ramo un bagno stampato dalla mappa piatta narrerebbe il mob del copione
+        # keyed — un mostro mai materializzato, congelato per sempre in Archivio.
+        quieto = self._turno_quiete(trovata[1], stanza)
+        if quieto is not None:
+            return quieto
         if stanza >= len(turni):
             return None    # geometria più larga del cast: fallback onesto, mai shift
         return turni[stanza]
@@ -2450,6 +2464,9 @@ class ProviderCopione(FakeProvider):
         mappa = trovata[1]
         livello = livello_corrente()
         stanza = mappa.stanza_corrente
+        quieto = ProviderCopione._turno_quiete(mappa, stanza)
+        if quieto is not None:
+            return quieto
         if stanza == stanza_boss_di(zona, mappa.piano):
             mob = boss_della_zona(livello, zona)
         else:
@@ -2467,6 +2484,54 @@ class ProviderCopione(FakeProvider):
                 descrizione=mob.descrizione, riferimento=mob.slug,
             ),
             durata=mob.durata,
+        )
+
+    @staticmethod
+    def _turno_quiete(mappa, stanza: int) -> TurnoNarrazione | None:
+        """Il copione dei luoghi QUIETI (safe room/bagno, T2): prosa del LUOGO,
+        deterministica. L'entità è un requisito di formato del contratto — la
+        pipeline nei luoghi quieti NON materializza (la stanza è la scena)."""
+        from contracts import Durata, Grado, TipoStanza
+        from motore import ARCHETIPO_DEFAULT
+        from motore.mappa import tipo_di
+
+        tipo = tipo_di(mappa.piano, stanza)
+        # L'entità-segnaposto deve PASSARE il gate del piano attivo (budget:
+        # archetipi e gradi ammessi — narrazione.py:200): "slime"/bronzo secchi
+        # verrebbero respinti da un piano che non li ammette, e la safe room
+        # narrerebbe il fallback. Si pesca il minimo ammesso dal design.
+        from motore import design_piano_corrente, rango_grado
+
+        piano_attivo = design_piano_corrente()
+        archetipo = ARCHETIPO_DEFAULT
+        grado = Grado.BRONZO
+        if piano_attivo is not None:
+            if piano_attivo.archetipi:
+                archetipo = piano_attivo.archetipi[0]
+            if piano_attivo.gradi:
+                grado = min(piano_attivo.gradi, key=rango_grado)
+        prose = {
+            TipoStanza.SAFE_ROOM: (
+                "La porta si sigilla alle tue spalle e il frastuono del piano "
+                "resta fuori. Odore di cibo caldo, un distributore di "
+                "ricompense che ronza, e il mega schermo che ripete gli "
+                "episodi della giornata a volume basso. Qui si respira."
+            ),
+            TipoStanza.BAGNO: (
+                "Una porta anonima, e dietro: piastrelle, uno specchio, "
+                "silenzio. Nessuno sponsor, nessun almanacco, nessun occhio "
+                "addosso. L'unico posto del piano dove sei solo davvero."
+            ),
+        }
+        if tipo not in prose:
+            return None
+        return TurnoNarrazione(
+            prosa=prose[tipo],
+            entita=EntitaGenerata(
+                archetipo=archetipo, grado=grado, blocchi=[],
+                nome="Quiete", descrizione="Il luogo stesso, non un abitante.",
+            ),
+            durata=Durata.TURNO,
         )
 
 

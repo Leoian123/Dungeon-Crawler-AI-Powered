@@ -253,11 +253,16 @@ from .mappa import (
     dettagli_mob_corrente,
     nome_mob_corrente,
     png_in_stanza_corrente,
+    fattore_imboscata_stanza,
     registra_mob,
     rimuovi_mob,
     scala_presente,
     segna_visitata,
+    stampa_tipi,
+    stanza_quieta,
     stanza_visitata,
+    tipo_di,
+    tipo_stanza_corrente,
     uscite,
 )
 from .design import (
@@ -311,7 +316,7 @@ from .piano import (
     valida_piano,
 )
 from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
-from .catalogo import GRADO_DA_TIER, grado_da_tier
+from .catalogo import GRADO_DA_TIER, grado_da_tier, gradi_del_tier
 from .incontri import componi_imboscata_scena, entita_mob_incontro, nome_nemico_incontro
 from .png import dialoga, materializza_png
 from .territorio import (
@@ -328,7 +333,9 @@ from .territorio import (
     collega_boss,
     deviazione_consentita,
     e_di_spina,
+    finestra_gradi_loot,
     pesca_spawn,
+    rimaterializza_custode,
     zone_laterali,
     zona_di_spina_del_tier,
     registra_boss_sconfitto,
@@ -668,6 +675,9 @@ __all__ = [
     "VoceSpawnAttiva",
     "GRADO_DA_TIER",
     "grado_da_tier",
+    "gradi_del_tier",
+    "finestra_gradi_loot",
+    "rimaterializza_custode",
     "ORDINE_SPINA",
     "SistemaAttraversamento",
     "StatoTerritorio",
@@ -730,11 +740,16 @@ __all__ = [
     "dettagli_mob_corrente",
     "nome_mob_corrente",
     "registra_mob",
+    "fattore_imboscata_stanza",
     "riposa",
     "rimuovi_mob",
     "scala_presente",
     "segna_visitata",
+    "stampa_tipi",
+    "stanza_quieta",
     "stanza_visitata",
+    "tipo_di",
+    "tipo_stanza_corrente",
     "uscite",
     "raggiungibili",
     "piano_completabile",

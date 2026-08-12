@@ -38,18 +38,29 @@ _ISTRUZIONE_DIALOGO = (
 )
 
 
-def materializza_png(mob, livello: int, stanza: int) -> int:
+def materializza_png(mob, livello: int, stanza: int) -> int | None:
     """Istanzia un PNG dal dato di cast (`MobAttivo`): la STESSA strada del mob
     (`istanzia_entita` via `EntitaGenerata` con `riferimento=mob.slug` — se il
     design attivo lo conosce, l'override di profilo e le mosse vincono), poi
     marca `ruolo=PNG` e la stanza. NIENTE `registra_mob`: il PNG non è il
-    nemico della stanza."""
+    nemico della stanza.
+
+    GATE ELITÉ (contratto, decisione utente 2026-08-11): l'idolo del dungeon
+    non si incontra sotto il piano minimo (`ELITE.piano_minimo`, §11) —
+    `None` = rifiuto dichiarato, il chiamante non ha materializzato nulla."""
+    if getattr(mob, "elite", False):
+        from .calibrazione import ELITE_PIANO_MINIMO
+
+        if livello < int(ELITE_PIANO_MINIMO):
+            return None
     ent = istanzia_entita(EntitaGenerata(
         archetipo=mob.archetipo, grado=mob.grado, blocchi=list(mob.blocchi),
         nome=mob.nome, descrizione=mob.descrizione, riferimento=mob.slug,
+        aspetto=getattr(mob, "aspetto", ""), tratto=getattr(mob, "tratto", ""),
     ), livello)
     em = esper.component_for_entity(ent, EntitaMob)
     em.ruolo = RuoloMob.PNG
+    em.elite = bool(getattr(mob, "elite", False))
     em.stanza = stanza
     return ent
 
@@ -82,6 +93,12 @@ async def dialoga(
     ) if x)
     if dettagli:
         righe.append(f"[png/identita] {dettagli}")
+    if em.elite:
+        righe.append(
+            "[png/elite] È un ELITÉ: il personaggio che TUTTI nel dungeon "
+            "idolatrano — le folle lo riconoscono, lo show lo celebra, il suo "
+            "nome pesa. Parla da leggenda vivente, mai da comparsa."
+        )
     if memoria_narrativa is not None:
         for doc in memoria_narrativa.recupera(f"{em.nome} {slug}", limite=3):
             righe.append(f"[memoria] {doc.titolo}: {doc.testo}"[:200])

@@ -80,3 +80,80 @@ def test_rilettura_reveal_segna_la_visita(mondo_pulito) -> None:
     assert stanza_visitata(), "la rilettura del reveal deve contare come visita"
     assert snapshot.opzioni, "dopo il turno GM riletto la scena deve esistere"
     sessione.esci()
+
+
+def test_la_politica_gioca_il_nascondino(mondo_isolato) -> None:
+    """Il punto della run non è battere il celestiale: è raggiungere la scala
+    EVITANDOLO. Nella tana la stanza del Lich non si imbocca mai e, se ci si
+    trova davanti a lui, qualunque politica arretra (mai ingaggio)."""
+    import random
+    from collections import Counter
+
+    from contracts import BusEventi, OpzioneVista, TipoAzione
+    from misura_run import _scelta_scena, _stanze_da_evitare
+    from motore import (
+        avvia_territorio,
+        crea_profondita,
+        crea_protagonista,
+        crea_seme,
+        crea_stagione,
+        crea_tempo_piano,
+        mappa_corrente,
+        rigenera_mappa_zona,
+        spina_del_piano,
+        stanza_boss_di,
+    )
+    from tests.contenuti_sintetici import piano_territoriale, stagione_sintetica
+    from main import _stagione_a_attiva
+
+    crea_profondita()
+    crea_seme(7)
+    crea_tempo_piano()
+    crea_stagione(_stagione_a_attiva(
+        stagione_sintetica(piani=[piano_territoriale(1)], slug="s-nascondino")
+    ))
+    crea_protagonista(destrezza=10, punti_vita=30, id_dominio="carl")
+    avvia_territorio(1)
+    BusEventi()
+
+    spina = spina_del_piano(1)
+    assert _stanze_da_evitare() == set()  # nelle zone ordinarie il boss è un gate
+
+    tana = spina[-1]
+    rigenera_mappa_zona(1, tana)
+    _e, mappa = mappa_corrente()
+    boss = stanza_boss_di(tana, mappa.piano)
+    assert _stanze_da_evitare() == {boss}
+
+    # Movimento: la stanza del Lich non viene MAI scelta (su molti tiri).
+    opzioni = (
+        OpzioneVista(indice=0, etichetta=f"Vai: stanza {boss}", tipo=TipoAzione.MUOVI),
+        OpzioneVista(indice=1, etichetta="Vai: stanza 0", tipo=TipoAzione.MUOVI),
+    )
+    for seme in range(20):
+        indice, _et = _scelta_scena(
+            POLITICHE["combatti"], opzioni, Counter(), random.Random(seme)
+        )
+        assert indice == 1, "la politica ha imboccato la stanza del Lich"
+
+    # Ingaggio: davanti al custode della tana anche combatti-sempre arretra.
+    mappa.stanza_corrente = boss
+    scena_lich = (
+        OpzioneVista(indice=0, etichetta="Combatti", tipo=TipoAzione.COMBATTI),
+        OpzioneVista(indice=1, etichetta="Scappi", tipo=TipoAzione.SCAPPA),
+    )
+    indice, _et = _scelta_scena(
+        POLITICHE["combatti"], scena_lich, Counter(), random.Random(0)
+    )
+    assert indice == 1, "davanti al celestiale si arretra, mai ingaggio"
+
+
+def test_stanza_di_legge_solo_etichette_di_movimento() -> None:
+    """Il sensore di laboratorio che rilegge l'id-stanza dalle parole del menu:
+    le etichette non-movimento non devono produrre un id fantasma."""
+    from misura_run import _stanza_di
+
+    assert _stanza_di("Vai: stanza 12") == 12
+    assert _stanza_di("Vai: stanza 0") == 0
+    assert _stanza_di("Torna sulla via principale") is None
+    assert _stanza_di("Attraversa: verso citta") is None

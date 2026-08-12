@@ -161,6 +161,19 @@ class MobAsset(_Asset):
     descrizione: str = ""
     prosa_stanza: str = Field(min_length=1)
     durata: Durata = Durata.TURNO
+    # Identità cinematografica (la lore che il dialogo e il reveal vestono):
+    # facoltativa per il mob ordinario — la sua lore MINIMA resta comunque
+    # `prosa_stanza`, obbligatoria — RIGOROSA per l'Elité (validator sotto).
+    aspetto: str = ""
+    tratto: str = ""
+    # ELITÉ (decisione utente 2026-08-11): il PNG che tutti nel dungeon
+    # IDOLATRANO — il nome dell'ambientazione (i Garrosh/Arthas di questo
+    # mondo). È IDENTITÀ, non ruolo: il comportamento resta quello del PNG
+    # (mai ostile, mai despawn, dialogo GM-pilotato). Contratti attivi ORA:
+    # lore piena obbligatoria; mai nei roster boss/spawn/cast (un idolo non
+    # custodisce varchi e non è un incontro: si INCONTRA, dal piano minimo
+    # §11 `ELITE.piano_minimo` in su). Farlo morire è roba del futuro.
+    elite: bool = False
     # Espressività per-mob (Fase 5): mosse proprie (vuoto = quelle dell'archetipo,
     # poi il default del motore) e override PARZIALE del profilo d'archetipo —
     # vince campo-per-campo. Authoring-facing: numeri legali qui, mai in
@@ -172,6 +185,20 @@ class MobAsset(_Asset):
     def _blocchi_unici(self) -> "MobAsset":
         _senza_duplicati(self.blocchi, "blocchi")
         _senza_duplicati(self.mosse, "mosse")
+        return self
+
+    @model_validator(mode="after")
+    def _elite_esige_la_lore(self) -> "MobAsset":
+        """«Tutti devono avere una lore» — e l'idolo più di tutti: un Elité
+        senza biografia completa non può ESISTERE come asset."""
+        if self.elite:
+            for campo in ("descrizione", "aspetto", "tratto"):
+                if not getattr(self, campo).strip():
+                    raise ValueError(
+                        f"elite {self.slug}: `{campo}` obbligatorio — l'idolo "
+                        "del dungeon esige la lore piena (descrizione, "
+                        "aspetto, tratto)"
+                    )
         return self
 
 
@@ -622,11 +649,33 @@ class TerritorioRisolto(BaseModel):
                     )
         return self
 
+    @model_validator(mode="after")
+    def _un_elite_non_custodisce_varchi(self) -> "TerritorioRisolto":
+        """L'Elité è il PNG idolatrato: MAI un custode (di nessun tier — men che
+        meno il boss di piano) e MAI una voce di spawn. Per costruzione."""
+        for tier, roster in self.boss.items():
+            for mob in roster:
+                if mob.elite:
+                    raise ValueError(
+                        f"elite {mob.slug} nel roster boss di {tier.value}: un "
+                        "idolo non custodisce varchi (è un PNG, non un boss)"
+                    )
+        for tabella in self.spawn:
+            for voce in tabella.voci:
+                if voce.mob.elite:
+                    raise ValueError(
+                        f"elite {voce.mob.slug} nella tabella di spawn di "
+                        f"{tabella.tier.value}: l'idolo si incontra, non spawna"
+                    )
+        return self
+
 
 class PianoRisolto(BaseModel):
     """Il piano coi riferimenti SCIOLTI: il cast è inline. La coerenza
     cast⊆budget è imposta per costruzione dal validator: un piano risolto
-    incoerente non può esistere."""
+    incoerente non può esistere. L'Elité non sta MAI nel cast (il cast è il
+    vivaio dei mob OSTILI del GM e delle imboscate: l'idolo non ne fa parte —
+    vive in libreria e si materializza solo dal canale PNG)."""
 
     model_config = _FROZEN
 
@@ -659,6 +708,13 @@ class PianoRisolto(BaseModel):
     def _cast_nel_budget(self) -> "PianoRisolto":
         for mob in self.cast:
             self._controlla_nel_budget(mob, "cast")
+            if mob.elite:
+                # Il cast è il vivaio OSTILE (reveal e imboscate): l'idolo non
+                # ne fa parte — vive in libreria, canale PNG e basta.
+                raise ValueError(
+                    f"elite {mob.slug} nel cast: l'idolo non è un incontro "
+                    "di combattimento"
+                )
         return self
 
     @model_validator(mode="after")
