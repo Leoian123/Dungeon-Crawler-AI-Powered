@@ -61,3 +61,7 @@ web/
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/
 docs/
+
+# Raccolto generativo di misura_run (--json / --json-oggetti): output generato,
+# fotografia locale — mai versionato.
+raccolto*.json
