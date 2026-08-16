@@ -46,7 +46,8 @@ from motore import (
     mosse_note,
     motivi_fuori_budget,
     Primarie,
-    acc_eff,
+    acc_fis_eff,
+    acc_mag_eff,
     atk_eff,
     costruisci_prompt,
     def_eff,
@@ -111,7 +112,8 @@ def _stat_materializzando(eg: EntitaGenerata, livello: int) -> dict:
             "atk_eff": atk_eff(ent),
             "def_eff_centesimi": def_eff(ent),
             "eva_eff": round(eva_eff(ent), 4),
-            "acc_eff": round(acc_eff(ent), 4),
+            "acc_fis_eff": round(acc_fis_eff(ent), 4),
+            "acc_mag_eff": round(acc_mag_eff(ent), 4),
         }
     finally:
         esper.delete_entity(ent, immediate=True)  # ripulisci: la materializzazione non lascia residui
@@ -194,7 +196,7 @@ def stampa_confronto(esiti: list[Esito], budget, livello: int, contesto: str, st
             _riga(f"    primarie: {prim}", stampa)
             _riga(f"    max_hp={e.stat['max_hp']}  atk_eff={e.stat['atk_eff']}  "
                   f"def_eff={e.stat['def_eff_centesimi']}cent  eva_eff={e.stat['eva_eff']}  "
-                  f"acc_eff={e.stat['acc_eff']}", stampa)
+                  f"acc_fis={e.stat['acc_fis_eff']}  acc_mag={e.stat['acc_mag_eff']}", stampa)
             _riga(f"    blocchi: {', '.join(b.value for b in c.blocchi) or '—'}", stampa)
         _riga("  [SPERIMENTALE — non ancora validato dal motore]", stampa)
         _riga(f"    drop:   {c.drop}", stampa)

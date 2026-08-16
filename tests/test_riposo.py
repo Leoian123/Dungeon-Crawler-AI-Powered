@@ -111,13 +111,20 @@ def test_riposa_in_scena_recupera_e_non_apre_uno_scontro(run_pulita, tmp_path, m
         # Col mob vivo la scena è Combatti/Scappi: NIENTE riposo in faccia al nemico.
         assert "Riposa" not in etichette and "Scappi" in etichette
 
-        sessione.coda.accoda(PlayerChoseOption(etichette["Scappi"]))
-        snap = sessione.avanza()                   # disimpegno riuscito (DEX 10 vs bronzo)
+        # La stanza si libera da LABORATORIO (ritirata universale 2026-08-12:
+        # «Scappi» ora ARRETRA e il mob resta — non è più un room-clear).
+        from motore import dissolvi_mob
+
+        dissolvi_mob()
+        # Ferito PRIMA di comporre: a risorse piene «Riposa» non è più di scena
+        # (round 3: il riposo-«niente» selezionabile).
+        _p, _m, scheda = protagonista()
+        scheda.punti_vita = 15
+        sessione._sincronizza_scena()
+        snap = sessione._snapshot_corrente()
         etichette = {o.etichetta: o.indice for o in snap.opzioni}
         assert "Riposa" in etichette, f"stanza sicura senza Riposa: {etichette}"
 
-        _p, _m, scheda = protagonista()
-        scheda.punti_vita = 15
         cronaca.preleva()
         sessione.coda.accoda(PlayerChoseOption(etichette["Riposa"]))
         snap = sessione.avanza()
@@ -137,9 +144,11 @@ def test_lopzione_riposa_ha_il_suo_tipo_chiuso(run_pulita, tmp_path, monkeypatch
     così ogni host la riconosce senza confrontare stringhe."""
     monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 0.0)
     sessione = costruisci_sessione(nome="Tipo", seed=1, directory=tmp_path)
-    snap = asyncio.run(sessione.prossima_narrazione())
-    etichette = {o.etichetta: o.indice for o in snap.opzioni}
-    sessione.coda.accoda(PlayerChoseOption(etichette["Scappi"]))
-    snap = sessione.avanza()
-    tipi = {o.tipo for o in snap.opzioni}
+    asyncio.run(sessione.prossima_narrazione())
+    from motore import dissolvi_mob
+
+    dissolvi_mob()  # LAB: la scena si libera (la ritirata non ripulisce più)
+    protagonista()[2].punti_vita -= 5  # ferito: l'opzione è VERA (round 3)
+    sessione._sincronizza_scena()
+    tipi = {o.tipo for o in sessione._snapshot_corrente().opzioni}
     assert TipoAzione.RIPOSA in tipi

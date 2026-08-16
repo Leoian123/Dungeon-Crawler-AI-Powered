@@ -246,7 +246,7 @@ def afflizione_da(capacita: Status) -> Status:
 
 # --- Applicazione: competizione per rango (G-7) -------------------------------
 
-def applica_status(entita: int, status: Status) -> None:
+def applica_status(entita: int, status: Status) -> bool:
     """Applica `status` competendo con l'eventuale residente dello STESSO tipo (§4.2).
 
     - nessun residente → si applica;
@@ -256,53 +256,42 @@ def applica_status(entita: int, status: Status) -> None:
       timer (non si **diluisce**: il rango resta quello alto), il nuovo è scartato.
 
     Confronto int-vs-int, fissato all'applicazione: deterministico, non tocca il seed.
+
+    Ritorna **True se lo status è NUOVO** (nessun residente prima): è il fatto
+    che decide se annunciarlo — un rinfresco non ristampa «Sei avvelenato!»
+    (riscontro playtest 2026-08-12: doppia riga nella stessa cronaca quando
+    innato trasmesso ed effetto di mossa applicavano lo stesso blocco).
     """
     tipo = type(status)
     residente = esper.try_component(entita, tipo)
     if residente is None:
         esper.add_component(entita, status)
-    elif status.rango > residente.rango:
+        return True
+    if status.rango > residente.rango:
         residente.rango = status.rango
         residente.durata = status.durata
     else:
         residente.durata = max(residente.durata, status.durata)
+    return False
 
 
 # --- Tick: un solo sistema per tipo, sempre-attivo, per-turno-dell'entità ------
 
 def _applica_delta_hp(entita: int, delta: int) -> int | None:
-    """Muove gli HP dove vivono (`Scheda` per il protagonista, `PuntiVita` per i
-    nemici), clampando la CURA al massimo. Ritorna gli HP risultanti (o None).
-    Import locali: evitano cicli col modulo di combattimento."""
-    from .scheda import Scheda
+    """Delega al proprietario UNICO della mutazione HP (`salute.muovi_hp`):
+    qui viveva una delle quattro copie di «dove vivono gli HP», con la sua
+    politica di clamp — ora la politica è in un posto solo."""
+    from .salute import muovi_hp  # pigro: nessun ciclo status↔combattimento
 
-    scheda = esper.try_component(entita, Scheda)
-    if scheda is not None:
-        if delta > 0:
-            from .derivate import max_hp
-
-            scheda.punti_vita = min(scheda.punti_vita + delta, max_hp(entita))
-        else:
-            scheda.punti_vita += delta
-        return scheda.punti_vita
-    from .combattimento import PuntiVita
-
-    pv = esper.try_component(entita, PuntiVita)
-    if pv is not None:
-        pv.attuali = min(pv.attuali + delta, pv.massimi) if delta > 0 else pv.attuali + delta
-        return pv.attuali
-    return None
+    return muovi_hp(entita, delta)
 
 
 def _nome_diegetico(entita: int) -> str:
-    """Nome per gli eventi di vista: il nome del mob, "" per il protagonista."""
-    from .narrazione import EntitaMob  # locale: narrazione importa già questo modulo
-    from .scheda import Protagonista
+    """Nome per gli eventi di vista: delega alla copia UNICA (`mob.nome_diegetico`
+    — era duplicata byte-per-byte con `combattimento._nome_pubblico`)."""
+    from .mob import nome_diegetico
 
-    em = esper.try_component(entita, EntitaMob)
-    if em is not None:
-        return em.nome
-    return "" if esper.has_component(entita, Protagonista) else "il nemico"
+    return nome_diegetico(entita)
 
 
 class SistemaStatus(SistemaSempreAttivo):

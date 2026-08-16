@@ -81,10 +81,12 @@ from contracts import (
     OpzioneVista,
     PlayerChoseOption,
     Grado,
+    ProsaFuoriBanda,
     RiepilogoAzione,
     SnapshotVista,
     StatId,
     TipoAzione,
+    TipoProsa,
     TurnoNarrazione,
 )
 from guscio import Guscio
@@ -110,7 +112,8 @@ from motore import (
     OpzioneScena,
     SpecNemico,
     CaricamentoFallito,
-    acc_eff,
+    acc_fis_eff,
+    acc_mag_eff,
     atk_eff,
     attacco,
     carica_archivio,
@@ -118,7 +121,6 @@ from motore import (
     componi_opzioni_scena,
     consuma_messaggi,
     def_eff,
-    dissolvi_mob,
     esegui_turno_gm,
     eva_eff,
     in_combattimento,
@@ -165,6 +167,7 @@ from motore import (
     prepara_riepilogo,
     proietta_scheda,
     protagonista,
+    invalida,
     salva_run,
     stat_eff,
     spendi_tempo,
@@ -307,12 +310,43 @@ def _scandisci_collezione(
     return voci
 
 
+# Cache delle collezioni (registro §4.2-B: `_collezione` era O(P·M) A OGNI
+# chiamata — 13 chiamanti, ognuno riscandiva e ri-validava l'intera libreria
+# Pydantic; invisibile con 12 mob, quadratico con una libreria vera). La chiave
+# di validità sono i METADATI dei file (nome, mtime_ns, size): l'authoring che
+# scrive un asset (`--applica`, editor locale) invalida da sé — niente stale,
+# niente TTL. Lo scan dei metadati resta (è il costo di correttezza); sparisce
+# il ri-parse.
+_CACHE_COLLEZIONI: dict[tuple, tuple[tuple, dict]] = {}
+
+
+def _firma_cartelle(tipo: str, cartelle: tuple[Path, ...]) -> tuple:
+    firma = []
+    for cartella in cartelle:
+        base = cartella / tipo
+        if not base.exists():
+            firma.append((str(base), None))
+            continue
+        for percorso in sorted(base.glob("*.json")):
+            st = percorso.stat()
+            firma.append((str(percorso), st.st_mtime_ns, st.st_size))
+    return tuple(firma)
+
+
 def _collezione(
     tipo: str, ufficiali: Path | None = None, locali: Path | None = None
 ) -> dict[str, tuple[object | None, AssetVista]]:
     """Fusione locali+ufficiali: sull'ombreggiatura di slug l'UFFICIALE vince."""
-    fuse = _scandisci_collezione(tipo, locali or DIRECTORY_CONTENUTI_LOCALI, "locale")
-    fuse.update(_scandisci_collezione(tipo, ufficiali or DIRECTORY_CONTENUTI, "ufficiale"))
+    loc = locali or DIRECTORY_CONTENUTI_LOCALI
+    uff = ufficiali or DIRECTORY_CONTENUTI
+    chiave = (tipo, str(loc), str(uff))
+    firma = _firma_cartelle(tipo, (loc, uff))
+    in_cache = _CACHE_COLLEZIONI.get(chiave)
+    if in_cache is not None and in_cache[0] == firma:
+        return dict(in_cache[1])  # copia shallow: i chiamanti mutano il dict, mai la cache
+    fuse = _scandisci_collezione(tipo, loc, "locale")
+    fuse.update(_scandisci_collezione(tipo, uff, "ufficiale"))
+    _CACHE_COLLEZIONI[chiave] = (firma, dict(fuse))
     return fuse
 
 
@@ -971,6 +1005,12 @@ class SalvataggioInCombattimento(RuntimeError):
     "in combattimento" senza scontro (soft-lock permanente, audit 2026-08)."""
 
 
+class RunConclusa(RuntimeError):
+    """Salvare a run TERMINATA è save-scumming: il permadeath ha ritirato lo
+    slot e nessuna porta di scrittura può ricrearlo (H-20, caccia 2026-08-16).
+    Il messaggio è per il giocatore: l'host lo rende, non ci muore sopra."""
+
+
 def _serializza_rng(rng: random.Random) -> list:
     """`Random.getstate()` in forma JSON-safe (il seam `rng_state` del save, H)."""
     versione, interno, gauss = rng.getstate()
@@ -1066,6 +1106,7 @@ class SessioneGioco:
         self._fatti_epitaffio: FattiScontro | None = None  # fatti della morte (Fase 5)
         self._nome_mob = ""
         self._imboscata_in_corso = False  # lo scontro aperto è un'imboscata (Sit.5)
+        self._mossa_su_visitata: int | None = None  # debito-tick del backtracking
         # I dettagli (EntitaMob) dell'avversario dell'ULTIMO scontro aperto: la
         # lore che apertura/epitaffio mettono nel prompt. Sovrascritto a ogni
         # nuova istanza, MAI azzerato a scontro chiuso (l'epitaffio arriva dopo).
@@ -1076,9 +1117,29 @@ class SessioneGioco:
         # Il drop VINTO ma non ancora coniato (solo provider live): il GRADO
         # fissato dal motore — `veste_premio` conia, il flush lo garantisce.
         self._drop_pendente: str | None = None
+        # I battiti di prosa FUORI BANDA dovuti alla scena, in ordine di scena
+        # (apertura → premio → epitaffio). Li dichiara il MOTORE dove il fatto
+        # accade; l'host li drena con `prossima_prosa` e basta. Prima questa
+        # sequenza viveva nella TUI (confronto fase prima/dopo + un flag
+        # `_epitaffio_scritto` di host): un host nuovo che non la ricopiasse
+        # perdeva trailer, vestizione del premio ed epitaffio — cioè quasi tutta
+        # la prosa che non è il reveal di stanza.
+        self._prosa_dovuta: list[TipoProsa] = []
+        # Il permadeath ha già ritirato lo slot (una volta sola, vedi
+        # `_onora_permadeath`): non dipende dal fatto che l'host chiuda la run.
+        self._slot_ritirato = False
+        # L'engine memoizzato sul provider corrente: il tally per rotta vive
+        # quanto la sessione, non quanto una singola chiamata (`_engine`).
+        self._engine_avvolto: tuple[object, MasterEngine] | None = None
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
+
+    def _segna_prosa(self, tipo: TipoProsa) -> None:
+        """Dichiara un battito dovuto (idempotente per tipo: un'apertura sola per
+        scontro, un epitaffio solo per morte — anche se il fatto ripassa)."""
+        if tipo not in self._prosa_dovuta:
+            self._prosa_dovuta.append(tipo)
 
     @classmethod
     def nuova(
@@ -1190,7 +1251,7 @@ class SessioneGioco:
         if in_combattimento():  # la pipeline GM non gira nello scontro (istanza a parte)
             return self._snapshot_corrente()
         esito = await esegui_turno_gm(
-            self.provider,
+            self._engine(),  # l'engine memoizzato: il tally per rotta si accumula
             archivio=self.archivio,
             memoria=self.memoria,
             rng=self.rng,
@@ -1229,7 +1290,7 @@ class SessioneGioco:
         if in_combattimento():
             return self._snapshot_corrente()
         esito = await esegui_turno_gm(
-            self.provider,
+            self._engine(),  # l'engine memoizzato: il tally per rotta si accumula
             archivio=self.archivio,
             memoria=self.memoria,
             rng=self.rng,
@@ -1256,13 +1317,33 @@ class SessioneGioco:
         self._istanza = IstanzaCombattimento(
             self.bus, nemico=nome_nemico_incontro(evento.entita)
         )
+        self._segna_prosa(TipoProsa.APERTURA)  # trailer dovuto: lo scontro si è aperto
         self._dettagli_nemico = entita_mob_incontro(evento.entita)
 
     def _engine(self) -> MasterEngine:
         """Il canale unico delle chiamate AI, sul provider CORRENTE (che può
-        cambiare dopo il load: il copione offline si deriva dal save)."""
+        cambiare dopo il load: il copione offline si deriva dal save).
+
+        MEMOIZZATO per identità di provider: `avvolgi` a ogni chiamata creava un
+        engine fresco — e con lui un `tally` per rotta che nasceva e MORIVA nel
+        giro di un turno. Il registro diceva «il tally esiste ma nessun host lo
+        mostra»; la verità era peggiore: per un provider nudo il tally non
+        esisteva mai. Ora l'engine è uno per provider e il conteggio si accumula
+        (porta `tally_rotte`, stampato dalla TUI all'uscita)."""
         prov = self.provider
-        return prov if isinstance(prov, MasterEngine) else MasterEngine.avvolgi(prov)
+        if isinstance(prov, MasterEngine):
+            return prov
+        if self._engine_avvolto is None or self._engine_avvolto[0] is not prov:
+            self._engine_avvolto = (prov, MasterEngine.avvolgi(prov))
+        return self._engine_avvolto[1]
+
+    def tally_rotte(self) -> dict[str, tuple[int, int]]:
+        """`rotta -> (chiamate, degradi)` accumulato sulla sessione: la risposta
+        a «dove sono finite le chiamate AI» per rotta, non solo il totale."""
+        return {
+            nome: (conto.chiamate, conto.degradi)
+            for nome, conto in self._engine().tally.items()
+        }
 
     async def veste_premio(self) -> str | None:
         """Sit.3+4 (contratto premi): la VESTIZIONE del drop GIÀ deciso — il
@@ -1304,6 +1385,11 @@ class SessioneGioco:
         candidato = await self._engine().genera(
             "premi.oggetto", prompt, sistema=PREFISSO_RIFINITURA
         )
+        # BARRIERA di sessione dopo l'await (caccia 2026-08-16): durante l'attesa
+        # un'altra sessione può aver preso il run-World; scrivere ora depositerebbe
+        # il premio sul protagonista ALTRUI. Stessa disciplina della pipeline GM
+        # (`guardia_scrittura`): la coroutine cade SENZA scrivere (F-11).
+        self._guardia_aperta()
         if candidato is None or gate_premio(candidato, fonte, grado) is not None:
             return None
         pent, _m, _s = protagonista()
@@ -1365,6 +1451,11 @@ class SessioneGioco:
         candidato = await self._engine().genera(
             "premi.unico", prompt, sistema=PREFISSO_RIFINITURA
         )
+        # BARRIERA di sessione dopo l'await (caccia 2026-08-16): durante l'attesa
+        # un'altra sessione può aver preso il run-World; scrivere ora depositerebbe
+        # il premio sul protagonista ALTRUI. Stessa disciplina della pipeline GM
+        # (`guardia_scrittura`): la coroutine cade SENZA scrivere (F-11).
+        self._guardia_aperta()
         if candidato is not None:
             attivo, _motivo = assembla_unico(candidato, grado, self.rng)
             if attivo is not None:
@@ -1434,6 +1525,11 @@ class SessioneGioco:
         candidato = await self._engine().genera(
             "premi.conio", prompt, sistema=PREFISSO_RIFINITURA
         )
+        # BARRIERA di sessione dopo l'await (caccia 2026-08-16): durante l'attesa
+        # un'altra sessione può aver preso il run-World; scrivere ora depositerebbe
+        # il premio sul protagonista ALTRUI. Stessa disciplina della pipeline GM
+        # (`guardia_scrittura`): la coroutine cade SENZA scrivere (F-11).
+        self._guardia_aperta()
         if candidato is not None:
             attivo, _motivo = gate_conio(
                 candidato, grado, mosse_ammesse=mosse_note_correnti(),
@@ -1475,6 +1571,11 @@ class SessioneGioco:
         candidato = await self._engine().genera(
             "premi.skill", prompt, sistema=PREFISSO_RIFINITURA
         )
+        # BARRIERA di sessione dopo l'await (caccia 2026-08-16): durante l'attesa
+        # un'altra sessione può aver preso il run-World; scrivere ora depositerebbe
+        # il premio sul protagonista ALTRUI. Stessa disciplina della pipeline GM
+        # (`guardia_scrittura`): la coroutine cade SENZA scrivere (F-11).
+        self._guardia_aperta()
         if (candidato is None or candidato.mossa_base != chiave
                 or chiave not in mosse_note()):
             return None
@@ -1559,6 +1660,38 @@ class SessioneGioco:
         )
         return flavor.testo if flavor is not None else None
 
+    async def prossima_prosa(self) -> ProsaFuoriBanda | None:
+        """**La porta unica della prosa fuori-banda**: il prossimo battito DOVUTO
+        alla scena, già generato. `None` = non ne restano.
+
+        L'host la drena in un ciclo dopo ogni `avanza()` — `while (p := await
+        sessione.prossima_prosa()) is not None: mostra(p)` — e non deve sapere
+        *quando* un trailer, una vestizione o un epitaffio siano dovuti: lo
+        dichiara il motore dove il fatto accade (`_segna_prosa`). Prima ogni host
+        ricostruiva la sequenza da sé confrontando la fase prima/dopo e tenendo un
+        flag proprio per l'epitaffio: `misura_run` e il driver headless non la
+        ricostruivano affatto e giravano su un gioco senza prosa di scontro.
+
+        Non bloccante e senza conseguenze sullo stato: un battito che degrada
+        (provider muto, rotta in fallback) viene CONSUMATO e si passa al
+        successivo — la riga deterministica in cronaca è già uscita comunque.
+        L'unico battito lecito a run CHIUSA è l'epitaffio (la permadeath chiude la
+        run prima che l'host possa drenare): gli altri si scartano in silenzio,
+        perché la loro prosa non ha più una scena in cui atterrare."""
+        while self._prosa_dovuta:
+            tipo = self._prosa_dovuta.pop(0)
+            if tipo is not TipoProsa.EPITAFFIO and (self._chiusa or self._invalidata):
+                continue  # niente scena dove atterrare: il battito decade
+            if tipo is TipoProsa.APERTURA:
+                testo = await self.prosa_apertura_scontro()
+            elif tipo is TipoProsa.PREMIO:
+                testo = await self.veste_premio()
+            else:
+                testo = await self.epitaffio()
+            if testo:
+                return ProsaFuoriBanda(tipo=tipo, testo=testo)
+        return None
+
     def avanza(self) -> SnapshotVista:
         """Il **turno del motore** per l'host (IC §7.1) — drenaggio UNIFICATO:
 
@@ -1572,12 +1705,25 @@ class SessioneGioco:
            esplorazione/combattimento è il phase-gate, non un filtro del port."""
         self._guardia_aperta()
         self.ultimo_rifiuto = None
+        self._mossa_su_visitata = None  # il debito-tick del backtracking, per turno
         travasa(self.coda)
         for intento in consuma_messaggi(PlayerChoseOption):
             self._agisci(intento.opzione)
         travasa(self.coda)  # le scelte di scena possono aver accodato intenti di dominio
         if not in_combattimento() and messaggi_pendenti(IntentoEsplorazione):
             tick()  # un atto di esplorazione = un turno del motore (movimento, discesa)
+            dovuta = self._mossa_su_visitata
+            self._mossa_su_visitata = None
+            trovata = mappa_corrente()
+            if (dovuta is not None and trovata is not None
+                    and trovata[1].stanza_corrente == dovuta):
+                # Il backtracking PAGA il suo tick (playtest 2026-08-12): status
+                # che tickano (il veleno si smaltisce camminando), death-check,
+                # dado con le minacce. Saldato SOLO se il movimento è avvenuto
+                # davvero, e mai in combattimento (guardie di `spendi_tempo`).
+                from motore.calibrazione import DURATA_AZIONE as _DURATE
+
+                spendi_tempo(self.bus, _DURATE[TipoAzione.MUOVI])
         if self._istanza is not None and self._istanza.conclusa:
             # Chiusura dell'istanza di combattimento: i FATTI passano al prossimo
             # turno GM (risolvi prima, narra dopo — FNC §5.2).
@@ -1587,6 +1733,12 @@ class SessioneGioco:
             self._imboscata_in_corso = False
             if self._fatti_scontro is not None and self._fatti_scontro.vittoria:
                 self._deposita_bottino()
+                # Il deposito è già avvenuto: la VESTIZIONE è dovuta solo se c'è
+                # davvero qualcosa da battezzare (il drop è a chance, non ogni
+                # vittoria lo produce) — un battito dichiarato e vuoto sarebbe una
+                # chiamata AI a vuoto a ogni scontro vinto.
+                if self._drop_pendente is not None or self._ultimo_drop is not None:
+                    self._segna_prosa(TipoProsa.PREMIO)
             if (self._fatti_scontro is not None
                     and not self._fatti_scontro.vittoria
                     and not self._fatti_scontro.fuga
@@ -1594,6 +1746,7 @@ class SessioneGioco:
                 # Permadeath: i fatti restano leggibili per l'epitaffio anche a
                 # run chiusa (la porta non tocca più il World).
                 self._fatti_epitaffio = self._fatti_scontro
+                self._segna_prosa(TipoProsa.EPITAFFIO)
         self._sincronizza_scena()
         return self._snapshot_corrente()
 
@@ -1630,7 +1783,11 @@ class SessioneGioco:
         from motore import finestra_gradi_loot, rango_grado
 
         self._scarica_drop_pendente()   # cintura: mai due pendenti
-        if self.rng.random() >= _cal.PROB_DROP:
+        # La pescata avviene SEMPRE (lo stream di sessione non cambia forma);
+        # il CUSTODE battuto la vince d'ufficio (`BOSS.drop_garantito`, §11):
+        # il momento-boss non finisce mai a mani vuote.
+        chance_vinta = self.rng.random() < _cal.PROB_DROP
+        if not chance_vinta and not self._drop_del_custode():
             return
         # Sul piano-mondo la finestra segue il TIER della zona corrente (il
         # bottino insegue il territorio); sui piani piatti la profondità.
@@ -1680,6 +1837,21 @@ class SessioneGioco:
         assicura_zaino(pent).fonti.append(attivo.slug)
         self._ultimo_drop = (attivo.slug, grado)
         self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
+
+    def _drop_del_custode(self) -> bool:
+        """Vero se la vittoria appena chiusa è quella sul CUSTODE della zona
+        (stanza-boss ∧ custode segnato battuto) e la garanzia §11 è accesa.
+        Edge dichiarato: una vittoria successiva nella stessa stanza-boss (il
+        custode è già battuto) risulterebbe garantita anch'essa — accettato,
+        il caso è raro e la stanza non rigenera nemici propri."""
+        from motore import calibrazione as _cal
+        from motore import boss_sconfitto, stanza_corrente_e_del_boss, zona_corrente
+
+        if not int(getattr(_cal, "BOSS_DROP_GARANTITO", 0)):
+            return False
+        zona = zona_corrente()
+        return (zona is not None and stanza_corrente_e_del_boss()
+                and boss_sconfitto(zona))
 
     def _deposita_da_pool(self, grado: str) -> None:
         """Il deposito DETERMINISTICO dal pool (storico + congelati + coniati):
@@ -1773,7 +1945,23 @@ class SessioneGioco:
         per disegno, ma `FaseCorrente` sì — un save a metà scontro si ricarica
         "in combattimento" senza scontro: soft-lock permanente della run
         (audit 2026-08). Lo scontro è corto (TTK 3–6 round): si risolve o si
-        fugge, poi si salva."""
+        fugge, poi si salva.
+
+        E il salvataggio a run CONCLUSA è vietato prima ancora (caccia
+        2026-08-16): `salva()` dopo il terminale RISCRIVEVA lo slot che
+        `_onora_permadeath` aveva appena ritirato — save-scumming per la via del
+        tasto S. Il ritiro si onora QUI per primo (non dipende dal fatto che
+        l'host abbia mai preso uno snapshot), e la guardia sul terminale precede
+        quella di fase: dopo la morte la fase resta COMBATTIMENTO per disegno
+        (G-11), e «risolvi lo scontro e riprova» detto a un morto era un
+        messaggio privo di senso."""
+        self._onora_permadeath()
+        terminale = self.guscio.terminale
+        if terminale is not None and terminale is not Terminale.USCITA_VOLONTARIA:
+            raise RunConclusa(
+                "La run è conclusa: lo slot è ritirato (permadeath). "
+                "Niente più salvataggi."
+            )
         if in_combattimento():
             raise SalvataggioInCombattimento(
                 "Non si salva in combattimento: risolvi lo scontro (o fuggi) e riprova."
@@ -1795,7 +1983,10 @@ class SessioneGioco:
             uuid=marker.id_dominio,
             nome=self.etichetta,
             vivo=scheda.vivo,
-            hp=scheda.punti_vita,
+            # Clamp a zero per la VISTA (dottrina di `salute`): l'overkill è
+            # informazione del motore, «HP -2/30» sul death screen è un motore
+            # che sembra rotto (caccia 2026-08-16).
+            hp=max(0, scheda.punti_vita),
             hp_max=max_hp(pent),
             descrittori=proiezione.descrittori,
             primarie=dict(proiezione.primarie),
@@ -1807,8 +1998,10 @@ class SessioneGioco:
                 "difesa": def_eff(pent),
                 # Evasione/accuratezza sono GRANDEZZE (stat × coefficiente di
                 # geometria, §5.3-§5.4), non probabilità: si mostrano arrotondate.
+                # Due accuratezze, due stili: marziale (Des) e magica (Int).
                 "evasione": int(round(eva_eff(pent))),
-                "accuratezza": int(round(acc_eff(pent))),
+                "accuratezza_fisica": int(round(acc_fis_eff(pent))),
+                "accuratezza_magica": int(round(acc_mag_eff(pent))),
             },
             livello=livello_corrente(),
             tick_piano=tempo_piano_corrente(),
@@ -1823,9 +2016,22 @@ class SessioneGioco:
     def esci(self) -> str:
         """Salva-ed-esci (terminale 6c): l'Archivio di SESSIONE va nel sidecar
         (mai il fallback del guscio), con etichetta e timestamp per l'indice.
-        Dopo, la sessione è chiusa: run-World smontato, porte spente."""
+        Dopo, la sessione è chiusa: run-World smontato, porte spente.
+
+        A run GIÀ conclusa (morte/vittoria) «esci» è il teardown del terminale,
+        non un salva-ed-esci: si delega a `chiudi_terminale` — mai la via che
+        salva. (Caccia 2026-08-16: `esci()` dopo la vittoria risalvava lo slot
+        ritirato; dopo la morte alzava uno spurio «non si salva in
+        combattimento» invece di smontare. La cintura nel guscio è gemella:
+        `esci_volontariamente` non rinegozia un terminale già rilevato.)"""
         self._guardia_aperta()
+        self._onora_permadeath()
+        if self.terminale is not None:
+            return self.chiudi_terminale()
         self._guardia_fase_salvataggio()
+        # Il drop vinto col provider live e mai coniato non si perde in un
+        # salva-ed-esci: stesso flush che `salva()` fa (caccia 2026-08-16).
+        self._scarica_drop_pendente()
         self.guscio.esci_volontariamente()
         self.guscio.concludi(
             archivio=self.archivio, etichetta=self.etichetta, timestamp=time.time(),
@@ -1864,6 +2070,14 @@ class SessioneGioco:
             self.coda.accoda(PlayerAttraversa(destinazione=azione.zona or ""))
             return
         if azione.tipo is TipoAzione.MUOVI and azione.stanza is not None:
+            # Il BACKTRACKING paga (playtest 2026-08-12): muoversi verso una
+            # stanza GIÀ visitata spende un tick pieno — la stanza nuova paga
+            # già col turno di reveal (senza questa guardia pagherebbe due
+            # volte). Il porto segna il debito QUI (conosce la destinazione);
+            # lo salda `avanza`, dopo che il tick di servizio ha mosso davvero.
+            trovata = mappa_corrente()
+            if trovata is not None and azione.stanza in trovata[1].visitate:
+                self._mossa_su_visitata = azione.stanza
             self.coda.accoda(PlayerSiMuove(azione.stanza))  # la serve SistemaMovimento
             return
         if azione.tipo is TipoAzione.RIPOSA:
@@ -1873,6 +2087,16 @@ class SessioneGioco:
             # tick spesi via fast-forward, recupero da foglie §11, evento in cronaca.
             riposa(self.bus)
             return
+        if azione.tipo is TipoAzione.PASSA:
+            # «Aspetta» (J §6, playtest 2026-08-12): UN tick secco — gli status
+            # tickano, il dado tira. È la valvola della tenaglia del veleno:
+            # coi dannosi addosso Riposa è vietata, Aspetta no. Ricontrollo di
+            # legalità (la scena può essere stantia fra composizione e click).
+            from motore import componi_imboscata_scena, passa_turno, puo_passare_turno
+
+            if puo_passare_turno():
+                passa_turno(self.bus, componi_imboscata=componi_imboscata_scena)
+            return
         if azione.tipo is TipoAzione.SCAPPA:
             # Disimpegno: prova su stat PRIMA di ingaggiare (FNC §5.3, tirata dal motore).
             # La destrezza passa dal fold (GR2-3), non da un campo della scheda.
@@ -1880,28 +2104,24 @@ class SessioneGioco:
             # La classe la impone il MOB della scena (il suo `Grado`), non una costante:
             # disimpegnarsi da uno slime di bronzo e da un boss non è la stessa impresa.
             if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), classe_disimpegno()):
-                # ANTI-SOFTLOCK del boss di zona (territorio): il custode del
-                # passaggio NON si dissolve col disimpegno — ti RITIRI nella
-                # stanza precedente e lui resta al varco (altrimenti la zona si
-                # aprirebbe per sparizione del boss, mai per vittoria).
-                from motore import stanza_corrente_e_del_boss
-
-                if stanza_corrente_e_del_boss():
-                    self.bus.pubblica(DisimpegnoScena(nemico=nome_mob_corrente()))
-                    _e, _mappa = mappa_corrente()
-                    ritirata = min(_mappa.piano.adiacenze[_mappa.stanza_corrente])
-                    _mappa.stanza_corrente = ritirata
-                    from motore.calibrazione import DURATA_AZIONE as _DURATE
-
-                    spendi_tempo(self.bus, _DURATE[TipoAzione.SCAPPA])
-                    return
-                # Il disimpegno si NARRA (prima il mob si dissolveva in silenzio
-                # totale): l'evento parte col nome ancora leggibile, poi si smonta.
-                self.bus.pubblica(DisimpegnoScena(nemico=nome_mob_corrente()))
-                dissolvi_mob()  # fuga riuscita: l'incontro si dissolve, la scena si riapre
-                # …e PAGA la sua durata (J): il docstring di `tenta_disimpegno` lo
-                # dichiarava, il codice non lo faceva — scappare era gratis anche
-                # in tick, e "scappa sempre" un room-clear senza costo.
+                # RITIRATA UNIVERSALE (playtest 2026-08-12 — era il solo
+                # anti-softlock del custode, ora vale per OGNI mob): il
+                # disimpegno non dissolve MAI il nemico — tu ARRETRI nella
+                # stanza adiacente (deterministica: la minima), lui resta
+                # registrato alla sua. FNC §5.3 («si dissolve») è SUPERATA:
+                # la dissoluzione era un room-clear gratuito — la fuga
+                # migliore della vittoria — e col dado ∝ minacce avrebbe
+                # comprato pure il riposo. La stanza resta bloccata:
+                # rivisitarla significa ritrovarlo (ferite comprese, come
+                # per la fuga in combattimento).
+                _e, _mappa = mappa_corrente()
+                ritirata = min(_mappa.piano.adiacenze[_mappa.stanza_corrente])
+                # La ritirata PARLA (playtest round 2): l'evento porta la stanza
+                # in cui arretri — la cronaca lo dice, non lo scopri dal numero.
+                self.bus.pubblica(DisimpegnoScena(
+                    nemico=nome_mob_corrente(), ritirata_in=ritirata,
+                ))
+                _mappa.stanza_corrente = ritirata
                 from motore.calibrazione import DURATA_AZIONE as _DURATE
 
                 spendi_tempo(self.bus, _DURATE[TipoAzione.SCAPPA])
@@ -1916,6 +2136,7 @@ class SessioneGioco:
         self._istanza = IstanzaCombattimento(
             self.bus, nemico=nome_mob_corrente() or self._nome_mob
         )
+        self._segna_prosa(TipoProsa.APERTURA)  # trailer dovuto: lo scontro si è aperto
         self._dettagli_nemico = dettagli_mob_corrente()
         ingaggia_combattimento(
             self.bus,
@@ -1956,16 +2177,50 @@ class SessioneGioco:
         qui: un campo nuovo del contratto si aggiunge in un punto solo, e non
         esiste una via per cui una porta risponda con dati diversi da un'altra
         (era successo: due porte su tre ignoravano `terminale`/`profondita`)."""
+        self._onora_permadeath()
+        try:
+            tick_ora = tempo_piano_corrente()  # l'orologio VIVO, non quello
+        except Exception:                      # dell'ultimo messaggio GM
+            tick_ora = 0
         return SnapshotVista(
             # Vuota di default: la prosa di transizione arriva via eventi sul bus;
             # i turni GM la passano (sono l'unico caso che ne ha una).
             prosa=prosa,
             opzioni=self._opzioni,
-            stato=self._descrittori(),
+            stato=self._descrittori() + (f"t{tick_ora}",),
             fase="combattimento" if in_combattimento() else "narrazione",
             terminale=self.terminale,
             profondita=livello_corrente(),
+            tick=tick_ora,
         )
+
+    def _onora_permadeath(self) -> None:
+        """Il terminale di run RITIRA lo slot **all'istante**, senza aspettare l'host.
+
+        Il meccanismo di invalidazione esisteva già (`Guscio.concludi` → `invalida`,
+        H-20) ma era appeso a `chiudi_terminale()`, cioè a un atto dell'HOST: la TUI
+        scriveva «💀 Permadeath, run terminata», montava «Esci» e usciva **senza mai
+        chiamarlo**. Il file di stato restava su disco e si ricaricava: salva → muori
+        → ricarica, con il protagonista di nuovo vivo. Il save-scumming batteva la
+        linea rossa del progetto, e nessun test poteva vederlo perché l'unico
+        chiamante era `misura_run`.
+
+        Ora il fatto lo possiede il motore: il ritiro avviene nel funnel dello
+        snapshot, quindi su QUALUNQUE porta e per qualunque host, appena il
+        terminale esiste. Vale per morte **e** vittoria (entrambe concludono la run:
+        non c'è "continua dopo la fine"). Il teardown del World resta l'atto
+        esplicito dell'host (`chiudi_terminale`), che resta idempotente: `invalida`
+        non si lamenta di un file già rimosso.
+
+        L'uscita VOLONTARIA non passa di qui: quella salva, per definizione."""
+        if self._slot_ritirato or self._invalidata:
+            return
+        terminale = self.guscio.terminale
+        if terminale is None or terminale is Terminale.USCITA_VOLONTARIA:
+            return
+        self._slot_ritirato = True
+        if self.uuid:
+            invalida(self.guscio.directory, self.uuid)
 
     @property
     def terminale(self) -> Terminale | None:
@@ -1994,8 +2249,11 @@ class SessioneGioco:
         if trovata is not None:
             extra.append(f"stanza {trovata[1].stanza_corrente}")
         if self.ultimo_messaggio is not None:
-            extra.append(f"tempo: {self.ultimo_messaggio.tempo.etichetta} "
-                         f"(t{self.ultimo_messaggio.tempo.tick_correnti})")
+            # SOLO l'etichetta di durata dell'ultimo turno: il suo tick era
+            # l'orologio CONGELATO dell'ultimo messaggio GM, mostrato accanto
+            # al tick vivo (`tN` in coda ai descrittori) — due orologi in
+            # disaccordo nello stesso pannello (caccia 2026-08-16).
+            extra.append(f"tempo: {self.ultimo_messaggio.tempo.etichetta}")
         return (hp, *proietta_scheda(pent).descrittori, *extra)
 
 
@@ -2014,9 +2272,13 @@ def _riga_colpo(e: object) -> str:
     # La MOSSA si nomina (prima solo l'attacco pesante aveva un inciso): l'etichetta
     # diegetica viene dal catalogo, l'attacco base resta implicito.
     con = f" con {etichetta_mossa(mossa)}" if mossa and mossa != "attacco" else ""
+    # La faccia d'azzardo pescata si dice PRIMA del danno: la roulette gira,
+    # poi il conto («⚄ Jackpot del Sistema! Colpisci…»).
+    faccia = getattr(e, "azzardo", "")
+    prefisso = f"⚄ {faccia}! " if faccia else ""
     if attaccante == "":  # il protagonista colpisce
-        return f"Colpisci {bersaglio or 'il nemico'}{con}: {danno} {unita} {hp}."
-    return f"{attaccante} ti colpisce{con}: {danno} {unita} {hp}."
+        return f"{prefisso}Colpisci {bersaglio or 'il nemico'}{con}: {danno} {unita} {hp}."
+    return f"{prefisso}{attaccante} ti colpisce{con}: {danno} {unita} {hp}."
 
 
 def _riga_status_applicato(e: object) -> str:
@@ -2132,6 +2394,9 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
         f"Il dungeon perde la pazienza: tutto trema, tutti sanguinano "
         f"(-{getattr(e, 'danno', 0)} HP a testa).")),
     (DisimpegnoScena, lambda e: (
+        f"Ti ritiri nella stanza {e.ritirata_in}: "
+        f"{getattr(e, 'nemico', '') or 'il nemico'} resta dov’è."
+        if getattr(e, "ritirata_in", -1) >= 0 else
         f"Ti disimpegni: {getattr(e, 'nemico', '') or 'l’incontro'} non ti segue. "
         f"La scena si riapre.")),
     (TransizioneZona, lambda e: (
@@ -2310,6 +2575,7 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
                         blocco=e.blocco.value if e.blocco else None,
                         potenza=e.potenza.value if e.potenza else None,
                         rischio=e.rischio.value if e.rischio else None,
+                        stile=e.stile.value if e.stile else None,
                     )
                     for e in mossa.effetti
                 ),

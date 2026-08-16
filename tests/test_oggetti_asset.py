@@ -88,16 +88,24 @@ def test_lint_mosse_note() -> None:
 # --- Traduzione: i numeri li deriva il motore ----------------------------------
 
 def test_oggetto_da_asset_deriva_i_numeri() -> None:
+    from motore.calibrazione import OGGETTO_MOLT_COSTITUZIONE
+
     ogg = _armatura(modificatori=[
         ModificatoreDati(stat=StatId.COSTITUZIONE, fascia=Fascia.MARCATA),
+        ModificatoreDati(stat=StatId.FORZA, fascia=Fascia.MARCATA),
     ])
     pezzo = oggetto_da_asset(ogg)
     assert isinstance(pezzo, PezzoArmatura)
     assert pezzo.fonte == "pettorale-test"
     assert pezzo.categoria is CategoriaArmatura.MEDIA
     assert pezzo.mitigazione_cent is None          # derivata dalla categoria (§11)
-    # fascia × rango: MARCATA (2) × ARGENTO (rango 2) = 4.
-    assert pezzo.modificatori[0].valore == OGGETTO_MOD_FASCIA["marcata"] * 2
+    # COSTITUZIONE: fascia × rango × molt dedicato (il corredo porta HP —
+    # taratura 2026-08-13); le stat d'attacco restano fascia × rango.
+    per_stat = {m.stat: m.valore for m in pezzo.modificatori}
+    assert per_stat[StatId.COSTITUZIONE] == (
+        OGGETTO_MOD_FASCIA["marcata"] * 2 * OGGETTO_MOLT_COSTITUZIONE
+    )
+    assert per_stat[StatId.FORZA] == OGGETTO_MOD_FASCIA["marcata"] * 2
 
     arma = oggetto_da_asset(OggettoAsset(
         slug="lama-test", nome="Lama", tipo="arma", grado=Grado.ORO,

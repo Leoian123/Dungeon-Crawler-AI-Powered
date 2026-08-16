@@ -107,7 +107,7 @@ Cose **lasciate apposta** e da decidere in seguito — non rimosse in questo pus
 - **Percorso nemici-da-scalari** (`SpecNemico`/`spawn_nemico`/`primarie_da_scalari`):
   vivo e necessario (rinforzi, fallback), ma con proxy (`FORZA=destrezza`) — da
   migrare verso profili quando i rinforzi diventeranno per-archetipo.
-- Parametri-seam mai passati in produzione: `acc_eff(pct_precisione=…)`,
+- Parametri-seam mai passati in produzione: `acc_eff_di(pct_precisione=…)`,
   `crea_mappa(n_stanze=…)` (solo test), `avvia(apri=…)` in `calibratore_web`.
 
 **Bug noti pre-esistenti** (fuori dallo scope di questo push, già mappati):

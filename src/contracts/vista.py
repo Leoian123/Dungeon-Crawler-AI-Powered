@@ -15,7 +15,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
-from .schema import Durata, TipoAzione
+from .schema import Durata, EsitoScena, TipoAzione
 
 
 class Terminale(str, Enum):
@@ -31,6 +31,34 @@ class Terminale(str, Enum):
     SCONFITTA = "sconfitta"                   # permadeath: death-check seeded (G-11)
     PIANO_COMPLETATO = "piano_completato"     # l'ultima discesa: la run è vinta
     USCITA_VOLONTARIA = "uscita_volontaria"   # salva-ed-esci: la run riprenderà
+
+
+class TipoProsa(str, Enum):
+    """Quale BATTITO narrativo fuori-banda è dovuto alla scena. Vocabolario chiuso.
+
+    "Fuori banda" = prosa che NON accompagna uno snapshot: arriva dopo, non blocca il
+    gioco, e degrada senza conseguenze sullo stato. Il tipo serve all'host solo per il
+    REGISTRO tipografico (un trailer non si stampa come una targhetta di premio); *quando*
+    un battito è dovuto lo decide il motore, mai l'host."""
+
+    APERTURA = "apertura"      # il trailer d'ingresso in scontro (rotta scontro.apertura)
+    PREMIO = "premio"          # la vestizione del drop già deciso (rotta premi.*)
+    EPITAFFIO = "epitaffio"    # la voce dello showrunner sulla permadeath
+
+
+class ProsaFuoriBanda(BaseModel):
+    """UN battito di prosa non-gating, già generato, pronto da appendere allo scroll.
+
+    Esiste perché prima ogni host doveva **ri-dedurre** quali battiti fossero dovuti
+    confrontando la fase prima/dopo `avanza()` e tenendo un flag proprio per l'epitaffio:
+    la sequenza narrativa viveva nella TUI, non nel motore, e un host nuovo (web) doveva
+    ricopiarla per non perdere metà della narrazione. Ora la scena la dichiara il motore
+    e l'host la DRENA (`prossima_prosa`), senza sapere quando un battito sia dovuto."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tipo: TipoProsa
+    testo: str
 
 
 class OpzioneVista(BaseModel):
@@ -78,6 +106,10 @@ class SnapshotVista(BaseModel):
     fase: str = "narrazione"
     terminale: Terminale | None = None
     profondita: int = 1
+    # L'OROLOGIO vivo (tick di piano ADESSO): prima l'host mostrava il tempo
+    # dell'ultimo messaggio GM, congelato per interi scontri e riposi
+    # (riscontro playtest 2026-08-12). Additivo: 0 = ignoto (host storici).
+    tick: int = 0
 
     @property
     def run_conclusa(self) -> bool:
@@ -197,4 +229,21 @@ class FattiScontro(BaseModel):
     # I MOMENTI salienti (primo sangue, status, colpo di grazia): stringhe
     # deterministiche raccolte dall'istanza sul bus — l'AI non inventa cosa è
     # successo, lo VESTE (Fase 5). Default () = retro-compatibile.
+    momenti: tuple[str, ...] = ()
+
+
+class FattiScena(BaseModel):
+    """I FATTI di una scena narrativa conclusa (S1) — il gemello sociale di
+    `FattiScontro`: entrano nel fascicolo del turno GM successivo perché l'AI
+    li VESTA. L'esito l'ha arbitrato il MOTORE (gate di chiusura + tiri degli
+    snodi): risolvi prima, narra dopo vale anche per le parole."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    partecipanti: tuple[str, ...]
+    esito: EsitoScena
+    posta: str = ""                 # "" = colloquio senza posta
+    battute: int = 0
+    # Gli SNODI risolti, come righe deterministiche del motore ("prova argento
+    # su saggezza: successo pieno, margine +4"): fatti, mai giudizi del modello.
     momenti: tuple[str, ...] = ()

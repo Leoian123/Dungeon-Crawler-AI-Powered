@@ -1,7 +1,7 @@
 """Quantità derivate dal combattimento: funzioni, mai stat depositate (Gruppo 2 §5).
 
-`max_HP`, attacco, iniziativa, e le quattro derivate del risolutore (`atk_eff`, `def_eff`,
-`eva_eff`, `acc_eff`) **non** sono stat scritte: sono **derivate** dalle primarie effettive
+`max_HP`, attacco, iniziativa, e le derivate del risolutore (`atk_eff`, `def_eff`,
+`eva_eff`, `acc_fis_eff`/`acc_mag_eff`) **non** sono stat scritte: sono **derivate** dalle primarie effettive
 a runtime, leggendo `stat_eff` (GR2-3 — nessuna lettura diretta di `Primarie[...]`). Un
 modificatore su una primaria si propaga **da solo** alla derivata. I *numeri* (tabelle,
 pesi, coefficienti) sono SEGNAPOSTO §11 e vivono in `calibrazione.py`, **importati** qui,
@@ -12,15 +12,15 @@ modello-stat mutato direttamente (dal danno), distinto dalle primarie del vettor
 *massimo* deriva da Costituzione; `clampa_hp` lo tiene ≤ massimo derivato.
 
 **Contratto di scala (§6, da non sbagliare):** `atk_eff` è in **unità**, `def_eff` in
-**centesimi** (la conversione `/100` vive nel danno, non qui). `eva_eff`/`acc_eff` sono
-scalari (float) del check 1.
+**centesimi** (la conversione `/100` vive nel danno, non qui). `eva_eff` e le due
+accuratezze sono scalari (float) del check 1.
 """
 
 from __future__ import annotations
 
 import esper
 
-from contracts import CategoriaArmatura, SlotEquip, StatId
+from contracts import CategoriaArmatura, SlotEquip, StatId, StileAttacco
 
 from . import calibrazione as cal
 from .corredo import Corredo
@@ -152,16 +152,36 @@ def eva_eff(ber: int, *, pct_evasione: float = 0.0) -> float:
     return stat_eff(ber, StatId.DESTREZZA) * _coeff_eva(ber, pct_evasione=pct_evasione)
 
 
-def acc_eff(att: int, *, w: float = cal.W_FISICO, pct_precisione: float = 0.0) -> float:
-    """Accuratezza del check 1 (§5.4), gemello offensivo dell'evasione: `stat_base_acc ×
-    coeff_acc × (1 + Σ pct_precisione)`, con `stat_base_acc = w·Des_eff + (1−w)·Int_eff` — UNA
-    formula per fisico e magia (Des e Int competono per il peso `w`, dato dell'attacco; mai
-    0/1). `coeff_acc` = arma rispetto alla taglia del portatore (dal `Corredo`, fallback
-    `ARMA_DEFAULT`). Precisa ≠ forte: `coeff_acc` muove il colpire, non il danno."""
-    stat_base_acc = w * stat_eff(att, StatId.DESTREZZA) + (1 - w) * stat_eff(att, StatId.INTELLIGENZA)
+# Lo STILE marziale e quello magico sono due accuratezze SEPARATE (niente blend `w`):
+# quale stat mira è un **selettore-dato** sullo `StileAttacco` del colpo, mai un ramo.
+STAT_ACC_DI_STILE: dict[StileAttacco, StatId] = {
+    StileAttacco.FISICO: StatId.DESTREZZA,
+    StileAttacco.MAGICO: StatId.INTELLIGENZA,
+}
+
+
+def acc_eff_di(att: int, stile: StileAttacco, *, pct_precisione: float = 0.0) -> float:
+    """Accuratezza del check 1 (§5.4), gemello offensivo dell'evasione: `stat_eff(stat_di_stile)
+    × coeff_acc × (1 + Σ pct_precisione)`. UNA forma, due stili: la stat che mira viene da
+    `STAT_ACC_DI_STILE` (FISICO → Destrezza, MAGICO → Intelligenza), la geometria è la stessa —
+    `coeff_acc` = arma rispetto alla taglia del portatore (dal `Corredo`, fallback
+    `ARMA_DEFAULT`; per il magico l'arma è il catalizzatore). Precisa ≠ forte: `coeff_acc`
+    muove il colpire, non il danno."""
+    stat_base_acc = stat_eff(att, STAT_ACC_DI_STILE[stile])
     _armatura, _taglia, arma = _geometria(att)
     coeff_acc = cal.COEFF_ACC[arma]
     return stat_base_acc * coeff_acc * (1 + pct_precisione)
+
+
+def acc_fis_eff(att: int, *, pct_precisione: float = 0.0) -> float:
+    """Accuratezza MARZIALE (stile fisico): Destrezza guida il colpire."""
+    return acc_eff_di(att, StileAttacco.FISICO, pct_precisione=pct_precisione)
+
+
+def acc_mag_eff(att: int, *, pct_precisione: float = 0.0) -> float:
+    """Accuratezza MAGICA: Intelligenza guida il colpire (la stessa stat del mana:
+    chi lancia bene lancia anche a lungo — leva unica, tarabile con `COEFF_ACC`)."""
+    return acc_eff_di(att, StileAttacco.MAGICO, pct_precisione=pct_precisione)
 
 
 def clampa_hp(entita: int) -> None:
@@ -173,3 +193,17 @@ def clampa_hp(entita: int) -> None:
     tetto = max_hp(entita)
     if scheda.punti_vita > tetto:
         scheda.punti_vita = tetto
+
+
+def clampa_mana(entita: int) -> None:
+    """Il GEMELLO di `clampa_hp` sul mana (caccia 2026-08-16): togliere un pezzo
+    `+INTELLIGENZA` abbassa `max_mana` derivato, e il corrente deve seguirlo —
+    senza questo clamp restava sopra il massimo (mana fantasma da spendere)."""
+    from .scheda import Mana  # locale: derivate resta importabile da scheda
+
+    mana = esper.try_component(entita, Mana)
+    if mana is None:
+        return
+    tetto = max_mana(entita)
+    if mana.attuale > tetto:
+        mana.attuale = tetto

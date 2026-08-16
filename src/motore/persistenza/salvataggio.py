@@ -188,6 +188,18 @@ def carica_da_disco(directory: Path, uuid: str) -> Stato:
     except Exception as e:  # ValidationError e affini → degrado pulito
         raise CaricamentoFallito(f"formato non valido: {e}") from e
 
+    # L'identità del FILE deve combaciare con lo slot richiesto (caccia
+    # 2026-08-16): ogni save vivo scrive filename == intestazione.uuid, quindi
+    # solo i `.bak` di recovery (e i file rinominati a mano) violano
+    # l'uguaglianza. Senza questo check, `carica_sessione(uuid=f"{uuid}.bak")`
+    # componeva `<uuid>.bak.stato.json` — il backup di recovery — e il crawler
+    # morto RISORGEVA da una porta pubblica: il .bak protegge dalla corruzione,
+    # mai dal permadeath (H-20).
+    if intestazione.uuid != uuid:
+        raise CaricamentoFallito(
+            f"identità del save non combacia: intestazione {intestazione.uuid!r}, "
+            f"slot richiesto {uuid!r} (un .bak non si carica come slot)"
+        )
     _verifica_coerenza(intestazione, corpo)  # coerenza interna (§9.1.2)
     return Stato(intestazione=intestazione, corpo=corpo)
 

@@ -92,7 +92,7 @@ def test_il_drop_conia_dalla_fabbrica(run_pulita, tmp_path, monkeypatch) -> None
     sessione = costruisci_sessione(nome="Fabbrica", seed=11, directory=tmp_path)
     snap = asyncio.run(sessione.prossima_narrazione())
     etichette = {o.etichetta: o.indice for o in snap.opzioni}
-    sessione.coda.accoda(PlayerChoseOption(etichette["Combatti"]))
+    sessione.coda.accoda(PlayerChoseOption(next(v for k, v in etichette.items() if k.startswith("Combatti"))))
     snap = sessione.avanza()
     for _ in range(60):
         if snap.fase != "combattimento":
@@ -118,7 +118,7 @@ def test_il_drop_conia_dalla_fabbrica(run_pulita, tmp_path, monkeypatch) -> None
                                         directory=tmp_path / "replay")
         snap = asyncio.run(sessione2.prossima_narrazione())
         etichette = {o.etichetta: o.indice for o in snap.opzioni}
-        sessione2.coda.accoda(PlayerChoseOption(etichette["Combatti"]))
+        sessione2.coda.accoda(PlayerChoseOption(next(v for k, v in etichette.items() if k.startswith("Combatti"))))
         snap = sessione2.avanza()
         for _ in range(60):
             if snap.fase != "combattimento":

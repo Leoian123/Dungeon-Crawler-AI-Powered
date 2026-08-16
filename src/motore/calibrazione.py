@@ -69,7 +69,6 @@ class Param:
 # Categorie (ordine di presentazione nella console).
 CAT_CHECK1 = "Check 1 — colpire (contest/banda/graze)"
 CAT_CHECK2 = "Check 2 — danno/difesa & HP"
-CAT_ACC = "Accuratezza — pesi Des↔Int"
 CAT_ARMATURA = "Tabella m_armatura (mobilità per categoria)"
 CAT_TAGLIA = "Tabella m_taglia (più piccolo = schivi più)"
 CAT_ARMA = "Tabella coeff_acc (arma vs portatore)"
@@ -84,6 +83,7 @@ CAT_MOSSE = "Mosse — mana, cooldown, moltiplicatori"
 CAT_PROVE = "Prove — soglie delle classi"
 CAT_CARL = "Protagonista (Carl) — primarie base e HP"
 CAT_MAPPA = "Mappa / esplorazione"
+CAT_SCENA = "Scene narrative — blocchi e poste"
 CAT_OGGETTI = "Oggetti e loot (canale-asset)"
 CAT_ARCH_SLIME = "Nemico — Slime"
 CAT_ARCH_SCHELETRO = "Nemico — Scheletro"
@@ -195,12 +195,9 @@ _DEFS: tuple[Param, ...] = (
           CAT_TIPI, "0 < x ≤ 1"),
     Param("MULT_MAX", 3.0, "Cap massimo del moltiplicatore di vulnerabilità (quanto una "
           "vulnerabilità può amplificare il danno).", CAT_TIPI, "≥ 1"),
-    # --- Accuratezza ---
-    Param("W_FISICO", 0.8, "Peso di Destrezza nell'accuratezza di un attacco FISICO (l'altra "
-          "quota va a Intelligenza). MAI 0/1: l'altra stat entra 'in minima parte'.", CAT_ACC,
-          "0.5 – 1 (mai 1)"),
-    Param("W_MAGIA", 0.2, "Peso di Destrezza in un attacco MAGICO (Intelligenza domina). MAI 0/1.",
-          CAT_ACC, "0 – 0.5 (mai 0)"),
+    # --- Accuratezza: niente pesi W_* — gli stili sono SEPARATI (FISICO mira con
+    # Destrezza, MAGICO con Intelligenza, selettore-dato `derivate.STAT_ACC_DI_STILE`);
+    # la leva di taratura dell'accuratezza resta COEFF_ACC.*, per arma. ---
     # --- Crollo ---
     Param("R_SOGLIA_CROLLO", 20, "Turni-scontro oltre cui scatta l'escalation: dev'essere una "
           "rete di sicurezza che quasi mai scatta in uno scontro normale.", CAT_CROLLO,
@@ -447,6 +444,11 @@ _DEFS: tuple[Param, ...] = (
     Param("DURATA_AZIONE.altro", "un_pochino", "Durata di default dell'azione libera (ALTRO): "
           "la stima che il giocatore vede prima di confermare.", CAT_TEMPO, "una Durata",
           "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.passa", "turno", "Durata di PASSA («Aspetta», J §6): il "
+          "passa-turno spende comunque ESATTAMENTE un tick per costruzione — la "
+          "foglia esiste per la completezza della tabella enum→durata.",
+          CAT_TEMPO, "una Durata", "scelta",
+          scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     Param("DURATA_AZIONE.attraversa", "un_attimo", "Durata del passaggio di zona "
           "(territorio): varcare il confine custodito dal boss battuto.", CAT_TEMPO,
           "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
@@ -529,15 +531,20 @@ _DEFS: tuple[Param, ...] = (
     Param("HP_DEFAULT", 30, "HP iniziale del protagonista (= Costituzione iniziale → nasce "
           "'integro').", CAT_CARL, "intero ≥1", "int", "HP"),
     # --- Riposo (l'anello «sostentati»: recupero per tick di downtime) ---
-    Param("RIPOSO.hp_per_tick", 2, "HP recuperati per tick di riposo. Il riposo spende "
+    Param("RIPOSO.hp_per_tick", 3, "HP recuperati per tick di riposo. Il riposo spende "
           "DURATA_AZIONE.riposa via fast-forward; il recupero è tick × questa foglia, "
-          "clampato al massimo derivato — alzala per un dungeon clemente.",
+          "clampato al massimo derivato — alzala per un dungeon clemente. (2→3 taratura "
+          "2026-08-13: a 2 il ciclo di ricarica tra un custode e l'altro era più lento "
+          "del logoramento, e ogni interruzione lo azzerava quasi.)",
           CAT_TEMPO, "intero ≥0", "int", "HP/tick"),
     Param("RIPOSO.mana_per_tick", 1, "Mana recuperato per tick di riposo (clampato al "
           "massimo derivato da Intelligenza).", CAT_TEMPO, "intero ≥0", "int", "mana/tick"),
-    Param("PROB_DROP", 0.5, "Probabilità che uno scontro VINTO lasci un oggetto (pescata "
+    Param("PROB_DROP", 0.7, "Probabilità che uno scontro VINTO lasci un oggetto (pescata "
           "seeded dallo stream di sessione, fra le fonti del catalogo non ancora "
-          "possedute). 0 = niente loot; 1 = drop garantito.", CAT_MAPPA, "0 – 1", "float"),
+          "possedute). 0 = niente loot; 1 = drop garantito. (0.5→0.7 taratura "
+          "2026-08-13: a 0.5 il corredo restava indietro rispetto ai custodi che "
+          "lo esigono — 11 drop in 96 turni, playtest round 3.)",
+          CAT_MAPPA, "0 – 1", "float"),
     # --- Mappa / esplorazione ---
     Param("MAPPA_STANZE", 6, "Numero di stanze del piano generato dalla mappa (catena + un "
           "ramo trasversale seeded; la scala di discesa è garantita raggiungibile, G-18).",
@@ -566,6 +573,30 @@ _DEFS: tuple[Param, ...] = (
           "i nomi dell'ambientazione — diventano incontrabili. Sotto, il canale "
           "PNG rifiuta di materializzarli (gate in `materializza_png`).",
           CAT_MAPPA, "intero ≥1", "int", "piano"),
+    Param("SCENA.max_battute", 12, "Tetto di battute per scena narrativa (S1): "
+          "al tetto il motore chiude d'ufficio (posta non vinta = persa). "
+          "Anti-loop e tetto di costo: ogni battuta è una chiamata veloce.",
+          CAT_SCENA, "intero ≥2", "int", "battute"),
+    Param("BOSS.drop_garantito", 1, "1 = battere il CUSTODE di zona garantisce il "
+          "drop (la chance è vinta d'ufficio, stessa filiera). Il momento-boss "
+          "senza bottino è un feel-bad (riscontro playtest 2026-08-12). 0 = il "
+          "custode tira PROB_DROP come tutti.", CAT_OGGETTI, "0 o 1", "int"),
+    Param("IMBOSCATA.minacce_riferimento", 4, "La scala del dado-minacce (design "
+          "2026-08-12: imboscata ∝ nemici nel chunk): a QUESTE minacce vale "
+          "PROB_IMBOSCATA piena; a zona ripulita il dado tace, il riposo in "
+          "campo si GUADAGNA. Abbassala per un dungeon più teso.",
+          CAT_PROB, "intero ≥1", "int", "minacce"),
+    Param("IMBOSCATA.peso_non_rivelate", 0.5, "Quanto pesa una stanza NON "
+          "rivelata (non-quieta) nel conteggio minacce: 1 = come un ostile vivo "
+          "(playtest 2026-08-12 round 3: catene di agguati back-to-back sulla "
+          "spina, il ritmo lo dettava il dado), 0 = contano solo i vivi. "
+          "L'incognita resta un rischio, non una condanna.",
+          CAT_PROB, "0 – 1", "float"),
+    Param("BOSS.molt_hp", 1.5, "La TEMPRA del custode: moltiplicatore del pool HP "
+          "al PRIMO arruolamento del boss di zona (playtest 2026-08-12: il "
+          "custode gracile non si sentiva boss). 1.0 = spento; le ferite del "
+          "custode riarruolato restano comunque sue.",
+          CAT_CHECK2, "≥1", "float"),
 )
 
 # Durata di default delle afflizioni per nome-blocco: eccezioni qui, il resto 3.
@@ -585,8 +616,11 @@ _DELTA_PER_RANGO_DEFAULT = {"veleno": -1, "brucia": -1, "rigenerazione": +1, "st
 _MOD_FASCIA_DEFAULT = {"lieve": 1, "marcata": 2, "potente": 4}
 
 # Peso di pesca del GRADO nel drop (loot): i bassi sono il pane, gli alti la festa.
+# Riequilibrio 2026-08-13 (era 6/4/3/2/1/1): il bronze-heavy faceva arrivare il
+# corredo argento/oro DOPO i custodi che lo esigono — dentro la finestra del tier
+# il grado alto ora esce quasi quanto il basso (misurato in stack: 0/40 → 3/40).
 _PESO_GRADO_DEFAULT = {
-    "bronzo": 6, "argento": 4, "oro": 3, "platino": 2, "leggendario": 1, "celestiale": 1,
+    "bronzo": 3, "argento": 4, "oro": 4, "platino": 3, "leggendario": 1, "celestiale": 1,
 }
 
 
@@ -649,6 +683,17 @@ def _oggetti_defs() -> tuple[Param, ...]:
             "su un oggetto: il valore vivo è fascia × rango del grado dell'oggetto.",
             CAT_OGGETTI, "intero ≥1", "int",
         ))
+    out.append(Param(
+        "OGGETTO.MOLT_COSTITUZIONE", 4,
+        "Moltiplicatore DEDICATO dei modificatori COSTITUZIONE da oggetto "
+        "(taratura 2026-08-13): se la progressione è l'equip, il corredo deve "
+        "portare HP oltre che armor — a 1 l'elmo «lieve» resta simbolico (+1 al "
+        "bronzo) e il custode di tier alto è una gara di logoramento persa in "
+        "partenza. Il valore vivo diventa fascia × rango × questo (le altre "
+        "stat restano fascia × rango). Misurato in stack con PROB_DROP 0.7 e "
+        "i pesi-grado: win-rate combatti 0/40 → 3/40.",
+        CAT_OGGETTI, "intero ≥1", "int",
+    ))
     out.append(Param(
         "LOOT.PROB_FABBRICA", 0.75,
         "Probabilità che un drop vinto sia CONIATO dalla fabbrica procedurale "
@@ -836,6 +881,7 @@ OGGETTO_MOD_FASCIA: dict[str, int] = {
 OGGETTO_RES_FASCIA: dict[str, float] = {
     f.value: valore(f"OGGETTO.RES_FASCIA.{f.value}") for f in Fascia
 }
+OGGETTO_MOLT_COSTITUZIONE = valore("OGGETTO.MOLT_COSTITUZIONE")
 PROB_FABBRICA = valore("LOOT.PROB_FABBRICA")
 DANNO_ARMA_PER_GRADO: dict[str, int] = {
     g.value: valore(f"OGGETTO.DANNO_ARMA.{g.value}") for g in Grado
@@ -867,8 +913,6 @@ K_HP = valore("K_HP")
 MULT_MIN = valore("MULT_MIN")
 MULT_MAX = valore("MULT_MAX")
 
-W_FISICO = valore("W_FISICO")
-W_MAGIA = valore("W_MAGIA")
 
 R_SOGLIA_CROLLO = valore("R_SOGLIA_CROLLO")
 CROLLO_INCREMENTO = valore("CROLLO_INCREMENTO")
@@ -921,6 +965,11 @@ STANZE_PROB_SAFE_LATERALE = valore("STANZE.prob_safe_laterale")
 STANZE_SAFE_OGNI_ZONE = valore("STANZE.safe_ogni_zone")
 STANZE_MOLT_IMBOSCATA_CORRIDOIO = valore("STANZE.molt_imboscata_corridoio")
 ELITE_PIANO_MINIMO = valore("ELITE.piano_minimo")
+SCENA_MAX_BATTUTE = valore("SCENA.max_battute")
+BOSS_DROP_GARANTITO = valore("BOSS.drop_garantito")
+IMBOSCATA_MINACCE_RIFERIMENTO = valore("IMBOSCATA.minacce_riferimento")
+IMBOSCATA_PESO_NON_RIVELATE = valore("IMBOSCATA.peso_non_rivelate")
+BOSS_MOLT_HP = valore("BOSS.molt_hp")
 
 M_ARMATURA: dict[str, float] = {
     "veste": valore("M_ARMATURA.veste"), "leggera": valore("M_ARMATURA.leggera"),

@@ -37,7 +37,7 @@ from contracts import (
     StagioneRisolta,
 )
 from main import costruisci_sessione
-from motore import Primarie, acc_eff, check1, crea_protagonista, eva_eff
+from motore import Primarie, acc_fis_eff, check1, crea_protagonista, eva_eff
 from motore import calibrazione as cal
 from motore.calibrazione import primarie_da_archetipo
 from motore.corredo import Corredo
@@ -124,7 +124,7 @@ def test_il_dodger_entra_in_banda_lordinario_no(run_pulita, tmp_path) -> None:
     dodger = _entita_da_asset(_DODGER, Grado.ARGENTO)
     ordinario = _entita_da_asset(_ORDINARIO, Grado.ARGENTO)
 
-    acc = acc_eff(carl)
+    acc = acc_fis_eff(carl)
     soglia = acc / cal.F_AUTOHIT
     assert eva_eff(dodger) >= soglia, (
         f"il dodger di contenuto non arriva alla banda (eva={eva_eff(dodger):.2f} < "

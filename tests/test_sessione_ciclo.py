@@ -179,8 +179,8 @@ def _fino_al_combattimento(sessione) -> SnapshotVista:
     snap = asyncio.run(sessione.prossima_narrazione())
     for _ in range(5):
         etichette = {o.etichetta: o.indice for o in snap.opzioni}
-        if "Combatti" in etichette:
-            sessione.coda.accoda(PlayerChoseOption(etichette["Combatti"]))
+        if any(k.startswith("Combatti") for k in etichette):
+            sessione.coda.accoda(PlayerChoseOption(next(v for k, v in etichette.items() if k.startswith("Combatti"))))
             return sessione.avanza()
         vai = next(
             (i for e, i in etichette.items() if e.startswith("Vai")), None

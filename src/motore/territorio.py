@@ -96,6 +96,12 @@ class StatoTerritorio:
     zona_corrente: str
     boss_sconfitti: list[str] = field(default_factory=list)
     zone_visitate: list[str] = field(default_factory=list)
+    # La FOTOGRAFIA all'uscita (anti zone-hopping, playtest 2026-08-12): per
+    # zona lasciata, le stanze che avevano un OSTILE VIVO al momento
+    # dell'attraversamento. Al rientro si rimaterializzano SOLO quelle (dal
+    # seed del copione: stesso mob) — il morto resta morto, il congedato
+    # ritorna. Default retro-safe: i save storici deserializzano invariati.
+    stanze_con_vivi: dict[str, list[int]] = field(default_factory=dict)
 
 
 def stato_territorio() -> StatoTerritorio | None:
@@ -275,7 +281,50 @@ def rigenera_mappa_zona(livello: int, zona: Zona) -> int:
         stato.zona_corrente = zona.chiave
         if zona.chiave not in stato.zone_visitate:
             stato.zone_visitate.append(zona.chiave)
+        _rimaterializza_vivi(livello, zona, stato)
     return ent
+
+
+def _rimaterializza_vivi(livello: int, zona: Zona, stato: StatoTerritorio) -> None:
+    """Il RIENTRO ripopola dalla fotografia (anti zone-hopping): per ogni stanza
+    che aveva un ostile vivo all'uscita, lo STESSO mob torna — pescato dal seed
+    del copione (`master_seed:copione:…`: offline, live e rientro convergono),
+    o il custode per la stanza-boss. Ferite non persistite (si è ripreso: il
+    prezzo diegetico del tempo passato). Archetipo fuori registry → si salta
+    (degrado, mai un crash — stessa guardia di `rimaterializza_custode`)."""
+    from contracts import EntitaGenerata
+
+    from .design import registry_archetipi_correnti
+    from .narrazione import istanzia_entita
+
+    stanze = stato.stanze_con_vivi.get(zona.chiave)
+    if not stanze:
+        return
+    m = mappa_corrente()
+    if m is None:
+        return
+    mappa = m[1]
+    boss_stanza = stanza_boss_di(zona, mappa.piano)
+    registry = registry_archetipi_correnti()
+    for stanza in stanze:
+        if stanza not in mappa.piano.adiacenze:
+            continue  # fotografia più larga della zona rigenerata: si salta
+        if stanza == boss_stanza:
+            mob = boss_della_zona(livello, zona)
+        else:
+            rng = random.Random(
+                f"{master_seed()}:copione:{livello}:{zona.chiave}:{stanza}"
+            )
+            mob = pesca_spawn(rng)
+        if mob is None or mob.archetipo not in registry:
+            continue
+        ent = istanzia_entita(EntitaGenerata(
+            archetipo=mob.archetipo, grado=mob.grado, blocchi=list(mob.blocchi),
+            nome=mob.nome, descrizione=mob.descrizione, riferimento=mob.slug,
+        ), livello)
+        em = esper.component_for_entity(ent, EntitaMob)
+        em.stanza = stanza
+        mappa.mob_stanza[stanza] = ent
 
 
 def avvia_territorio(livello: int = 1) -> bool:
@@ -283,10 +332,16 @@ def avvia_territorio(livello: int = 1) -> bool:
     territorio, monta la mappa della PRIMA zona della spina e azzera lo stato.
     Ritorna False (nessun effetto) sui piani piatti: il chiamante crea la mappa
     storica."""
-    if territorio_attivo() is None:
-        return False
+    # Il cleanup PRIMA dell'early-return (caccia 2026-08-16): il confine di
+    # piano azzera SEMPRE lo stato territoriale del piano lasciato. Con l'ordine
+    # inverso, scendere da un piano-mondo a un piano PIATTO lasciava lo
+    # `StatoTerritorio` stantio: `zona_corrente()` restava la tana del piano 1 e
+    # `finestra_gradi_loot` serviva drop LEGGENDARIO/CELESTIALE su mob di
+    # profondità 2 — e il fascicolo GM dichiarava una zona inesistente.
     for ent, _ in list(esper.get_component(StatoTerritorio)):
         esper.delete_entity(ent, immediate=True)
+    if territorio_attivo() is None:
+        return False
     spina = spina_del_piano(livello)
     rigenera_mappa_zona(livello, spina[0])
     return True
@@ -298,6 +353,43 @@ def _slug_sicuro(testo: str) -> str:
 
     pulito = _re.sub(r"[^a-z0-9]+", "-", testo.lower()).strip("-")
     return pulito[:60] or "boss-senza-nome"
+
+
+# Insegne delle deviazioni laterali: vocabolario chiuso, SEGNAPOSTO di canale
+# (come i profili-base del protagonista). Il dungeon è uno show con la sua
+# cartellonistica: una deviazione ha un'insegna, non un indice. Un piano che
+# vorrà le proprie insegne autorate le porterà come tabella d'asset — qui resta
+# il default che rende il menu diegetico su qualunque contenuto.
+INSEGNE_LATERALI: tuple[str, ...] = (
+    "dei Neon Spenti",
+    "della Fiera Chiusa",
+    "del Parcheggio Interrato",
+    "delle Vetrine Murate",
+    "del Cinema d'Essai",
+    "della Fermata Soppressa",
+    "dei Cassonetti Sponsorizzati",
+    "del Sottopasso Premium",
+)
+
+
+def insegna_laterale(zona: Zona) -> str:
+    """L'insegna DIEGETICA di una zona laterale: «quartiere del Cinema d'Essai».
+
+    Deterministica e stabile (stessa zona → stessa insegna, per sempre) e
+    **distinta fra sorelle**: l'offset è seeded sul percorso del genitore, l'indice
+    del figlio ruota il vocabolario — due deviazioni affacciate dalla stessa
+    partenza non possono ricevere la stessa insegna (finché sono meno delle voci).
+
+    Serve a non stampare al giocatore l'indice interno della zona: l'etichetta
+    portava `(0)`/`(2)` — `percorso[-1]` — cioè una struttura dati a video."""
+    if not zona.percorso:
+        return zona.tier.value
+    genitore = "/".join(str(i) for i in zona.percorso[:-1])
+    offset = random.Random(
+        f"{master_seed()}:insegna:{zona.tier.value}:{genitore}"
+    ).randrange(len(INSEGNE_LATERALI))
+    insegna = INSEGNE_LATERALI[(offset + zona.percorso[-1]) % len(INSEGNE_LATERALI)]
+    return f"{zona.tier.value} {insegna}"
 
 
 def boss_procedurale(livello: int, zona: Zona) -> MobAttivo | None:
@@ -326,10 +418,41 @@ def boss_procedurale(livello: int, zona: Zona) -> MobAttivo | None:
         grado=grado_da_tier(zona.tier),
         blocchi=[],
         descrizione=gimmick,
-        prosa_stanza=(f"{nome} custodisce il varco. {gimmick} "
-                      "Non sembra dell'umore di lasciarti passare."),
+        prosa_stanza=_prosa_custode(nome, gimmick, rng),
         durata=Durata.TURNO,
     )
+
+
+# Cornici della prosa del custode procedurale: vocabolario CHIUSO del canale
+# (come le insegne laterali), pescato seeded dallo stesso stream del boss —
+# stessa zona, stessa scena, per sempre. Prima c'era UNA cornice per tutti
+# («X custodisce il varco. <gimmick> Non sembra dell'umore…»): il momento
+# culminante di ogni zona arrivava al giocatore come la riga di una formula,
+# identica dal primo quartiere alla provincia. Il {gimmick} resta il cuore
+# (è il dato autorato della tabella); la cornice è la regia del Sistema —
+# lo show di DCC inquadra ogni custode come un'attrazione diversa.
+_CORNICI_CUSTODE: tuple[str, ...] = (
+    "{nome} custodisce il varco. {gimmick} Non sembra dell'umore di lasciarti passare.",
+    "Le luci calano da sole: il Sistema vuole che tu guardi. {nome} è già in "
+    "posa al centro della stanza. {gimmick} Il varco è dietro di lui, e lo sa.",
+    "Lo senti prima di vederlo. {gimmick} Poi {nome} si volta verso di te, "
+    "e la stanza diventa piccola.",
+    "Qualcuno ha ripulito il pavimento davanti al varco: un palcoscenico. "
+    "{nome} lo occupa tutto. {gimmick}",
+    "{nome} non si alza nemmeno: ti stava aspettando. {gimmick} "
+    "Nessuno passa senza un finale.",
+    "Un applauso registrato parte da altoparlanti che non esistono. "
+    "{gimmick} {nome} ringrazia il pubblico, poi guarda te.",
+)
+
+
+def _prosa_custode(nome: str, gimmick: str, rng: random.Random) -> str:
+    """La prosa di stanza del custode: cornice seeded × gimmick autorato.
+
+    Pesca dallo STESSO stream del boss (dopo nome/gimmick/archetipo): stessa
+    zona → stessa cornice, e le pescate esistenti non si spostano — il boss di
+    un save in corso resta identico, cambia solo la riga che lo presenta."""
+    return rng.choice(_CORNICI_CUSTODE).format(nome=nome, gimmick=gimmick)
 
 
 def boss_della_zona(livello: int, zona: Zona) -> MobAttivo | None:
@@ -379,6 +502,40 @@ def pesca_spawn(rng: random.Random) -> MobAttivo | None:
     return rng.choices([v.mob for v in voci], weights=pesi, k=1)[0]
 
 
+def pavimento_hp_custode(livello: int) -> int:
+    """Il PAVIMENTO del pool del custode: gli HP del miglior GREGARIO che la
+    tabella di spawn del tier può schierare (round 3: il Nonno-scheletro
+    pescava l'archetipo gracile e faceva 12×1.5=18 HP contro il Fante da 24 —
+    il momento-boss non deve mai essere più tenero dei riempitivi). Derivato
+    con la stessa formula-madre dei mob veri (profilo+override → Costituzione
+    → HP), mai numeri propri. 0 senza territorio/tabella: pavimento inerte,
+    resta la sola tempra `BOSS.molt_hp`."""
+    from contracts import StatId
+
+    from .calibrazione import HP_BASE, K_HP, primarie_da_archetipo
+    from .design import profilo_con_override, registry_archetipi_correnti
+
+    territorio = territorio_attivo()
+    zona = zona_corrente()
+    if territorio is None or zona is None:
+        return 0
+    registry = registry_archetipi_correnti()
+    pavimento = 0
+    for voce in _tabella_spawn(territorio, zona.tier):
+        mob = voce.mob
+        profilo = registry.get(mob.archetipo)
+        if profilo is None:
+            continue  # archetipo driftato: degrado, mai un crash (stessa guardia del rientro)
+        if mob.override:
+            profilo = profilo_con_override(profilo, mob.override)
+        primarie = primarie_da_archetipo(
+            mob.archetipo, mob.grado, livello, profilo=profilo
+        )
+        hp = round(HP_BASE + K_HP * primarie[StatId.COSTITUZIONE])
+        pavimento = max(pavimento, hp)
+    return pavimento
+
+
 def finestra_gradi_loot(livello: int) -> frozenset:
     """La finestra di gradi per il LOOT qui e ora: sul piano-mondo segue il TIER
     della zona corrente (`gradi_del_tier` — il bottino insegue il territorio,
@@ -388,8 +545,12 @@ def finestra_gradi_loot(livello: int) -> frozenset:
     2026-08-11: nessuna run oltre la città)."""
     from .catalogo import gradi_del_tier, gradi_per_profondita
 
+    # La zona vale solo se il PIANO CORRENTE ha un territorio (stessa guardia di
+    # `pesca_spawn`): difesa in profondità per i save scritti quando lo stato
+    # territoriale poteva sopravvivere alla discesa su un piano piatto — quei
+    # load degradano a `gradi_per_profondita` invece di servire celestiali.
     zona = zona_corrente()
-    if zona is not None:
+    if zona is not None and territorio_attivo() is not None:
         return gradi_del_tier(zona.tier)
     return gradi_per_profondita(livello)
 
@@ -466,6 +627,25 @@ def attraversamento_consentito() -> bool:
     return zona_successiva(livello_corrente()) is not None
 
 
+def _fotografa_vivi_di_zona() -> None:
+    """PRIMA del despawn: le stanze con un OSTILE VIVO finiscono nella
+    fotografia persistente (`StatoTerritorio.stanze_con_vivi`) della zona che
+    si lascia. È l'informazione che il despawn distruggerebbe — e senza di
+    lei il rientro non saprebbe distinguere il congedato (che DEVE tornare)
+    dall'ucciso (che non torna): rimaterializzare tutto resusciterebbe i
+    morti (farming di drop), non rimaterializzare niente è il zone-hopping."""
+    from contracts import RuoloMob
+
+    stato = stato_territorio()
+    if stato is None:
+        return
+    stanze = sorted({
+        em.stanza for _ent, em in esper.get_component(EntitaMob)
+        if em.ruolo is RuoloMob.OSTILE and em.stanza is not None
+    })
+    stato.stanze_con_vivi[stato.zona_corrente] = stanze
+
+
 def _despawna_mob_di_zona() -> None:
     """Elimina i mob residui della zona che si lascia (entità con `EntitaMob`,
     mai il protagonista): la zona nuova nasce pulita, niente reveal orfani.
@@ -517,6 +697,7 @@ def attraversa(bus, destinazione: str = "") -> bool:
             return False
         prossima = zona_successiva(livello)
         assert prossima is not None  # garantito dal gate
+    _fotografa_vivi_di_zona()  # PRIMA del despawn: chi era vivo, e dove
     _despawna_mob_di_zona()
     rigenera_mappa_zona(livello, prossima)
     if bus is not None:
@@ -555,7 +736,20 @@ def collega_boss(bus):
             return
         if territorio_attivo() is None:
             return
-        if stanza_corrente_e_del_boss():
+        if not stanza_corrente_e_del_boss():
+            return
+        # La vittoria conta solo se la stanza è rimasta SENZA mob (caccia
+        # 2026-08-16): battere un'IMBOSCATA nella stanza-boss col custode vivo
+        # marcava il custode come battuto — il varco restava chiuso finché lui
+        # occupava la stanza, ma bastava USCIRE e rientrare in zona:
+        # `rimaterializza_custode` rimette in scena solo il custode NON battuto,
+        # quindi la stanza rinasceva vuota e il boss-gate si apriva senza averlo
+        # mai combattuto. Con la vittoria vera il custode morto è già stato
+        # smontato (`_smonta` gira prima: registrato prima sul bus) e la stanza
+        # è libera; con l'imboscata vinta il custode vivo la occupa ancora.
+        from .mappa import mob_corrente
+
+        if mob_corrente() is None:
             registra_boss_sconfitto()
 
     bus.registra(CombatResolved, _su_resolved)

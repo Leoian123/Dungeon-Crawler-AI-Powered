@@ -70,6 +70,9 @@ def test_compositore_deterministico_e_isolato(mondo_isolato) -> None:
 def test_fast_forward_innesca_l_imboscata(mondo_isolato, monkeypatch) -> None:
     _arma_run()
     monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)
+    from motore import mappa as mappa_mod
+
+    monkeypatch.setattr(mappa_mod, "fattore_minacce", lambda: 1.0)  # dado FORZATO
     bus = _Bus()
     from contracts import Durata
 
@@ -79,11 +82,17 @@ def test_fast_forward_innesca_l_imboscata(mondo_isolato, monkeypatch) -> None:
     eventi = [e for e in bus.eventi if isinstance(e, EncounterStarted)]
     assert len(eventi) == 1 and eventi[0].imboscata is True
     assert esper.component_for_entity(eventi[0].entita, PianoIncontro).arruolate
+    # L'incontro risale al chiamante (round 3): è il dato con cui il turno GM
+    # cuce il segnaposto d'agguato sulla prosa.
+    assert esito.incontro == eventi[0].entita
 
 
 def test_riposo_interrotto_recupero_parziale(mondo_isolato, monkeypatch) -> None:
     _arma_run()
     monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)
+    from motore import mappa as mappa_mod
+
+    monkeypatch.setattr(mappa_mod, "fattore_minacce", lambda: 1.0)  # dado FORZATO
     pent, _m, scheda = (None, None, None)
     from motore import protagonista
 

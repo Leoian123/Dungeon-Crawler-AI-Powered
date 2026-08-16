@@ -10,15 +10,16 @@
 > **Come si aggiorna.** Quando un punto si chiude, si **integra** nella sezione a cui
 > appartiene (e sparisce dal registro del debito); non si appende una voce di diario.
 > Quando emerge un difetto o una decisione da prendere, entra nel registro §4.2 con la
-> sua priorità. Ultima revisione: **2026-08-11** (branch `narrative-system`) — suite
-> **1033 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
+> sua priorità. Ultima revisione: **2026-08-16** (branch `narrative-system`) — suite
+> **1097 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
 > territoriale «Pianoterra dei Morti» (stagione «Nascondino con il Morto»);
 > l'authoring AI dei roster (`genera_stagione`) è verificato LIVE (dry-run 8/8
 > boss, cache attiva, zero guasti). La vincibilità è MISURABILE (`misura_run.py`,
-> §4.1): con loot a tier + stanze tipizzate (safe room quieta) la misura resta
-> **0 vittorie su 40**, ma il muro ARRETRA — la run migliore batte anche il
-> custode di provincia e cade nel paese (tier 5). Il gap residuo è la
-> taratura §11: è LO step successivo.
+> §4.1) e — taratura 2026-08-13 — **MISURATA > 0: 3 vittorie su 40** (combatti,
+> seed 12/13/27: tutta la spina, nascondino in tana, scala). Le leve: politica
+> «pieno prima della porta-boss» nell'harness + `RIPOSO.hp_per_tick` 3 +
+> `OGGETTO.MOLT_COSTITUZIONE` 4 + `PROB_DROP` 0.7 + pesi-grado riequilibrati.
+> Resta la rifinitura (§4.1).
 >
 > **Divisione del lavoro fra i branch** (decisione dell'utente, 2026-08-04):
 > `react-ecosystem` è il **laboratorio** — ci si gioca, ci si vede l'evoluzione, ci vive
@@ -89,7 +90,7 @@ gioco; `MasterEngine.avvolgi` tiene compatibile qualunque provider nudo.
 **Nessuna chiamata AI nel repo bypassa il Master-Engine.** Rotte attive: le 5
 della pipeline GM + `scontro.apertura`/`scontro.resoconto`/`scontro.epitaffio` +
 `authoring.boss`/`authoring.tabella`/`authoring.spawn` + `png.dialogo` +
-`banco.nemico`.
+`scena.blocco` + `banco.nemico`.
 
 **Il turno di narrazione è una coroutina a stadi** (`motore/gm.py`, `esegui_turno_gm`):
 ideazione (consultiva, ≤1, **solo sui turni-azione** — al reveal non gira) →
@@ -121,8 +122,24 @@ cancellabile: se cade prima della scrittura, nessuno stato è mutato; la
 
 **Lo scontro è narrato ai bordi** (Sit.1/Probl.3): `prosa_apertura_scontro` (trailer
 non bloccante: la riga deterministica esce subito, la prosa arriva quando arriva) e
-`epitaffio` (permadeath, dai fatti, senza Archivio) sono porte async della sessione;
-la TUI le cabla in `_agisci`. Entrambe ricevono la **lore dell'avversario** come
+`epitaffio` (permadeath, dai fatti, senza Archivio) restano le porte async che
+generano; **quando** un battito è dovuto lo dichiara però il MOTORE, non l'host.
+La sequenza fuori-banda (apertura → vestizione del premio → epitaffio) viveva nella
+TUI, ricostruita confrontando la fase prima/dopo `avanza()` più un flag di host per
+l'epitaffio: il driver headless e `misura_run` non la ricostruivano affatto e
+giravano su un gioco **senza prosa di scontro** — e un host nuovo (web) avrebbe
+dovuto ricopiarla per non perdere metà della narrazione. Ora il motore segna il
+battito dove il fatto accade (`_segna_prosa`) e l'host **drena** una porta sola,
+`prossima_prosa() -> ProsaFuoriBanda | None` (`tipo` chiuso = solo registro
+tipografico). Proprietà bloccate: un battito si consuma una volta sola, il degrado
+lo consuma comunque (un host che drena in ciclo non si impianta su un provider
+guasto), la vestizione è dovuta **solo se un drop c'è davvero** (mai una chiamata a
+vuoto per scontro vinto), e a run chiusa sopravvive **solo** l'epitaffio — gli altri
+decadono senza pagare una chiamata. `misura_run` drena come un host vero: offline
+i battiti degradano tutti (baseline bit-per-bit invariata, verificata), con `--live`
+la misura esercita e paga anche le tre rotte di scontro (`prose_fuori_banda`
+nell'esito). Lucchetti: `test_prosa_fuori_banda` (8, incluso il lint statico che
+impedisce all'host di tornare a dedurre la sequenza). Entrambe ricevono la **lore dell'avversario** come
 `[scena/nemico]` (descrizione/aspetto/tratto dell'`EntitaMob` ingaggiato, catturati
 all'apertura dell'istanza; nell'epitaffio con guardia sul nome — mai lore stantia di
 un altro scontro): il prompt non porta più il solo nome. **Nessun click muto**: `IstanzaCombattimento.agisci`
@@ -151,6 +168,68 @@ e `riposa` passano il compositore, `RiposoConcluso.interrotto` è valorizzato,
 `EncounterStarted.imboscata` distingue la cronaca e la sessione apre l'istanza
 anche su un incontro non suo. Nella suite il dado è spento di default
 (`conftest`), riacceso dai lucchetti dedicati.
+
+**L'economia del rischio è del CHUNK (riscontri playtest 2026-08-12)**: il
+dado-imboscata scala con le **minacce della zona** (`minacce_zona` = ostili
+vivi + stanze non rivelate non-quiete **scontate** da
+`IMBOSCATA.peso_non_rivelate` — §11, default 0.5; round 3: a peso pieno
+l'ingresso in zona partiva sopra il riferimento e gli agguati arrivavano a
+catena, il nemico potenziale ora pesa meno del nemico vero; `PROB_EFF =
+PROB_IMBOSCATA × minacce/IMBOSCATA.minacce_riferimento × fattore-stanza) —
+«più nemici ci sono, più è alta la probabilità di imboscata; meno nemici, più
+è semplice riposare»: **il riposo in campo si GUADAGNA ripulendo** (e anche
+solo RIVELARE abbassa il dado). Le altre chiusure dello stesso
+giro: la **ritirata è universale** («Scappi» non dissolve MAI il mob — tu
+arretri nell'adiacente, lui resta alla sua stanza, ferite comprese; FNC §5.3
+«si dissolve» è SUPERATA: era un room-clear gratuito, la fuga migliore della
+vittoria); il **backtracking paga un tick** (la porta salda il debito dopo il
+tick di servizio; la stanza nuova paga col solo reveal — mai due volte) e il
+marcatore `TurnoAttivo` si AZZERA a fine tick di scorrimento (prima restava
+appeso e l'economia del tempo dipendeva dal caso); la voce **«Aspetta»**
+(`TipoAzione.PASSA`, il dormiente J §6 acceso): un tick secco, composta quando
+lecita — col veleno addosso è l'unica via di downtime (la tenaglia si apre,
+insieme al backtracking che ora smaltisce); il **custode battuto garantisce il
+drop** (`BOSS.drop_garantito`, §11); «Sei avvelenato!» si annuncia UNA volta
+(`applica_status` dichiara se lo status è nuovo — il rinfresco tace).
+L'equip che spende il tick è SCELTA (anti-arbitraggio), non un difetto.
+
+**Round 2 (collaudo dei fix, stessa data)**: il **zone-hopping è chiuso** — la
+fotografia all'uscita (`StatoTerritorio.stanze_con_vivi`, persistente) registra
+le stanze con un ostile VIVO e il rientro rimaterializza SOLO quelle dal seed
+del copione (stesso mob): il congedato torna, il morto resta morto (niente
+farming di resurrezione). La **ritirata parla** (`DisimpegnoScena.ritirata_in`
+→ «Ti ritiri nella stanza N: X resta dov'è») e il menu **dice chi c'è**
+(«Combatti — Scheletro del Saloon»: il nome è verità del World). L'**azzardo
+racconta l'azzardo**: il dormiente `EsitoAzzardo.etichetta` è acceso — il
+risolutore espone la FACCIA pescata, `ColpoInferto.azzardo` la porta, la
+cronaca la premette («⚄ Jackpot del Sistema! …»). L'**anomalia si annuncia
+solo se MANIFESTA** (grado fuori dalla finestra del contesto: offline il
+copione col mob normale non fa più promesse vuote). La **tempra del custode**
+(`BOSS.molt_hp`, §11, default 1.5): pool moltiplicato al primo arruolamento
+del boss di zona, e dal round 3 **mai sotto il miglior gregario del tier**
+(`pavimento_hp_custode`: il molt sull'archetipo gracile non bastava —
+12×1.5=18 restava sotto il Fante da 24; il pavimento è derivato con la stessa
+formula-madre dei mob veri, dalla tabella di spawn della zona).
+L'**imboscata non fa déjà-vu** (il nemico appena ucciso → una ri-pescata
+seeded) e lo **snapshot porta l'orologio vivo** (`SnapshotVista.tick` +
+descrittore `tN`: mai più il tempo congelato dell'ultimo messaggio GM).
+
+**Round 3 (playtest percezioni, stessa data)**: l'**agguato è cucito alla
+prosa** — quando la spesa del tempo di un turno GM innesca l'imboscata,
+`spendi_tempo` risale l'entità-incontro (`SpesaTempo.incontro`, plumbing
+`RisultatoTick`/`RisultatoFastForward`) e il motore appende al SOLO messaggio
+il segnaposto che nomina l'ambusher («Prima che tu possa guardarti intorno,
+X ti piomba addosso…» al reveal) — prima si leggeva la prosa del mob di stanza
+sopra la barra di un nemico diverso; l'Archivio congela la prosa PULITA (la
+rilettura non ripete l'agguato di un tick passato) e la memoria riparte dalla
+prosa di stanza. Il **peso delle non rivelate** e il **pavimento del custode**
+sono integrati sopra nei loro paragrafi. **«Riposa» a risorse piene non si
+compone** (era un «niente» selezionabile): l'opzione è vera solo con HP o mana
+sotto il massimo derivato — stessa dottrina «l'opzione compare quando è VERA».
+Restano di CONTENUTO (authoring, non codice): l'ampiezza delle tabelle
+d'imboscata (déjà-vu residuo su 3-4 nomi), il salto percepito di tier
+(distretto coi gregari bronze del quartiere), la faccia della Roulette mai
+vista in play. Lucchetti: `test_playtest_fix` (15).
 
 ### 2.1-bis Territorio: il piano-mondo procedurale
 
@@ -199,6 +278,22 @@ fascicolo, mai stato.
   comunque una volta per tick: lo stream replay-safe non cambia forma col tipo.
   I tipi dormienti sono contratti (registro §4.2-A). Lucchetti:
   `test_tipi_stanza`, `test_stanze_quiete`.
+- **Il menu non degrada in silenzio**: `componi_opzioni_scena` decide *cosa il
+  giocatore può fare*, e la sua tolleranza al World parziale (gli harness montano
+  World senza fase/protagonista/territorio) passava da cinque `except Exception`
+  muti — un guasto vero vi si manifestava come «l'opzione non c'era»,
+  indistinguibile dal comportamento corretto e invisibile a qualunque test. La
+  tolleranza resta (comporre è una LETTURA e non deve esplodere) ma passa da
+  `_lettura_tollerante`, che REGISTRA punto + errore + conteggio
+  (`degradi_scena()`); il default di un degrado non toglie mai al giocatore
+  un'opzione che il gate precedente ha già dichiarato lecita. Lucchetto
+  simmetrico: su un World completo il registro è **vuoto**, su uno parziale la
+  composizione regge e lascia traccia (`test_scena_degradi`). Nella stessa sede
+  l'etichetta delle deviazioni è tornata DIEGETICA: portava `percorso[-1]` fra
+  parentesi — «Deviazione: quartiere vicino (0)», una struttura dati stampata al
+  giocatore — e ora passa da `insegna_laterale` (vocabolario chiuso segnaposto,
+  offset seeded sul genitore × indice del figlio: stabile per zona, **distinta fra
+  sorelle** per costruzione, «Deviazione: quartiere dei Neon Spenti»).
 - **Copione offline zona-aware**: `ProviderCopione` COMPUTA il turno dalla zona
   on-demand (stanza-boss → IL custode; ordinaria → riempitivo seeded) — identico
   dopo un load, zero liste precompilate.
@@ -323,6 +418,32 @@ chi ha davanti (`[png/elite]`: parla da leggenda vivente). **Futuro
 dichiarato**: mortalità/scontro con un Elité, apparizioni pilotate dal GM.
 Lucchetti: `test_elite` (10).
 
+### 2.1-quater Scene narrative: il canale a BLOCCHI (S1 — pronto, senza pilota)
+
+**La grammatica di Baldur's Gate ridotta all'osso** (decisione utente
+2026-08-11): il dialogo scorre a blocchi, **l'AI compone la sequenza, il
+motore decide i valori di verità** — il flusso emerge dal prodotto dei due
+(stessa famiglia di mob e loot: enum chiusi × arbitro deterministico =
+varietà organica). `motore/scena.py`: `IstanzaScena` (partecipanti — lista
+dal giorno uno, mai 1-vs-1 cablato — posta opzionale, quattro campi di stato)
++ rotta `scena.blocco` (VELOCE, phase-gated a NARRAZIONE, retry 1) con schema
+`BattutaScena` a tre blocchi: `battuta` (prosa), `snodo` (l'AI inquadra
+classe+stat dagli enum — il TIRO è del motore: `esito_prova` a margine, riga
+del fatto SEMPRE visibile «⚄ prova argento su saggezza: …»), `chiudi`
+(proposta d'esito). **I tre gate del motore**: chiusura onesta (`vinta` solo
+con snodo superato — mai vittorie a parole; la chiusura illegale degrada a
+prosa e la scena continua), anti-pesca (il check fallito è FALLITO: niente
+secondo tiro sulla stessa posta), tetto `SCENA.max_battute` (§11: al tetto il
+motore chiude d'ufficio sui fatti). Zero mutazioni dall'output LLM; unica
+scrittura la memoria INTERAZIONE dai fatti; chiusura → `FattiScena` (gemello
+sociale di `FattiScontro`). Il momento-dado per la UI futura è già nel
+contratto (`ProvaVista`: classe/stat/esito/margine/grado). **Senza pilota per
+scelta** (come fu per i PNG): l'apertura in gioco — menu «Parlamenta» (il
+dormiente `PlayerTentaProva` aspetta), ideazione GM (`IntenzioneScena` +
+`DIALOGO`), dado-evento — è la decisione S2, insieme al prezzo della posta
+sul listino beneficio/tributo e allo sbocco in scontro. Lucchetti:
+`test_scena` (11).
+
 ### 2.2 Combattimento
 
 **Due check, e nessuno dei due è un dado da JRPG**: check 1 = il *se* colpisci (gate
@@ -440,7 +561,26 @@ sostentamento è falsificabile: `test_corredo_di_riferimento_raggiungibile`.
 
 Due artefatti separati (stato effimero in chiaro + Archivio sidecar compresso),
 identità uuid = slot = crawler, invalidazione a fine-run (morte E vittoria: permadeath
-H-20). Le **guardie delle fondamenta** reggono: scrittura atomica temp+rename con
+H-20) — e l'invalidazione è del MOTORE, non dell'host: `_onora_permadeath` ritira lo
+slot nel funnel dello snapshot, appena il terminale esiste. **Le TRE vie di
+resurrezione trovate dalla caccia avversariale (2026-08-16, tutte chiuse)**:
+`salva()` dopo il terminale RICREAVA lo slot ritirato (ora la guardia di
+salvataggio onora il permadeath per prima e rifiuta con `RunConclusa` — tipizzata,
+l'host la rende); `esci()` dopo la vittoria lo RISALVAVA (il guscio sovrascriveva
+il terminale con USCITA_VOLONTARIA e `concludi` prendeva il ramo `salva_run` — ora
+`esci_volontariamente` non rinegozia un terminale rilevato, ed `esci()` a run
+conclusa delega a `chiudi_terminale`); il **`.bak` di recovery** era caricabile
+come slot (`carica_sessione(uuid=f"{uuid}.bak")` componeva il path del backup — ora
+`carica_da_disco` rifiuta il mismatch identità intestazione↔file: il .bak protegge
+dalla corruzione, mai dal permadeath). Lucchetti: `test_permadeath_slot` (7 —
+l'oracolo è sempre l'exploit). Prima il ritiro era appeso
+a `chiudi_terminale()`, un atto dell'host: la TUI scriveva «💀 Permadeath, run
+terminata», montava «Esci» e non lo chiamava mai — **salva → muori → ricarica
+funzionava**, col protagonista di nuovo vivo. Nessun test lo vedeva perché l'unico
+chiamante della porta era `misura_run`, che la chiama. Il teardown del World resta
+l'atto esplicito dell'host, idempotente. Lucchetto: `test_permadeath_slot` — l'oracolo
+è l'**exploit** (si gioca fino alla morte senza che l'host chiuda nulla e si prova a
+ricaricare), non l'esistenza della porta. Le **guardie delle fondamenta** reggono: scrittura atomica temp+rename con
 backup; rollback completo al load se il payload tradisce la busta (mai un World
 parziale attivo); sonda della busta prima del boot (un save illeggibile non costa
 nulla); una sola run per processo, rumorosa (registro weakref — anche il turno GM già
@@ -462,7 +602,7 @@ scontro aperto; `rng_state` davvero serializzato e ripristinato.
 
 ### 2.6 Verifica
 
-**1033 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
+**1056 verdi + 3 skip** (2 = integrazione live Anthropic senza chiave; 1 = lint di
 `src/host_web`, che su questo branch non esiste — skip **esplicito**, mai verde per
 vacuità). La suite è headless, senza rete, con contesto esper isolato per test
 (ESP §0.1). Oltre ai lucchetti citati nei sistemi: membrana e purezza import (con
@@ -558,12 +698,30 @@ scontri, 11.7 drop per run). Ancora 0/40: il gap residuo non è più struttura.
 > taratura sbloccherà il paese, la misura proverà la vittoria FURTIVA, non un
 > suicidio contro il celestiale.
 
-Il passo: **iterare taratura §11 → `misura_run.bat`** fino a un win-rate > 0
-sul percorso inteso, poi rifinire (incluse le fasce del canale oggetti/mosse).
-È l'ultimo miglio dell'MVP, ed è lavoro di console, non di codice. Le leve
-candidate, in ordine (analisi 2026-08-11): `RIPOSO.hp_per_tick` 2→4-5;
-`PROB_DROP` 0.5→0.65; `LOOT.PESO_GRADO` appiattito sulla coda alta;
-solo se serve ancora, `K_RANGO_DANNO` 0.4→0.3 (con `test_ttk` come rete).
+**Il win-rate è > 0 (taratura 2026-08-13, leve in ordine, misurate una alla
+volta su 40 seed di `combatti`)**: la prima vittoria l'ha portata la POLITICA,
+non il gioco — l'harness entrava dal custode «quando capita», anche ferito; la
+clausola «davanti alla stanza-boss nota fai il pieno, poi entra di proposito»
+(`_porta_del_boss` + tie-break Costituzione nella vestizione greedy, lucchetti
+in `test_misura_run`) misura il gioco che esiste davvero e da sola vale 0→1/40.
+Da lì lo STACK misurato, ora default §11: `RIPOSO.hp_per_tick` 2→3 (feel:
+neutro sulla misura, le morti sono in scontro, non da logoramento fra riposi);
+`OGGETTO.MOLT_COSTITUZIONE` (foglia NUOVA, 4): il modificatore COSTITUZIONE da
+oggetto vale fascia × rango × molt — il corredo porta HP oltre che armor (con
+la Piastra: Carl 30→46 max), le stat d'attacco restano sulla scala di sempre;
+`PROB_DROP` 0.5→0.7 e `LOOT.PESO_GRADO` 3/4/4/3/1/1 (era 6/4/3/2/1/1): il
+corredo argento/oro arriva QUANDO i custodi lo esigono. Le tre componenti
+compongono e nessuna basta da sola (drop da solo 1/40, drop+molt senza pesi
+1/40, stack completo **3/40** — seed 12/13/27 vincono l'intera spina con
+vittoria FURTIVA in tana, 5 zone, ~20 riposi). Il ramo «`CARL.hp` che cresce
+col piano» è ESCLUSO dai dati: la spina resta a profondità 1, il muro è dentro
+il piano 1 — la progressione è l'equip, come da design.
+
+Il passo ora è la RIFINITURA: 8% con combatti-tutto è un pavimento (il
+giocatore vero sceglie gli scontri e usa i vicoli — le run manuali arrivano
+più in là della politica); leve residue in canna: `K_RANGO_DANNO` 0.4→0.3
+(con `test_ttk` come rete), fasce del canale mosse, margine di fuga. Tutte da
+console (`calibra.bat`) con `misura_run.bat` come oracolo del prima/dopo.
 
 Più avanti, sull'asse mappa: la **generazione a chunk «stile sudoku»** (zone
 enormi per costruzione lazy: griglia di chunk seeded per cella, vincoli di zona
@@ -574,11 +732,16 @@ alla scala chunk la quota safe torna PER ZONA). Costi noti: refactor della
 ### 4.2 Registro del debito (unico, in ordine di priorità dentro ogni gruppo)
 
 **A. Coerenza del motore**
-- **Doppio proprietario della mutazione HP**: `status._applica_delta_hp` (clampa la
-  cura) e `combattimento.infliggi_danno` (sottrazione secca) scrivono lo stesso campo
-  con clamp diversi; la logica "dove vivono gli HP" è replicata in quattro funzioni.
-- **`SistemaCrollo` muto**: l'escalation infligge danno senza eventi di bus — HP che
-  calano senza una riga di cronaca, contro il principio "eventi di colpo".
+- ~~Doppio proprietario della mutazione HP~~ **CHIUSO (2026-08-16)**: la mutazione
+  vive in `motore/salute.py` (`muovi_hp`: cura clampata al massimo derivato, danno
+  secco — il death-check legge `<= 0` e il margine negativo è informazione);
+  status/combattimento/riposo delegano. Le copie erano CINQUE, non quattro
+  (`combattimento._hp_di`, scovata dal lucchetto). Lucchetto statico:
+  `test_sincronia_nomi.test_gli_hp_hanno_un_solo_proprietario_di_mutazione` — una
+  scrittura diretta di `punti_vita`/`attuali` fuori da salute/derivate è un rosso.
+- ~~`SistemaCrollo` muto~~ **GIÀ CHIUSO** (il registro era indietro): l'escalation
+  pubblica `CrolloDungeon` dal giro 2026-08-07; senza bus (harness) resta muta per
+  scelta dichiarata nel costruttore.
 - **Contratti dormienti senza produttore** (posati prima delle feature, da accendere o
   espungere quando §4.1 decide): `RiposoConcluso`/`RIPOSA`, `PlayerEquipaggia/Toglie`,
   `PlayerTentaProva`, `TiroAzzardo`/`EsitoAzzardo.etichetta`, `SistemaRinforzi`
@@ -591,15 +754,22 @@ alla scala chunk la quota safe torna PER ZONA). Costi noti: refactor della
   Va spaccato in pacchetto (taglio di file, non refactor): `libreria/`, `authoring/`,
   `sessione.py`.
 
-**B. Duplicazioni note** (divergeranno al primo ritocco; da unificare passandoci)
-- Nome diegetico degli eventi: `combattimento._nome_pubblico` ≡ `status._nome_diegetico`.
-- Nome di uno status: tre convenzioni (`nome_status()`, `cls.__name__.lower()` in due
-  moduli) + la tabella participi in `main` — reggono solo finché classe e blocco
-  coincidono; nessun test di sincronia.
-- La tripla mischia/fuoco/veleno mappata in tre moduli (`calibrazione`, `design`,
-  `main`); il menu Combatti/Scappa in tre posti; il clamp dell'indice piano in tre posti.
-- `main._collezione` riscandisce e ri-valida l'intera libreria per ogni asset risolto
-  (O(P·M) al boot): invisibile oggi, quadratico con una libreria vera.
+**B. Duplicazioni note**
+- ~~Nome diegetico degli eventi~~ **CHIUSO (2026-08-16)**: copia unica
+  `mob.nome_diegetico` (modulo foglia, import pigro di `Protagonista`);
+  `_nome_pubblico`/`_nome_diegetico` delegano. Lucchetto statico in
+  `test_sincronia_nomi` (il segno della ricopia è `em.nome` nel modulo).
+- ~~Nome di uno status senza test di sincronia~~ **CHIUSO (2026-08-16)**:
+  `test_sincronia_nomi` lega le tre convenzioni (`nome_status()` ≡
+  `cls.__name__.lower()` per ogni riga di `SPEC_STATUS`; la tabella participi di
+  `main` deve coprire ogni status con sistema — uno status nuovo senza participio
+  è un rosso, non un «Sei veleno_nero!» a video).
+- ~~`main._collezione` O(P·M)~~ **CHIUSO (2026-08-16)**: cache keyed sui metadati
+  dei file (nome, mtime_ns, size) — l'authoring che scrive invalida da sé, lo scan
+  dei metadati resta, sparisce il ri-parse Pydantic per chiamata.
+- Restano (da unificare passandoci): la tripla mischia/fuoco/veleno in tre moduli;
+  il menu Combatti/Scappa in tre posti (attenuato: `misura_run` sceglie ormai per
+  `TipoAzione`, non per etichetta); il clamp dell'indice piano in tre posti.
 
 **C. Economia LLM** (caching attivo, retry di troncatura a limite crescente,
 `opzioni` rimosso, ideazione solo sui turni-azione, prompt ancillari sfoltiti —
@@ -607,9 +777,76 @@ tutto in §2.1; il caching in AUTHORING è misurato live: `cache_letti > 0`, §2
 - **Misura live della sessione di GIOCO mancante**: la baseline `ConsumoProvider`
   di una run reale non è ancora registrata (attesa ~35-45% in meno per sessione)
   — serve una sessione di gioco con chiave.
-- Il tally per rotta del Master-Engine esiste ma nessun host di gioco lo mostra
-  ancora (il riassunto stampa solo il totale `ConsumoProvider`; il banco nemici
-  invece il consumo per modello lo stampa già).
+- ~~Il tally per rotta non mostrato~~ **CHIUSO (2026-08-16)** — e la verità era
+  peggiore del registro: per un provider nudo `avvolgi` creava un engine fresco a
+  OGNI chiamata, quindi il tally nasceva e moriva nel giro di un turno (non era
+  «non mostrato»: non esisteva). Ora l'engine è memoizzato per identità di
+  provider sulla sessione (`_engine`), i turni GM ci passano, la porta
+  `tally_rotte()` lo espone e la TUI lo stampa all'uscita, rotta per rotta con i
+  degradi.
+
+**C-bis. Il ciclo di gioco è più povero dei sistemi che lo servono** (misurato
+giocando, 2026-08-15 — non dedotto dai doc)
+- **Il verbo «parla» non esiste in partita.** `motore/png.py` e `motore/scena.py`
+  hanno **zero chiamanti in produzione** (compaiono solo come re-export in
+  `motore/__init__.py`); la rotta `scena.blocco` è dichiarata e mai eseguita. È
+  la scelta dichiarata «contratto ora, pilota poi» (§2.1-ter/quater), ma il conto
+  del giocatore è questo: entra in stanza, legge un paragrafo, combatte o scappa,
+  si muove, riposa. Su un gioco a tema DCC — dove l'interazione con PNG, gilde e
+  voce del sistema è metà dell'identità — è il gap di ciclo più grosso.
+  Sbloccarlo chiede DUE decisioni, non codice: chi materializza un PNG (il GM
+  server-side, §2.1-ter) e il **prezzo della posta** sul listino
+  beneficio/tributo. Una scena a `posta=None` è già giocabile senza la seconda.
+- **L'azione libera è un costo senza esito possibile.** `esegui_azione` è esplicita:
+  «il testo libero NON tocca mai lo stato». La prova esiste solo se l'ideazione
+  (consultiva, LLM) inquadra `IntenzioneScena.PROVA`, e il suo esito entra SOLO nel
+  prompt di limatura: zero conseguenze meccaniche. Offline l'ideazione degrada, quindi
+  la prova non esiste mai e il copione risponde con la prosa della STANZA — misurato:
+  «frugo tra le macerie» costa 4 tick e restituisce la descrizione della stanza. Il
+  saldo per il giocatore è netto: l'azione libera può solo far male (tempo speso,
+  status che tickano, e il turno gated può materializzare un'entità), mai bene. Un
+  giocatore razionale non la usa. `PlayerTentaProva` è il contratto dormiente che la
+  chiuderebbe — ed è coerente col frame roguelike: un'azione che PUÒ pagare
+  (perlustrare, prepararsi, rifornirsi) è una decisione *prima* dello scontro, cioè
+  dove il design vuole che stiano le decisioni.
+- **`misura_run` non esercita l'azione libera**: il verbo AI-driven è raggiungibile
+  solo dalla TUI. La prosa fuori-banda ora la misura la drena (§2.1); l'azione libera
+  no — il win-rate resta il win-rate dello scheletro a menu.
+- **Una sola run per processo, verificato in esecuzione**: aprire una seconda
+  `SessioneGioco` invalida la prima, che non può più né giocare né **salvare** (la
+  guardia è rumorosa e corretta — meglio dell'alternativa). È l'invariante che il
+  modello di consegna deciso (web app, §3) dovrà affrontare: un processo per
+  giocatore, oppure spezzare il legame `switch_world` globale ↔ sessione. Peso su
+  disco misurato: ~42 KB di stato all'avvio (la stagione congelata viaggia col save)
+  → ~52 KB dopo 575 turni; l'Archivio sidecar cresce solo coi turni GM.
+- ~~Il boss procedurale a template unico~~ **ATTENUATO (2026-08-16)**: la
+  `prosa_stanza` del custode passa da `_prosa_custode` — cornici a vocabolario
+  CHIUSO (6, stile regia-dello-show) pescate seeded dallo stesso stream del boss,
+  DOPO nome/gimmick/archetipo: il boss di un save in corso resta identico, cambia
+  solo la riga che lo presenta; il gimmick autorato resta il cuore. Il pieno
+  «vestito dal GM live» resta il canale già esistente (`[fascicolo/mob-atteso]`).
+
+**C-ter. Reperti della caccia avversariale 2026-08-16** (workflow 6 cacciatori ×
+verifica, 22 reperti unici, 8 verificati → 8 confermati → 8 CORRETTI; lucchetti in
+`test_caccia_2026_08` + `test_permadeath_slot`). Corretti anche 6 minori sotto il
+tetto di verifica (a lettura confermata): exploit del boss-gate via imboscata vinta
+nella stanza-boss (si marca battuto solo a stanza vuota), drop live pendente perso
+da `esci()`, `clampa_mana` gemello di `clampa_hp` (gate allargato a `_tocca_massimi`),
+`scontri_persi` sempre 0 in `misura_run`, HP negativi in `SchedaVista`, doppio
+orologio nel pannello. **Restano da verificare/correggere** (dimostrati da sonda dei
+cacciatori, non passati dalla verifica avversariale — sonde conservate nello
+scratchpad di sessione):
+- `FattiScontro` pendenti non persistiti: vinci → salva-ed-esci SUBITO (prima del
+  turno di resoconto) → al reload lo scontro non viene mai narrato, niente memoria.
+- Turno GM spurio su run conclusa: la TUI chiede una narrazione del piano
+  inesistente prima della riga di vittoria.
+- Cancellazione del turno GM: il tiro-anomalia consuma lo stream RNG di sessione
+  PRIMA del primo await (F-11 formalmente violato sul rng, non sullo stato World).
+- Il filo di continuità dopo un load può divergere dall'ultima scena LETTA (le
+  riletture da cache muovono il filo vivo ma non l'Archivio).
+- Id documento-memoria `mob-p{livello}-s{stanza}` senza la zona: collisione fra
+  zone del piano-mondo.
+- `conia_procedurale` può coniare due slug identici (stat diverse) nella stessa run.
 
 **D. Test e taratura**
 - `test_banco_nemici` è diventato uno **specchio della formula** (ricalcola l'atteso con

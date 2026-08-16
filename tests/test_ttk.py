@@ -130,7 +130,7 @@ def test_giro_completo_giocabile_con_tattica(run_pulita, tmp_path) -> None:
         # Nella stanza col mob: combatti o fuggi secondo gli HP.
         guardia = 0
         while snap.fase == "combattimento" or any(
-            o.etichetta == "Combatti" for o in snap.opzioni
+            o.etichetta.startswith("Combatti") for o in snap.opzioni
         ):
             assert guardia < 40, f"stanza {stanza}: scontro senza fine"
             guardia += 1

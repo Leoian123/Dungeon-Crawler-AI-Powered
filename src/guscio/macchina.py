@@ -263,8 +263,17 @@ class Guscio:
 
     def esci_volontariamente(self) -> None:
         """Intento del giocatore (6c): segnala il terminale. NON fa switch_world — è
-        solo detection in-run; il teardown è in `concludi` (E-4)."""
+        solo detection in-run; il teardown è in `concludi` (E-4).
+
+        Un terminale GIÀ rilevato non si rinegozia (caccia 2026-08-16): qui si
+        sovrascriveva incondizionatamente con USCITA_VOLONTARIA — così `concludi`
+        prendeva il ramo `salva_run` invece di `invalida`, e «esci» dopo la
+        vittoria RISALVAVA lo slot che il permadeath aveva ritirato (save-scumming
+        via porta pubblica). Il terminale di run è un fatto del motore: l'intento
+        d'uscita dell'host non lo cambia."""
         assert self.stato == StatoGuscio.IN_RUN, self.stato
+        if self._terminale is not None:
+            return
         self._terminale = Terminale.USCITA_VOLONTARIA
 
     # --- Loop di run host-agnostico (coroutine, guidata dal turno) -------------

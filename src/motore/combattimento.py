@@ -26,13 +26,14 @@ from contracts import (
     MortePersonaggio,
     StatId,
     StatusApplicato,
+    StileAttacco,
     TipoDanno,
     CrolloDungeon,
     TurnoSaltato,
 )
 
 from .azione import ApplicaStatus, Azione, Danno
-from .azzardo import EffettoAzzardo, risolvi_effetto_azzardo
+from .azzardo import EffettoAzzardo, risolvi_effetto_azzardo_con_faccia
 from .catalogo import REGISTRY_BLOCCHI, classe_da_grado, rango_grado
 from .calibrazione import (
     AP_MAX_MVP,
@@ -49,8 +50,8 @@ from .calibrazione import (
     S_CONTEST,
     primarie_da_scalari,
 )
-from .derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
-from .mob import EntitaMob, Repertorio
+from .derivate import acc_eff_di, atk_eff, def_eff, eva_eff, max_hp
+from .mob import EntitaMob, Repertorio, nome_diegetico
 from .modificatori import Resistenze
 from .mosse import MOSSE_DEFAULT, azione_da_mossa, mossa_di, mosse_concesse
 from .phased import SistemaSempreAttivo, SistemaSoloCombattimento
@@ -199,15 +200,11 @@ def stato_combattimento() -> tuple[int, StatoCombattimento] | None:
 
 
 def infliggi_danno(entita: int, danno: int) -> None:
-    """Applica danno dove vivono gli HP: `Scheda` per il protagonista, `PuntiVita`
-    per i nemici."""
-    scheda = esper.try_component(entita, Scheda)
-    if scheda is not None:
-        scheda.punti_vita -= danno
-        return
-    pv = esper.try_component(entita, PuntiVita)
-    if pv is not None:
-        pv.attuali -= danno
+    """Applica danno via il proprietario UNICO della mutazione HP (`salute.muovi_hp`):
+    la risoluzione «dove vivono gli HP» e la politica di clamp stanno in un posto solo."""
+    from .salute import muovi_hp  # pigro: salute risolve su questo modulo (PuntiVita)
+
+    muovi_hp(entita, -danno)
 
 
 def _e_vivo(entita: int) -> bool:
@@ -278,6 +275,28 @@ def arruola_entita(entita: int) -> int:
     assicura_mana(entita)  # anche i mob pagano le mosse forti (Int bassa → poche volte)
     if esper.try_component(entita, PuntiVita) is None:
         hp = max_hp(entita)
+        # LA TEMPRA DEL CUSTODE (playtest 2026-08-12: il boss di quartiere era
+        # più gracile dei suoi gregari): il custode di zona AL PRIMO arruolamento
+        # riceve il pool moltiplicato (`BOSS.molt_hp`, §11 — tarabile da
+        # console) E MAI sotto il miglior gregario del tier (round 3: il molt
+        # sull'archetipo gracile non bastava — 12×1.5=18 restava sotto il Fante
+        # da 24). Solo alla CREAZIONE del pool: il custode ferito e riarruolato
+        # (ritirata) tiene le sue ferite come tutti.
+        from .territorio import (
+            boss_sconfitto,
+            pavimento_hp_custode,
+            stanza_corrente_e_del_boss,
+            zona_corrente,
+        )
+
+        zona = zona_corrente()
+        if (zona is not None and stanza_corrente_e_del_boss()
+                and not boss_sconfitto(zona)):
+            from .calibrazione import BOSS_MOLT_HP
+            from .piano import livello_corrente
+
+            hp = max(hp, round(hp * float(BOSS_MOLT_HP)),
+                     pavimento_hp_custode(livello_corrente()))
         esper.add_component(entita, PuntiVita(attuali=hp, massimi=hp))
     return entita
 
@@ -325,12 +344,9 @@ def _tutti_combattenti_vivi() -> list[int]:
 
 
 def _nome_pubblico(entita: int) -> str:
-    """Nome diegetico per gli eventi di vista: il nome del mob rivelato, "" per il
-    protagonista."""
-    em = esper.try_component(entita, EntitaMob)
-    if em is not None:
-        return em.nome
-    return "" if esper.has_component(entita, Protagonista) else "il nemico"
+    """Nome diegetico per gli eventi di vista: delega alla copia UNICA
+    (`mob.nome_diegetico` — era duplicata con `status._nome_diegetico`)."""
+    return nome_diegetico(entita)
 
 
 def _rango_sorgente(entita: int) -> int:
@@ -341,14 +357,12 @@ def _rango_sorgente(entita: int) -> int:
 
 
 def _hp_di(entita: int) -> tuple[int, int]:
-    """(attuali, massimi) dove vivono gli HP (`Scheda`/`PuntiVita`)."""
-    scheda = esper.try_component(entita, Scheda)
-    if scheda is not None:
-        return scheda.punti_vita, max_hp(entita)
-    pv = esper.try_component(entita, PuntiVita)
-    if pv is not None:
-        return pv.attuali, pv.massimi
-    return 0, 0
+    """(attuali, massimi) via il proprietario unico (`salute.hp_di`); (0, 0) per
+    chi non ha HP — era la QUINTA copia di «dove vivono gli HP», scovata dal
+    lucchetto di sincronia mentre il registro ne contava quattro."""
+    from .salute import hp_di
+
+    return hp_di(entita) or (0, 0)
 
 
 def nemici_in_scontro() -> list[tuple[str, int, int]]:
@@ -461,7 +475,7 @@ def esito_contest(acc: float, eva: float, rng: random.Random) -> float:
     nella finestra dei floor gemelli (preserva `P(danno)` e `P(schivata piena) ≥ MIN_COLPO`).
 
     Funzione di `(acc, eva)` (scala-invariante al rapporto, Bradley–Terry): separa la *forma
-    del contest* dalla *derivazione* delle due magnitudini (`acc_eff`/`eva_eff`), così il
+    del contest* dalla *derivazione* delle due magnitudini (`acc_eff_di`/`eva_eff`), così il
     property-test del vincolo accoppiato (§11) la esercita coi due scalari direttamente."""
     if eva < acc / F_AUTOHIT:
         return 1.0                                     # auto-hit: zero pescate
@@ -472,12 +486,15 @@ def esito_contest(acc: float, eva: float, rng: random.Random) -> float:
     return 1.0 if u < lo else (G_GRAZE if u < hi else 0.0)
 
 
-def check1(att: int, ber: int, rng: random.Random) -> float:
-    """Check 1 a livello-entità: deriva `acc_eff(att)`/`eva_eff(ber)` (da `stat_eff`, GR2-3) e
-    delega il contest a `esito_contest`. Con la geometria di default dell'MVP (nudo/taglia
+def check1(att: int, ber: int, rng: random.Random,
+           stile: StileAttacco = StileAttacco.FISICO) -> float:
+    """Check 1 a livello-entità: deriva l'accuratezza DELLO STILE del colpo
+    (`acc_eff_di(att, stile)`: FISICO mira con Destrezza, MAGICO con Intelligenza —
+    selettore-dato, mai un ramo) e `eva_eff(ber)` (da `stat_eff`, GR2-3), poi delega il
+    contest a `esito_contest`. Con la geometria di default dell'MVP (nudo/taglia
     media) `eva ≪ acc/F` → **auto-hit deterministico** per tutti; la forma stocastica si
     attiva solo quando un'entità porta dati d'evasione (seam gear, post-MVP)."""
-    return esito_contest(acc_eff(att), eva_eff(ber), rng)
+    return esito_contest(acc_eff_di(att, stile), eva_eff(ber), rng)
 
 
 def mult_resistenza(ber: int, tipo: TipoDanno) -> float:
@@ -510,8 +527,9 @@ def check2(m: float, att: int, ber: int, danno: Danno) -> int:
 
 def risolvi_danno(danno: Danno, att: int, ber: int, rng: random.Random) -> int:
     """Risolve un effetto `Danno`: check 1 (una pescata, o zero su auto-hit) poi check 2
-    (zero pescate). `danno.quantita_da == ATK_EFF` → magnitudine da `atk_eff(att)`."""
-    m = check1(att, ber, rng)
+    (zero pescate). `danno.quantita_da == ATK_EFF` → magnitudine da `atk_eff(att)`;
+    `danno.stile` sceglie l'accuratezza del check 1 (marziale vs magica)."""
+    m = check1(att, ber, rng, danno.stile)
     return check2(m, att, ber, danno)
 
 
@@ -566,6 +584,16 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         # Il decorso dello status resta di `SistemaStordito` (sempre-attivo, G-5).
         stordito = esper.try_component(attivo, Stordito)
         if stordito is not None and not stordito.innato:
+            if esper.has_component(attivo, Protagonista):
+                # Il turno è consumato: le scelte legate a QUEL turno muoiono
+                # con lui (caccia 2026-08-16). `richiedi_fuga`/`richiedi_mossa`
+                # promettono «il PROSSIMO turno», non «un turno futuro»: senza
+                # questo azzeramento la fuga chiesta da stordito DIROTTAVA il
+                # turno seguente — il giocatore sceglieva Attacca e il motore
+                # eseguiva la fuga di due turni prima, colpi d'opportunità
+                # (e MortePersonaggio) compresi, per un input mai riconfermato.
+                stato.fuga_richiesta = False
+                stato.mossa_richiesta = None
             self.bus.pubblica(TurnoSaltato(nome=_nome_pubblico(attivo), causa="stordito"))
             return
 
@@ -713,7 +741,9 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
                 # "pescare per default" resta un percorso inesistente.
                 if not azione.consenso_azzardo:
                     continue
-                inflitto = risolvi_effetto_azzardo(effetto, azione.sorgente, stato.rng)
+                inflitto, faccia = risolvi_effetto_azzardo_con_faccia(
+                    effetto, azione.sorgente, stato.rng
+                )
                 if inflitto:
                     # La pescata sostituisce la MAGNITUDINE, non il risolutore
                     # (Gr2 §5.2): verso il bersaglio il *se* colpisci resta del
@@ -726,7 +756,8 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
                         bersaglio = azione.bersaglio
                         if bersaglio is None:
                             continue
-                        m = check1(azione.sorgente, bersaglio, stato.rng)
+                        stile = getattr(effetto, "stile", None) or StileAttacco.FISICO
+                        m = check1(azione.sorgente, bersaglio, stato.rng, stile)
                         if m == 0:
                             continue                     # schivata: il colpo non connette
                         tipo = getattr(effetto, "tipo", None) or TipoDanno.GENERICO
@@ -743,17 +774,21 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
                         hp_rimasti=max(0, attuali),
                         hp_max=massimi,
                         mossa=azione.mossa,
+                        azzardo=faccia,  # la pescata si RACCONTA (mai muta)
                     ))
             elif isinstance(effetto, ApplicaStatus) and a_segno is not False:
                 # Primitivo del catalogo mosse: afflizione dal Blocco, rango copiato
                 # dal grado della sorgente (G §4.3); il decorso lo decide status.py.
                 cls = REGISTRY_BLOCCHI[effetto.blocco]
-                applica_status(azione.bersaglio, afflizione(cls, _rango_sorgente(azione.sorgente)))
-                self.bus.pubblica(StatusApplicato(
-                    bersaglio=_nome_pubblico(azione.bersaglio),
-                    status=cls.__name__.lower(),
-                    fonte=_nome_pubblico(azione.sorgente) or "il colpo",
-                ))
+                nuovo = applica_status(
+                    azione.bersaglio, afflizione(cls, _rango_sorgente(azione.sorgente))
+                )
+                if nuovo:  # il rinfresco non si annuncia: una sola riga per status
+                    self.bus.pubblica(StatusApplicato(
+                        bersaglio=_nome_pubblico(azione.bersaglio),
+                        status=cls.__name__.lower(),
+                        fonte=_nome_pubblico(azione.sorgente) or "il colpo",
+                    ))
 
     def _trasmetti_status(self, sorgente: int, bersaglio: int) -> None:
         # L'insieme dei tipi trasmissibili è DATO (status.PROFILO_STATUS), non una
@@ -764,12 +799,14 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
                 continue
             # La costruzione dell'afflizione vive in status.py (G-5/G-6): qui
             # solo il momento della trasmissione (il colpo che connette).
-            applica_status(bersaglio, afflizione_da(innato))
-            self.bus.pubblica(StatusApplicato(
-                bersaglio=_nome_pubblico(bersaglio),
-                status=tipo_status.__name__.lower(),
-                fonte=_nome_pubblico(sorgente) or "il colpo",
-            ))
+            if applica_status(bersaglio, afflizione_da(innato)):
+                # Solo lo status NUOVO parla: il colpo che rinfresca un veleno
+                # già addosso non ristampa «Sei avvelenato!».
+                self.bus.pubblica(StatusApplicato(
+                    bersaglio=_nome_pubblico(bersaglio),
+                    status=tipo_status.__name__.lower(),
+                    fonte=_nome_pubblico(sorgente) or "il colpo",
+                ))
 
     def _scegli_azione(self, attivo: int, stato: StatoCombattimento) -> Azione | None:
         """Sceglie una mossa dal `Repertorio` dell'entità (DATO nel componente; assente
@@ -926,7 +963,17 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
         # mob della stanza — se è ancora vivo (fuga, FNC §4) viene CONGEDATO, non
         # distrutto, e resta in scena col suo legame `EntitaMob.stanza`.
         for ent, nemico in list(esper.get_component(Nemico)):
-            if nemico.arruolato and _e_vivo(ent):
+            # Il FANTASMA (caccia 2026-08-16): il mob d'imboscata è arruolato ma
+            # non ha MAI avuto una stanza (`EntitaMob.stanza=None` — non passa da
+            # `registra_mob`). Congedarlo lo lasciava nel World come OSTILE
+            # irraggiungibile: nessun menu Combatti, ma `minacce_zona` lo contava
+            # PER SEMPRE — probabilità d'imboscata gonfiata e riposo più duro in
+            # tutta la zona, anche ripulita. Senza stanza a cui tornare, si dissolve con
+            # lo scontro (FNC §6.3); niente room-clear gratuito: non presidiava
+            # alcuna stanza (l'anti-exploit riguarda i mob DI stanza).
+            em = esper.try_component(ent, EntitaMob)
+            fantasma = em is not None and em.stanza is None
+            if nemico.arruolato and _e_vivo(ent) and not fantasma:
                 _congeda(ent)
             else:
                 esper.delete_entity(ent, immediate=True)

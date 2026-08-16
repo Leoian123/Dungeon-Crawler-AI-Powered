@@ -50,6 +50,7 @@ from .schema import (
     StatId,
     Blocco,
     TipoDanno,
+    StileAttacco,
     TipoAzione,
     ClasseProva,
     ClasseBeneficio,
@@ -88,6 +89,9 @@ from .schema import (
     IntenzioneScena,
     TonoScena,
     Ideazione,
+    BattutaScena,
+    BloccoScena,
+    EsitoScena,
     InquadramentoProva,
 )
 from .memoria import (
@@ -133,16 +137,19 @@ from .proiezione import (
     SLOT_IMPUGNATI,
 )
 from .vista import (
+    FattiScena,
     FattiScontro,
     GradoEsito,
     MessaggioGM,
     OpzioneVista,
+    ProsaFuoriBanda,
     ProvaVista,
     RiepilogoAzione,
     SnapshotVista,
     StimaAzione,
     TempoVista,
     Terminale,
+    TipoProsa,
 )
 from .provider import Provider, TCandidato
 
@@ -194,6 +201,7 @@ __all__ = [
     "StatId",
     "Blocco",
     "TipoDanno",
+    "StileAttacco",
     "TipoAzione",
     "ClasseProva",
     "ClasseBeneficio",
@@ -204,6 +212,9 @@ __all__ = [
     "IntenzioneScena",
     "TonoScena",
     "Ideazione",
+    "BattutaScena",
+    "BloccoScena",
+    "EsitoScena",
     "InquadramentoProva",
     # proiezione scheda (sola lettura) + scheda per la UI + hub
     "SchedaProiezione",
@@ -266,6 +277,8 @@ __all__ = [
     "TipoDocumento",
     "OpzioneVista",
     "SnapshotVista",
+    "ProsaFuoriBanda",
+    "TipoProsa",
     "Terminale",
     "MessaggioGM",
     "TempoVista",
@@ -273,6 +286,7 @@ __all__ = [
     "GradoEsito",
     "StimaAzione",
     "RiepilogoAzione",
+    "FattiScena",
     "FattiScontro",
     # provider
     "Provider",

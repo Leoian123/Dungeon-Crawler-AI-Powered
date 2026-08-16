@@ -29,7 +29,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from .proiezione import SlotEquip
 
@@ -102,7 +102,7 @@ class StatId(SchemaSnello, str, Enum):
     FORZA = "forza"
     DESTREZZA = "destrezza"
     COSTITUZIONE = "costituzione"
-    INTELLIGENZA = "intelligenza"  # accuratezza magica (Gruppo 2 §5.4); base di acc_eff con Des
+    INTELLIGENZA = "intelligenza"  # accuratezza magica (Gruppo 2 §5.4): base di acc_mag_eff
     DIFESA = "difesa"          # mitigazione piatta, base 0: canale-modificatori dell'armatura (§5.3)
     SAGGEZZA = "saggezza"      # valore-nascosto, solo-privilegiati (canone DCC)
     FORTUNA = "fortuna"        # esistenza-negata (canone DCC)
@@ -139,6 +139,21 @@ class TipoDanno(SchemaSnello, str, Enum):
     VELENO = "veleno"
 
 
+class StileAttacco(SchemaSnello, str, Enum):
+    """Lo STILE di un attacco: quale stat guida l'accuratezza del check 1.
+
+    Enum chiuso, stessa famiglia di `TipoDanno` (l'AI/asset lo **dichiara**, il
+    motore lo **mappa** a una derivata: `FISICO → acc_fis_eff` su Destrezza,
+    `MAGICO → acc_mag_eff` su Intelligenza — selettore-dato lato motore, mai un
+    ramo per-stile). Ortogonale a `TipoDanno`: lo stile dice COME miri, il tipo
+    dice quali resistenze incroci (un dardo arcano è MAGICO e FUOCO). Default
+    `FISICO` = il comportamento marziale storico.
+    """
+
+    FISICO = "fisico"
+    MAGICO = "magico"
+
+
 class TipoAzione(SchemaSnello, str, Enum):
     """Spazio d'azione chiuso → mappa su un'azione nota del motore (IC §2.3).
 
@@ -160,6 +175,11 @@ class TipoAzione(SchemaSnello, str, Enum):
     # spina. Di scena come SCENDI: compare SOLO quando è vero (stanza-passaggio
     # e boss di zona sconfitto) — l'AI può nominarlo, mai concederlo.
     ATTRAVERSA = "attraversa"
+    # `PASSA` (J §6, acceso 2026-08-12): la valvola del passa-turno — UN tick
+    # secco, gli status tickano, il dado tira. Di scena quando è vera
+    # (`puo_passare_turno`: narrazione ∧ nessuno unsafe — i DANNOSI non la
+    # bloccano: serve proprio a far scorrere il veleno al sicuro).
+    PASSA = "passa"
     ALTRO = "altro"
 
 
@@ -517,6 +537,67 @@ class InquadramentoProva(BaseModel):
     stat: StatId
 
 
+# --- Scene narrative (S1, 2026-08-11): i BLOCCHI che l'AI orchestra -------------
+#
+# La grammatica di Baldur's Gate ridotta all'osso: il dialogo scorre a blocchi,
+# l'AI decide QUALE blocco viene dopo, il motore decide i valori di verità
+# (il tiro dello snodo, la legalità della chiusura). Il flusso finale emerge
+# dal prodotto dei due: composizione × prove = scena organica, mai decisa da
+# nessuno dei due autori da solo. Stessa famiglia di mob (enum→numeri del
+# motore) e loot (componenti→assemblatore): qui i blocchi → i tiri.
+
+class BloccoScena(SchemaSnello, str, Enum):
+    """Il blocco che l'AI posiziona a ogni battito della scena. Enum chiuso."""
+
+    BATTUTA = "battuta"   # prosa in personaggio: il dialogo scorre
+    SNODO = "snodo"       # il momento-check: l'AI inquadra, il MOTORE tira
+    CHIUDI = "chiudi"     # proposta di chiusura (la legalità la decide il motore)
+
+
+class EsitoScena(SchemaSnello, str, Enum):
+    """Come una scena finisce. VINTA/PERSA esigono una posta; CONCLUSA è la
+    fine neutra (colloquio senza posta, o abbandono)."""
+
+    VINTA = "vinta"
+    PERSA = "persa"
+    CONCLUSA = "conclusa"
+
+
+class BattutaScena(BaseModel):
+    """UN battito della scena narrativa: blocco + prosa (+ i campi del blocco).
+
+    L'AI compone, il motore arbitra: su SNODO servono `classe`+`stat` (enum
+    chiusi: l'inquadramento — il TIRO resta del motore, a margine); su CHIUDI
+    serve `esito` (che il motore accetta solo se LEGALE: `vinta` esige uno
+    snodo superato — mai una vittoria a parole). I campi del blocco sbagliato
+    sono VIETATI: lo schema resta piccolo e inequivoco."""
+
+    model_config = _CHIUSO
+
+    blocco: BloccoScena
+    prosa: str = Field(min_length=1)
+    classe: ClasseProva | None = None   # solo SNODO
+    stat: StatId | None = None          # solo SNODO
+    esito: EsitoScena | None = None     # solo CHIUDI
+
+    @model_validator(mode="after")
+    def _campi_del_blocco(self) -> "BattutaScena":
+        if self.blocco is BloccoScena.SNODO:
+            if self.classe is None or self.stat is None:
+                raise ValueError("snodo: servono `classe` e `stat`")
+            if self.esito is not None:
+                raise ValueError("snodo: `esito` non è tuo (lo tira il motore)")
+        elif self.blocco is BloccoScena.CHIUDI:
+            if self.esito is None:
+                raise ValueError("chiudi: serve `esito`")
+            if self.classe is not None or self.stat is not None:
+                raise ValueError("chiudi: niente prova nella chiusura")
+        else:  # BATTUTA: solo prosa
+            if any(x is not None for x in (self.classe, self.stat, self.esito)):
+                raise ValueError("battuta: solo prosa — niente prove né esiti")
+        return self
+
+
 # --- Authoring AI della stagione (2026-08-10): schemi del «genera stagione» -----
 #
 # Chiamate di AUTHORING, non di gioco: l'AI genera il roster dei boss e le
@@ -603,6 +684,7 @@ class EffettoDati(BaseModel):
     blocco: Blocco | None = None              # applica_status
     potenza: FasciaPotenza | None = None      # danno (default: standard)
     rischio: FasciaRischio | None = None      # danno_variabile (default: contenuto)
+    stile: StileAttacco | None = None         # danno / danno_variabile (default: fisico)
 
 
 class MossaAutorata(BaseModel):

@@ -52,3 +52,21 @@ class Repertorio:
     Persistente: il repertorio del mob rivelato viaggia nel save."""
 
     mosse: tuple[str, ...]
+
+
+def nome_diegetico(entita: int) -> str:
+    """Nome per gli eventi di vista: il nome del mob rivelato, `""` per il
+    protagonista, «il nemico» per l'effimero senza identità.
+
+    La copia UNICA (registro §4.2-B, chiuso 2026-08-16): viveva identica in
+    `combattimento._nome_pubblico` e `status._nome_diegetico` — due copie che
+    sarebbero divise al primo ritocco (es. un titolo per l'Elité). Import pigro
+    di `Protagonista`: mob resta un modulo foglia."""
+    import esper
+
+    em = esper.try_component(entita, EntitaMob)
+    if em is not None:
+        return em.nome
+    from .scheda import Protagonista  # pigro: nessun ciclo mob↔scheda
+
+    return "" if esper.has_component(entita, Protagonista) else "il nemico"

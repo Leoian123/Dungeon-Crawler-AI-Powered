@@ -46,7 +46,7 @@ def test_vincolo_accoppiato_check1() -> None:
     # Ordinario: con la geometria di default l'evasione ordinaria resta ≪ acc/F → auto-hit.
     # `K_EVA` è la scala globale: senza di lei nemmeno una build dedicata arriverebbe alla
     # banda, quindi entra nel conto anche qui (§11).
-    acc_ord = (cal.W_FISICO * 10 + (1 - cal.W_FISICO) * 10) * cal.COEFF_ACC[cal.ARMA_DEFAULT]  # ≈13
+    acc_ord = 10 * cal.COEFF_ACC[cal.ARMA_DEFAULT]  # Des 10, stile fisico ≈13
     eva_ord = (
         10 * cal.K_EVA * cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
     )
@@ -74,12 +74,12 @@ def test_floor_gemello_nessuno_zero_garantito() -> None:
 # le derivate producevano `eva ≈ 0.1` contro una banda a `≈ 4.33`, quindi il check 1 era
 # in auto-hit per OGNI entità e la dodge-build era irraggiungibile *per scala*.
 #
-# Questi test montano entità reali e leggono `acc_eff`/`eva_eff` dal fold: sono la
+# Questi test montano entità reali e leggono `acc_fis_eff`/`eva_eff` dal fold: sono la
 # definizione operativa di `K_EVA`.
 
 def _acc_eva(attaccante: int, bersaglio: int) -> tuple[float, float]:
-    from motore import acc_eff, eva_eff
-    return acc_eff(attaccante), eva_eff(bersaglio)
+    from motore import acc_fis_eff, eva_eff
+    return acc_fis_eff(attaccante), eva_eff(bersaglio)
 
 
 def _in_banda(acc: float, eva: float) -> bool:

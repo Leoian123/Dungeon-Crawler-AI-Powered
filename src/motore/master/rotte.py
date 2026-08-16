@@ -16,6 +16,7 @@ from enum import Enum
 from pydantic import BaseModel
 
 from contracts import (
+    BattutaScena,
     FabbricaAsset,
     Flavor,
     Ideazione,
@@ -141,6 +142,13 @@ for _rotta in (
     # è flavor conversazionale; se la voce risulta piatta, il cambio a FORTE
     # è un dato in questa riga.
     Rotta("png.dialogo", Flavor, Corsia.VELOCE, retry=0,
+          fase=Fase.NARRAZIONE, gating=False),
+    # --- Scena narrativa (S1): il battito a BLOCCHI — l'AI compone (battuta/
+    # snodo/chiudi), il motore arbitra (tiro dello snodo, legalità della
+    # chiusura, anti-pesca). Corsia VELOCE (è conversazione), phase-gated a
+    # NARRAZIONE come il dialogo PNG; retry=1: lo schema è strict sui campi
+    # per-blocco e un tentativo di correzione vale la chiamata.
+    Rotta("scena.blocco", BattutaScena, Corsia.VELOCE, retry=1,
           fase=Fase.NARRAZIONE, gating=False),
     # --- Banco di prova nemici: strumento fuori-run (fase=None), gating=True
     # (il core passa da `valida_turno`). Corsia FORTE: è il confronto fra

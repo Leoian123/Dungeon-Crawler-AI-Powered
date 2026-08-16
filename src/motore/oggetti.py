@@ -22,6 +22,7 @@ from .calibrazione import (
     DANNO_ARMA_PER_GRADO,
     MITIGAZIONE_CENT,
     OGGETTO_MOD_FASCIA,
+    OGGETTO_MOLT_COSTITUZIONE,
     TETTO_AUTHORING,
 )
 from .catalogo import RANGO_GRADO
@@ -32,15 +33,21 @@ from .modificatori import Modificatore, TipoMod
 
 def _modificatori_vivi(o) -> tuple[Modificatore, ...]:
     """Le voci a FASCIA dell'asset → `Modificatore` vivi: valore = fascia ×
-    rango del grado (mai un numero nell'asset AI-facing)."""
+    rango del grado (mai un numero nell'asset AI-facing). La COSTITUZIONE ha
+    il suo moltiplicatore dedicato (`OGGETTO.MOLT_COSTITUZIONE`, taratura
+    2026-08-13): la progressione è l'equip, e il corredo deve portare HP oltre
+    che armor — le stat d'attacco restano sulla scala di sempre."""
     rango = RANGO_GRADO[Grado(o.grado)]
-    return tuple(
-        Modificatore(
-            stat=StatId(stat), tipo=TipoMod.FLAT,
-            valore=OGGETTO_MOD_FASCIA[fascia] * rango, fonte=o.slug,
-        )
-        for stat, fascia in _coppie_modificatori(o)
-    )
+    vivi = []
+    for stat, fascia in _coppie_modificatori(o):
+        stat_id = StatId(stat)
+        valore = OGGETTO_MOD_FASCIA[fascia] * rango
+        if stat_id is StatId.COSTITUZIONE:
+            valore *= int(OGGETTO_MOLT_COSTITUZIONE)
+        vivi.append(Modificatore(
+            stat=stat_id, tipo=TipoMod.FLAT, valore=valore, fonte=o.slug,
+        ))
+    return tuple(vivi)
 
 
 def _coppie_modificatori(o) -> tuple[tuple[str, str], ...]:

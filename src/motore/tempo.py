@@ -40,7 +40,7 @@ from .phased import SistemaSempreAttivo
 from .piano import TempoPiano, tempo_piano_corrente
 from .scheda import protagonista
 from .seme import master_seed
-from .turno import entita_attiva, segna_turno_attivo
+from .turno import azzera_turno_attivo, entita_attiva, segna_turno_attivo
 
 
 class TempoNonAvanzabile(Exception):
@@ -136,10 +136,14 @@ def _rng_dado(tick: int) -> random.Random:
 @dataclass(frozen=True)
 class RisultatoTick:
     """Esito di un tick di scorrimento. `morte`: la morte ha troncato il tick (niente
-    dado). `imboscata`: il dado ha innescato un cambio di fase a confine."""
+    dado). `imboscata`: il dado ha innescato un cambio di fase a confine.
+    `incontro`: l'entità-incontro composta dall'agguato (`None` senza imboscata) —
+    il chiamante che ha una prosa da mostrare può cucirci sopra il segnaposto
+    (round 3: prosa di stanza sopra la barra di un nemico diverso)."""
 
     morte: bool
     imboscata: bool
+    incontro: int | None = None
 
 
 def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> RisultatoTick:
@@ -157,6 +161,12 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
     #      il loro unico proprietario dentro `process()` (J-5).
     segna_turno_attivo(pent)
     esper.process()
+    # Il marcatore si AZZERA a fine tick (playtest 2026-08-12): lasciato appeso,
+    # ogni `process()` successivo — es. il tick che serve un movimento —
+    # riscontava tempo e status PER SBAGLIO, e solo se nel frattempo non c'era
+    # stato uno scontro (il teardown azzerava lui). L'economia del tempo è
+    # esplicita: paga chi chiama `spendi_tempo`/`passa_turno`, mai un residuo.
+    azzera_turno_attivo()
 
     # 3. La morte TRONCA il tick: niente dado, niente imboscata su un cadavere (§9, J-11).
     _pent, _marker, scheda = protagonista()
@@ -164,12 +174,15 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
         return RisultatoTick(morte=True, imboscata=False)
 
     # 4. Dado-evento (seeded a questo tick): token-zero salvo evento (§8). Il
-    #    contesto spaziale modula la probabilità (quiete/corridoio, T2); import
-    #    locale: il tempo non importa la mappa in testa.
-    from .mappa import fattore_imboscata_stanza
+    #    contesto modula la probabilità su due assi: la STANZA (quiete=0,
+    #    corridoio ×molt — T2) e le MINACCE del chunk (∝ nemici presenti:
+    #    ripulire la zona = guadagnarsi il riposo, playtest 2026-08-12).
+    #    Import locale: il tempo non importa la mappa in testa.
+    from .mappa import fattore_imboscata_stanza, fattore_minacce
 
     esito = tira_dado_evento(
-        _rng_dado(tempo_piano_corrente()), fattore_imboscata_stanza()
+        _rng_dado(tempo_piano_corrente()),
+        fattore_imboscata_stanza() * fattore_minacce(),
     )
 
     # 5. Effetto a confine di tick — solo su protagonista vivo (J-12). L'imboscata emette
@@ -178,7 +191,7 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
     if esito.imboscata and componi_imboscata is not None:
         enc = componi_imboscata()
         bus.pubblica(EncounterStarted(entita=enc, imboscata=True))
-        return RisultatoTick(morte=False, imboscata=True)
+        return RisultatoTick(morte=False, imboscata=True, incontro=enc)
     return RisultatoTick(morte=False, imboscata=False)
 
 
@@ -202,10 +215,12 @@ def passa_turno(bus, *, componi_imboscata: Callable[[], int] | None = None) -> R
 
 @dataclass(frozen=True)
 class RisultatoFastForward:
-    """Esito di un downtime: quanti tick eseguiti e da cosa è stato interrotto."""
+    """Esito di un downtime: quanti tick eseguiti e da cosa è stato interrotto.
+    `incontro`: l'entità-incontro dell'agguato che ha interrotto (`None` altrove)."""
 
     tick_eseguiti: int
     interrotto_da: str | None  # "morte" | "imboscata" | None (completato)
+    incontro: int | None = None
 
 
 def fast_forward(
@@ -229,5 +244,7 @@ def fast_forward(
         if ris.morte:
             return RisultatoFastForward(tick_eseguiti=eseguiti, interrotto_da="morte")
         if ris.imboscata:
-            return RisultatoFastForward(tick_eseguiti=eseguiti, interrotto_da="imboscata")
+            return RisultatoFastForward(
+                tick_eseguiti=eseguiti, interrotto_da="imboscata", incontro=ris.incontro
+            )
     return RisultatoFastForward(tick_eseguiti=eseguiti, interrotto_da=None)

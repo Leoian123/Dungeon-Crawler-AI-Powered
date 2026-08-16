@@ -158,6 +158,47 @@ def fattore_imboscata_stanza() -> float:
     return 1.0
 
 
+def minacce_zona() -> float:
+    """Le MINACCE del chunk corrente (design utente 2026-08-12): i mob ostili
+    VIVI materializzati (il despawn di zona garantisce che siano di QUESTA
+    zona) + le stanze non ancora rivelate e non-quiete, SCONTATE dalla foglia
+    `IMBOSCATA.peso_non_rivelate` (round 3: a peso pieno l'ingresso in zona
+    partiva sopra il riferimento e gli agguati arrivavano a catena — il nemico
+    potenziale pesa meno del nemico vero). Ripulire la zona = guadagnarsi il
+    riposo; rivelare la abbassa comunque."""
+    from contracts import RuoloMob
+
+    from .calibrazione import IMBOSCATA_PESO_NON_RIVELATE
+
+    m = mappa_corrente()
+    if m is None:
+        return 0.0
+    vivi = sum(
+        1 for _e, em in esper.get_component(EntitaMob)
+        if em.ruolo is RuoloMob.OSTILE
+    )
+    mappa = m[1]
+    non_rivelate = sum(
+        1 for s in mappa.piano.adiacenze
+        if s not in mappa.visitate and not stanza_quieta(tipo_di(mappa.piano, s))
+    )
+    return vivi + float(IMBOSCATA_PESO_NON_RIVELATE) * non_rivelate
+
+
+def fattore_minacce() -> float:
+    """«Più nemici ci sono, più è alta la probabilità di imboscata; meno nemici
+    ci sono, più è semplice riposare» (decisione utente 2026-08-12): il dado
+    scala con le minacce del chunk — a zona ripulita tace. La scala è la
+    foglia §11 `IMBOSCATA.minacce_riferimento`: a QUEL numero di minacce vale
+    la probabilità base, sotto decresce linearmente, sopra cresce."""
+    from .calibrazione import IMBOSCATA_MINACCE_RIFERIMENTO
+
+    if mappa_corrente() is None:
+        return 1.0  # harness/legacy senza mappa: il dado resta quello di sempre
+    riferimento = max(1.0, float(IMBOSCATA_MINACCE_RIFERIMENTO))
+    return minacce_zona() / riferimento
+
+
 def crea_mappa(rng: random.Random, n_stanze: int | None = None) -> int:
     """Crea il singleton `Mappa` nel World corrente (confine di run, come gli altri
     singleton). La partenza è la stanza iniziale, non ancora visitata: il primo turno
@@ -371,6 +412,44 @@ class OpzioneScena:
     zona: str | None = None
 
 
+# --- Degradi di composizione: la scena tollera un World parziale, ma non TACE ---
+#
+# Comporre il menu è una LETTURA e non deve mai esplodere: gli harness montano
+# World parziali (senza fase, senza protagonista, senza territorio) e i singleton
+# assenti sollevano. Ma un `except` muto qui è il posto peggiore dove metterlo —
+# è la funzione che decide COSA IL GIOCATORE PUÒ FARE, e un guasto vi si
+# manifesta come «l'opzione non c'era», indistinguibile dal comportamento
+# corretto. Quindi: si tollera, e si REGISTRA. Chiave = il punto di lettura, così
+# il registro resta limitato ai punti di composizione e non cresce con la run.
+_DEGRADI_SCENA: dict[str, tuple[str, int]] = {}
+
+
+def degradi_scena() -> dict[str, tuple[str, int]]:
+    """I degradi registrati componendo la scena: `punto -> (errore, conteggio)`.
+
+    Superficie di DIAGNOSI (test e host): su un World completo deve restare
+    vuota — è il lucchetto che trasforma «l'opzione è sparita» in un fatto
+    osservabile invece che in un silenzio."""
+    return dict(_DEGRADI_SCENA)
+
+
+def azzera_degradi_scena() -> None:
+    """Svuota il registro (i test lo azzerano nel setup)."""
+    _DEGRADI_SCENA.clear()
+
+
+def _lettura_tollerante(punto: str, fn, default):
+    """Esegue una lettura di composizione tollerando il World parziale, e
+    registrando il degrado. Mai usata per SCRIVERE: solo per comporre il menu."""
+    try:
+        return fn()
+    except Exception as exc:
+        errore = f"{type(exc).__name__}: {exc}"
+        _, conteggio = _DEGRADI_SCENA.get(punto, ("", 0))
+        _DEGRADI_SCENA[punto] = (errore, conteggio + 1)
+        return default
+
+
 def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     """Il menu di narrazione come **verità della scena** (mai cablato nel port):
 
@@ -382,8 +461,14 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     if m is None or not stanza_visitata():
         return ()
     if mob_corrente() is not None:
+        # Il menu DICE chi c'è (playtest round 2: rivisitare la stanza del mob
+        # congedato dava un «Combatti» cieco): il nome è verità del World.
+        nome = nome_mob_corrente()
         return (
-            OpzioneScena(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
+            OpzioneScena(
+                tipo=TipoAzione.COMBATTI,
+                etichetta=f"Combatti — {nome}" if nome else "Combatti",
+            ),
             OpzioneScena(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
         )
     opzioni: list[OpzioneScena] = []
@@ -401,10 +486,7 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         zone_laterali,
     )
 
-    try:
-        varco = attraversamento_consentito()
-    except Exception:
-        varco = False  # World parziale (harness): comporre è una lettura
+    varco = _lettura_tollerante("varco", attraversamento_consentito, False)
     if varco:
         from .piano import livello_corrente
 
@@ -415,45 +497,75 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         ))
     # DEVIAZIONI (Fase 6): dalla PARTENZA della zona, le sorelle laterali (zone
     # lazy: nascono dal loro seed alla prima entrata) o il RITORNO sulla spina.
-    try:
+    def _deviazioni() -> list[OpzioneScena]:
         from .piano import livello_corrente
+        from .territorio import insegna_laterale
 
+        fuori: list[OpzioneScena] = []
         zona = zona_corrente()
         alla_partenza = (
             zona is not None and m[1].stanza_corrente == m[1].piano.partenza
         )
-        if alla_partenza:
-            livello = livello_corrente()
-            if e_di_spina(zona, livello):
-                for laterale in zone_laterali(livello):
-                    opzioni.append(OpzioneScena(
-                        tipo=TipoAzione.ATTRAVERSA,
-                        etichetta=f"Deviazione: {laterale.tier.value} vicino "
-                                  f"({laterale.percorso[-1]})",
-                        zona=laterale.chiave,
-                    ))
-            else:
-                rientro = zona_di_spina_del_tier(zona.tier, livello)
-                if rientro is not None:
-                    opzioni.append(OpzioneScena(
-                        tipo=TipoAzione.ATTRAVERSA,
-                        etichetta="Torna sulla via principale",
-                        zona=rientro.chiave,
-                    ))
-    except Exception:
-        pass  # World parziale: la scena resta componibile
+        if not alla_partenza:
+            return fuori
+        livello = livello_corrente()
+        if e_di_spina(zona, livello):
+            for laterale in zone_laterali(livello):
+                # L'etichetta è DIEGETICA: prima portava l'indice interno
+                # (`percorso[-1]`) fra parentesi — «Deviazione: quartiere vicino
+                # (0)» — cioè un numero di struttura dati stampato al giocatore.
+                # L'insegna disambigua le sorelle restando dentro la finzione.
+                fuori.append(OpzioneScena(
+                    tipo=TipoAzione.ATTRAVERSA,
+                    etichetta=f"Deviazione: {insegna_laterale(laterale)}",
+                    zona=laterale.chiave,
+                ))
+        else:
+            rientro = zona_di_spina_del_tier(zona.tier, livello)
+            if rientro is not None:
+                fuori.append(OpzioneScena(
+                    tipo=TipoAzione.ATTRAVERSA,
+                    etichetta="Torna sulla via principale",
+                    zona=rientro.chiave,
+                ))
+        return fuori
+
+    opzioni.extend(_lettura_tollerante("deviazioni", _deviazioni, []))
     # RIPOSA compare solo quando è VERA (stanza sicura + downtime lecito, J §5):
     # come SCENDI/MUOVI, la compone il motore dalla scena, mai l'AI dal testo.
     from .tempo import puo_downtime  # locale: nessun ciclo mappa↔tempo
 
-    try:
-        downtime = puo_downtime()
-    except Exception:
-        # World parziale (harness senza fase/protagonista): comporre la scena è
-        # una LETTURA e non deve esplodere — semplicemente niente riposo.
-        downtime = False
+    downtime = _lettura_tollerante("downtime", puo_downtime, False)
+    if downtime:
+        # A risorse PIENE «Riposa» era un «niente» selezionabile (round 3): la
+        # voce si compone solo se c'è qualcosa da recuperare — HP o mana sotto
+        # il massimo derivato. Stessa dottrina di RIPOSA: un'opzione compare
+        # quando è VERA.
+        def _c_e_da_recuperare() -> bool:
+            from .derivate import max_hp, max_mana
+            from .scheda import Mana, protagonista as _protagonista
+
+            pent, _marker, scheda = _protagonista()
+            mana = esper.try_component(pent, Mana)
+            return (
+                scheda.punti_vita < max_hp(pent)
+                or (mana is not None and mana.attuale < max_mana(pent))
+            )
+
+        # Default `True`: se la lettura degrada resta il comportamento storico
+        # (la voce c'è) — un degrado non deve TOGLIERE al giocatore un'opzione
+        # che il gate precedente ha già dichiarato lecita.
+        downtime = _lettura_tollerante("recupero", _c_e_da_recuperare, True)
     if downtime:
         opzioni.append(OpzioneScena(tipo=TipoAzione.RIPOSA, etichetta="Riposa"))
+    # ASPETTA (la valvola di J §6, playtest 2026-08-12): un tick secco per far
+    # scorrere gli status. Composta quando è VERA — e coi DANNOSI addosso è
+    # l'unica voce di downtime (il veleno blocca Riposa, non Aspetta).
+    from .tempo import puo_passare_turno
+
+    aspetta = _lettura_tollerante("passa_turno", puo_passare_turno, False)
+    if aspetta:
+        opzioni.append(OpzioneScena(tipo=TipoAzione.PASSA, etichetta="Aspetta"))
     for stanza in uscite():
         opzioni.append(
             OpzioneScena(tipo=TipoAzione.MUOVI, etichetta=f"Vai: stanza {stanza}", stanza=stanza)

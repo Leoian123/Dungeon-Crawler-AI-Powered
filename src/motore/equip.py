@@ -255,6 +255,17 @@ def _tocca_costituzione(oggetto) -> bool:
     return any(m.stat is StatId.COSTITUZIONE for m in oggetto.modificatori)
 
 
+def _tocca_massimi(oggetto) -> bool:
+    """Il pezzo muove un MASSIMO derivato: Costituzione (`max_hp`) o
+    Intelligenza (`max_mana`). È il gate dei clamp di indossa/togli — con la
+    sola Costituzione, togliere un `+INTELLIGENZA` lasciava il mana corrente
+    sopra il massimo (mana fantasma, caccia 2026-08-16)."""
+    return any(
+        m.stat in (StatId.COSTITUZIONE, StatId.INTELLIGENZA)
+        for m in oggetto.modificatori
+    )
+
+
 def mitigazione_di(pezzo: PezzoArmatura) -> int:
     """La mitigazione in centesimi del pezzo: esplicita se dichiarata, altrimenti
     **derivata dalla categoria** (§11). Unico punto di verità — chi legge la difesa di
@@ -350,8 +361,9 @@ def re_equipaggia(entita: int) -> None:
         *comp.accessori,
     ):
         _immetti(entita, oggetto)
-    from .derivate import clampa_hp
+    from .derivate import clampa_hp, clampa_mana
     clampa_hp(entita)
+    clampa_mana(entita)
 
 
 def equipaggia(entita: int, oggetto) -> bool:
@@ -387,9 +399,10 @@ def equipaggia(entita: int, oggetto) -> bool:
     # Un pezzo che dà `+COSTITUZIONE` alza il MASSIMO, non cura il corrente (D2): il
     # clamp serve al caso simmetrico, ma va chiamato comunque — un `−COSTITUZIONE`
     # indossato abbassa il tetto e il corrente deve seguirlo, mai restare sopra.
-    if _tocca_costituzione(oggetto):
-        from .derivate import clampa_hp
+    if _tocca_massimi(oggetto):
+        from .derivate import clampa_hp, clampa_mana
         clampa_hp(entita)
+        clampa_mana(entita)
     return True
 
 
@@ -419,9 +432,10 @@ def togli(entita: int, fonte: str) -> bool:
     # Togliere un `+COSTITUZIONE` ABBASSA il massimo: il corrente va clampato verso il
     # basso (D2). È la perdita di HP che rende il cambio d'armatura una scelta, non un
     # ottimizzatore da riequipaggiare a ogni scontro.
-    if _tocca_costituzione(oggetto):
-        from .derivate import clampa_hp
+    if _tocca_massimi(oggetto):
+        from .derivate import clampa_hp, clampa_mana
         clampa_hp(entita)
+        clampa_mana(entita)
     return True
 
 

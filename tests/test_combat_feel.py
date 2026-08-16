@@ -59,7 +59,7 @@ def _mob_argento(blocchi: list[Blocco]) -> MobAsset:
 
 def _apri_scontro(sessione):
     snap = asyncio.run(sessione.prossima_narrazione())
-    indice = next(o.indice for o in snap.opzioni if o.etichetta == "Combatti")
+    indice = next(o.indice for o in snap.opzioni if o.etichetta.startswith("Combatti"))
     sessione.coda.accoda(PlayerChoseOption(indice))
     return sessione.avanza()
 
@@ -206,7 +206,8 @@ def test_la_fuga_non_distrugge_il_mob_della_stanza(run_pulita, tmp_path) -> None
     assert mob_corrente() == ent, "il mob ha perso il legame con la sua stanza"
     assert nome_mob_corrente() == "Spugna Argentata"
     # Il nemico è ancora lì: la stanza resta bloccata, non liberata.
-    assert [o.etichetta for o in componi_opzioni_scena()] == ["Combatti", "Scappi"]
+    etichette_scena = [o.etichetta for o in componi_opzioni_scena()]
+    assert etichette_scena[0].startswith("Combatti") and etichette_scena[1] == "Scappi"
     # Congedato però non è più un combattente ingaggiato (nessuna effimera residua).
     assert not esper.has_component(ent, Nemico)
     assert not esper.has_component(ent, Combattente)
@@ -230,7 +231,7 @@ def test_le_ferite_del_mob_sopravvivono_alla_fuga(run_pulita, tmp_path) -> None:
 
     assert esper.component_for_entity(ent, PuntiVita).attuali == ferita
     # E al RI-ingaggio il pool non torna pieno.
-    indice = next(o.indice for o in snap.opzioni if o.etichetta == "Combatti")
+    indice = next(o.indice for o in snap.opzioni if o.etichetta.startswith("Combatti"))
     sessione.coda.accoda(PlayerChoseOption(indice))
     sessione.avanza()
     assert esper.component_for_entity(ent, PuntiVita).attuali == ferita
@@ -258,7 +259,7 @@ def test_la_vittoria_toglie_comunque_il_mob_dalla_stanza(run_pulita, tmp_path) -
     assert snap.fase == "narrazione"
     assert not esper.entity_exists(ent), "il mob sconfitto deve sparire dalla scena"
     assert mob_corrente() is None
-    assert "Combatti" not in [o.etichetta for o in componi_opzioni_scena()]
+    assert not any(o.etichetta.startswith("Combatti") for o in componi_opzioni_scena())
 
 
 def test_crollo_registrato_in_produzione(run_pulita, tmp_path) -> None:

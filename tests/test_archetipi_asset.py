@@ -180,7 +180,7 @@ def test_run_completa_con_archetipo_inventato(run_pulita, tmp_path) -> None:
     try:
         snap = asyncio.run(sessione.prossima_narrazione())
         assert "fruscio" in snap.prosa  # il copione offline del mob-asset
-        indice = next(o.indice for o in snap.opzioni if o.etichetta == "Combatti")
+        indice = next(o.indice for o in snap.opzioni if o.etichetta.startswith("Combatti"))
         sessione.coda.accoda(PlayerChoseOption(indice))
         snap = sessione.avanza()
         guardia = 0

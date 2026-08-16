@@ -60,8 +60,6 @@ from .calibrazione import (
     MITIGAZIONE_CENT,
     M_TAGLIA,
     COEFF_ACC,
-    W_FISICO,
-    W_MAGIA,
     HP_BASE,
     K_HP,
     R_SOGLIA_CROLLO,
@@ -133,7 +131,10 @@ from .derivate import (
     atk_eff,
     def_eff,
     eva_eff,
-    acc_eff,
+    acc_eff_di,
+    acc_fis_eff,
+    acc_mag_eff,
+    STAT_ACC_DI_STILE,
     cost_eff_come_centesimi,
     clampa_hp,
 )
@@ -235,6 +236,8 @@ from .prove import (
     prova_riuscita,
 )
 from .mappa import (
+    azzera_degradi_scena,
+    degradi_scena,
     Mappa,
     OpzioneScena,
     SistemaMovimento,
@@ -254,6 +257,8 @@ from .mappa import (
     nome_mob_corrente,
     png_in_stanza_corrente,
     fattore_imboscata_stanza,
+    fattore_minacce,
+    minacce_zona,
     registra_mob,
     rimuovi_mob,
     scala_presente,
@@ -319,6 +324,7 @@ from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_r
 from .catalogo import GRADO_DA_TIER, grado_da_tier, gradi_del_tier
 from .incontri import componi_imboscata_scena, entita_mob_incontro, nome_nemico_incontro
 from .png import dialoga, materializza_png
+from .scena import IstanzaScena, battuta_scena, fatti_scena
 from .territorio import (
     ORDINE_SPINA,
     SistemaAttraversamento,
@@ -329,6 +335,7 @@ from .territorio import (
     avvia_territorio,
     boss_della_zona,
     boss_procedurale,
+    insegna_laterale,
     boss_sconfitto,
     collega_boss,
     deviazione_consentita,
@@ -483,8 +490,6 @@ __all__ = [
     "MITIGAZIONE_CENT",
     "M_TAGLIA",
     "COEFF_ACC",
-    "W_FISICO",
-    "W_MAGIA",
     "HP_BASE",
     "K_HP",
     "R_SOGLIA_CROLLO",
@@ -540,7 +545,10 @@ __all__ = [
     "def_eff",
     "eva_eff",
     "m_armatura_di",
-    "acc_eff",
+    "acc_eff_di",
+    "acc_fis_eff",
+    "acc_mag_eff",
+    "STAT_ACC_DI_STILE",
     "cost_eff_come_centesimi",
     "clampa_hp",
     # azione (Gruppo 2 §7): atomo spezzato, interno al motore (mai DTO)
@@ -678,6 +686,9 @@ __all__ = [
     "gradi_del_tier",
     "finestra_gradi_loot",
     "rimaterializza_custode",
+    "IstanzaScena",
+    "battuta_scena",
+    "fatti_scena",
     "ORDINE_SPINA",
     "SistemaAttraversamento",
     "StatoTerritorio",
@@ -687,6 +698,7 @@ __all__ = [
     "avvia_territorio",
     "boss_della_zona",
     "boss_procedurale",
+    "insegna_laterale",
     "boss_sconfitto",
     "collega_boss",
     "deviazione_consentita",
@@ -724,6 +736,8 @@ __all__ = [
     # mappa (autorità spaziale: scena, movimento, persistenza slot esplorazione)
     "Mappa",
     "OpzioneScena",
+    "degradi_scena",
+    "azzera_degradi_scena",
     "SistemaMovimento",
     "componi_opzioni_scena",
     "crea_mappa",
@@ -741,6 +755,8 @@ __all__ = [
     "nome_mob_corrente",
     "registra_mob",
     "fattore_imboscata_stanza",
+    "fattore_minacce",
+    "minacce_zona",
     "riposa",
     "rimuovi_mob",
     "scala_presente",

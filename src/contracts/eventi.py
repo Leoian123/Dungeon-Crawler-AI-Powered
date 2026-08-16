@@ -66,6 +66,10 @@ class ColpoInferto(EventoDominio):
     hp_rimasti: int
     hp_max: int
     mossa: str = "attacco"
+    # La FACCIA d'azzardo pescata ("" = colpo ordinario): l'etichetta diegetica
+    # dell'esito («Jackpot del Sistema», «La casa vince») — la cronaca la dice,
+    # la roulette deve SEMBRARE una roulette (playtest 2026-08-12).
+    azzardo: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,11 +122,16 @@ class CrolloDungeon(EventoDominio):
 
 @dataclass(frozen=True)
 class DisimpegnoScena(EventoDominio):
-    """Disimpegno riuscito in fase di NARRAZIONE (FNC §4): l'incontro si
-    dissolve e la scena si riapre. Il disimpegno fallito non ha un evento
-    proprio: sfocia in `EncounterStarted`. Prima il mob spariva in silenzio."""
+    """Disimpegno riuscito in fase di NARRAZIONE (FNC §4): RITIRATA universale
+    (2026-08-12) — tu arretri nella stanza adiacente, il nemico resta alla sua.
+    Il disimpegno fallito non ha un evento proprio: sfocia in `EncounterStarted`.
+
+    `ritirata_in` = la stanza in cui arretri (-1 = ignota, retro-compat): la
+    cronaca DEVE dire dove sei finito — prima la ritirata era muta e te ne
+    accorgevi dal numero di stanza (riscontro playtest)."""
 
     nemico: str = ""
+    ritirata_in: int = -1
 
 
 @dataclass(frozen=True)

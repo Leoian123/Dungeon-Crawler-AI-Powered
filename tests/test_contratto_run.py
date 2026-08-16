@@ -293,7 +293,7 @@ def test_il_disimpegno_di_scena_ha_una_riga(run_pulita, tmp_path) -> None:
         sessione.coda.accoda(PlayerChoseOption(etichette["Scappi"]))
         sessione.avanza()
         righe = cronaca.preleva()
-        assert any("disimpegni" in r for r in righe), (
+        assert any("disimpegni" in r or "Ti ritiri" in r for r in righe), (
             f"nessuna riga per il disimpegno riuscito: {righe}"
         )
         # …e il disimpegno PAGA la sua durata (il docstring lo dichiarava, il

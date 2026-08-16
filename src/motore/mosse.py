@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from contracts import Blocco, TipoDanno
+from contracts import Blocco, StileAttacco, TipoDanno
 
 from .azione import ApplicaStatus, Azione, Danno, Effetto, QuantitaDa
 from .azzardo import DannoVariabile
@@ -81,15 +81,17 @@ CATALOGO_MOSSE: dict[str, Mossa] = {
         # NON sta in `MOSSE_DEFAULT` né nel repertorio iniziale del protagonista: la
         # porta chi se la procura, ed è un test statico a impedire che ci finisca.
         Mossa("roulette_del_sistema", (
-            DannoVariabile(minimo=1, massimo=20, tipo=TipoDanno.GENERICO),
+            DannoVariabile(minimo=1, massimo=20, tipo=TipoDanno.GENERICO,
+                           stile=StileAttacco.MAGICO),  # «magia dall'esito incerto» (Gr2 §5.2)
         ), etichetta="Roulette del Sistema", costo_mana=COSTO_MANA_MOSSA["roulette_del_sistema"],
             azzardo=True),
         # L'INCANTESIMO del protagonista: nessuna ricarica, il limite è la risorsa.
         # Danno FUOCO e non un tipo nuovo — `TipoDanno` è un vocabolario chiuso e
-        # il fuoco incrocia le resistenze già calibrate degli archetipi.
+        # il fuoco incrocia le resistenze già calibrate degli archetipi. Stile MAGICO:
+        # mira con Intelligenza (acc_mag_eff), non con Destrezza.
         Mossa("dardo_arcano", (
             Danno(quantita_da=QuantitaDa.ATK_EFF, tipo=TipoDanno.FUOCO,
-                  moltiplicatore=MOLT_DARDO_ARCANO),
+                  moltiplicatore=MOLT_DARDO_ARCANO, stile=StileAttacco.MAGICO),
         ), etichetta="Dardo arcano", costo_mana=COSTO_MANA_MOSSA["dardo_arcano"]),
     )
 }
@@ -119,14 +121,15 @@ def mossa_da_dati(dati) -> Mossa:
     effetti: list[Effetto] = []
     for e in dati.effetti:
         tipo = _TipoDanno(_fascia(e.tipo_danno)) if e.tipo_danno else _TipoDanno.GENERICO
+        stile = StileAttacco(_fascia(e.stile)) if e.stile else StileAttacco.FISICO
         if e.primitivo == "danno":
             effetti.append(Danno(
-                quantita_da=QuantitaDa.ATK_EFF, tipo=tipo,
+                quantita_da=QuantitaDa.ATK_EFF, tipo=tipo, stile=stile,
                 moltiplicatore=FASCIA_POTENZA_MOSSA[_fascia(e.potenza) or "standard"],
             ))
         elif e.primitivo == "danno_variabile":
             minimo, massimo = FASCIA_RISCHIO_MOSSA[_fascia(e.rischio) or "contenuto"]
-            effetti.append(DannoVariabile(minimo=minimo, massimo=massimo, tipo=tipo))
+            effetti.append(DannoVariabile(minimo=minimo, massimo=massimo, tipo=tipo, stile=stile))
         elif e.primitivo == "applica_status":
             effetti.append(ApplicaStatus(blocco=_Blocco(_fascia(e.blocco))))
     chiave = getattr(dati, "chiave", None) or dati.slug

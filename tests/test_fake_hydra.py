@@ -85,7 +85,7 @@ def test_giro_completo_recluta_un_mob_diverso_per_stanza(run_pulita) -> None:
         if stanza == 0:
             # Lo scontro arruola l'entità DELLA STANZA col suo profilo.
             etichette = {o.etichetta: o.indice for o in snap.opzioni}
-            sessione.coda.accoda(PlayerChoseOption(etichette["Combatti"]))
+            sessione.coda.accoda(PlayerChoseOption(next(v for k, v in etichette.items() if k.startswith("Combatti"))))
             snap = sessione.avanza()
             assert snap.fase == "combattimento"
             assert esper.has_component(mob, Combattente)  # arruolato, non fallback

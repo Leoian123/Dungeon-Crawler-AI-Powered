@@ -40,13 +40,18 @@ def _rng_imboscata(tick: int) -> random.Random:
     return random.Random(f"{master_seed()}:imboscata:{tick}")
 
 
-def componi_imboscata_scena() -> int:
+def componi_imboscata_scena(escludi_nome: str = "") -> int:
     """Compone l'incontro dell'imboscata e ritorna l'entità-incontro.
 
     Con un design attivo pesca dal CAST del piano (il mob arriva con override e
     mosse propri, via `riferimento`); senza design ripiega sull'archetipo di
     default del budget al grado minimo ammesso. Nessuna chiamata, nessun gate:
-    è il motore che compone contenuto già suo."""
+    è il motore che compone contenuto già suo.
+
+    `escludi_nome` (playtest 2026-08-12, anti déjà-vu): il nemico APPENA ucciso
+    non riappare nell'imboscata immediatamente successiva — UNA ri-pescata
+    seeded (se anche la seconda lo ripesca, resta lui: tabella piccola, è il
+    dungeon a essere monotono, non il dado)."""
     tick = tempo_piano_corrente()
     livello = livello_corrente()
     rng = _rng_imboscata(tick)
@@ -57,6 +62,10 @@ def componi_imboscata_scena() -> int:
     from .territorio import pesca_spawn
 
     dalla_tabella = pesca_spawn(rng)
+    if (dalla_tabella is not None and escludi_nome
+            and dalla_tabella.nome == escludi_nome):
+        ripescato = pesca_spawn(rng)  # una sola ri-pescata, stesso stream
+        dalla_tabella = ripescato or dalla_tabella
     if dalla_tabella is not None:
         mob = dalla_tabella
         eg = EntitaGenerata(

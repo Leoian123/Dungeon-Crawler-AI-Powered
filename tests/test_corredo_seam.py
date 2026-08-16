@@ -11,7 +11,7 @@ import pytest
 from contracts import StatId
 from motore import calibrazione as cal
 from motore.corredo import Corredo
-from motore.derivate import acc_eff, eva_eff
+from motore.derivate import acc_fis_eff, eva_eff
 from motore.statistiche import Primarie
 
 
@@ -25,9 +25,7 @@ def test_senza_corredo_usa_i_default_globali(mondo_isolato) -> None:
         cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
     )
     assert eva_eff(ent) == pytest.approx(atteso_eva)
-    assert acc_eff(ent) == pytest.approx(
-        (cal.W_FISICO * 10 + (1 - cal.W_FISICO) * 4) * cal.COEFF_ACC[cal.ARMA_DEFAULT]
-    )
+    assert acc_fis_eff(ent) == pytest.approx(10 * cal.COEFF_ACC[cal.ARMA_DEFAULT])
 
 
 def test_con_corredo_usa_i_suoi_slot(mondo_isolato) -> None:
@@ -35,9 +33,7 @@ def test_con_corredo_usa_i_suoi_slot(mondo_isolato) -> None:
     assert eva_eff(ent) == pytest.approx(
         10 * cal.K_EVA * (cal.M_ARMATURA["pesante"] * cal.M_TAGLIA["piccola"])
     )
-    assert acc_eff(ent) == pytest.approx(
-        (cal.W_FISICO * 10 + (1 - cal.W_FISICO) * 4) * cal.COEFF_ACC["piu_piccola"]
-    )
+    assert acc_fis_eff(ent) == pytest.approx(10 * cal.COEFF_ACC["piu_piccola"])
 
 
 def test_corredo_cambia_l_evasione(mondo_isolato) -> None:

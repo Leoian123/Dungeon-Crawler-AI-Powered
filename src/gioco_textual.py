@@ -66,7 +66,8 @@ def _costruisci_app(sessione):
             self._msg_visto = None     # ultimo MessaggioGM già considerato (dedup avvisi)
             self._avvisi_fallback = 0  # quanti turni degradati sono stati segnalati
             self._terminale_annunciato = False  # la riga di chiusura si scrive UNA volta
-            self._epitaffio_scritto = False     # l'epitaffio si chiede UNA volta
+            # (l'epitaffio non ha più un flag di host: la sua unicità è del motore,
+            #  che dichiara il battito una volta sola — vedi `_segna_prosa`.)
             self._menu_zaino = False   # il menu mostra l'inventario invece della scena
 
         def compose(self) -> ComposeResult:
@@ -87,6 +88,9 @@ def _costruisci_app(sessione):
             self.sessione.on_avanzamento = self._su_avanzamento
             snap = await self._con_attesa(self.sessione.prossima_narrazione())
             await self._mostra(snap, [])
+            # Anche il PRIMO turno può aprire uno scontro (imboscata del dado-evento):
+            # il trailer è dovuto già qui, non solo dopo una scelta del giocatore.
+            await self._drena_prosa()
 
         # --- Barra di attesa graduale (riferimenti durante la latenza del GM) ---
 
@@ -138,6 +142,24 @@ def _costruisci_app(sessione):
 
             self._log().write(f"[italic]{escape(testo)}[/]")
 
+        async def _drena_prosa(self) -> None:
+            """Svuota la coda dei battiti fuori-banda del motore (`prossima_prosa`).
+
+            L'host non decide più QUANDO un trailer, una vestizione o un epitaffio
+            siano dovuti — lo dichiara il motore. Qui resta solo il REGISTRO
+            tipografico: la vestizione del premio porta il suo ✦, il resto è
+            corsivo. Mai bloccante: la cronaca deterministica è già a video."""
+            from contracts import TipoProsa
+
+            while True:
+                prosa = await self.sessione.prossima_prosa()
+                if prosa is None:
+                    return
+                if prosa.tipo is TipoProsa.PREMIO:
+                    self._chat_flavor(f"✦ {prosa.testo}")
+                else:
+                    self._chat_flavor(prosa.testo)
+
         async def on_button_pressed(self, event: Button.Pressed) -> None:
             if self._occupato:
                 return  # il GM sta lavorando: l'input riprende a barra spenta
@@ -167,24 +189,7 @@ def _costruisci_app(sessione):
                 # mancava: nemico sconfitto, fuga o vittoria raccontati).
                 snap = await self._con_attesa(self.sessione.prossima_narrazione())
             await self._mostra(snap, righe)
-            if snap.fase == "combattimento" and fase_prima != "combattimento":
-                # APERTURA cinematografica IN CODA al feedback deterministico: la
-                # riga «Lo scontro ha inizio.» è già nel log e lo scontro è già
-                # giocabile — questa prosa arriva quando arriva (mai bloccante).
-                testo = await self.sessione.prosa_apertura_scontro()
-                if testo:
-                    self._chat_flavor(testo)
-            if fase_prima == "combattimento" and snap.fase == "narrazione" and not self._morto:
-                # VESTIZIONE del premio (Sit.3): il drop è già in zaino e in
-                # cronaca; il battesimo del cimelio arriva quando arriva.
-                testo = await self.sessione.veste_premio()
-                if testo:
-                    self._chat_flavor(f"✦ {testo}")
-            if self._morto and not self._epitaffio_scritto:
-                self._epitaffio_scritto = True
-                testo = await self.sessione.epitaffio()
-                if testo:
-                    self._chat_flavor(testo)
+            await self._drena_prosa()
 
         # --- Zaino ed equip: la demo del canale loot→zaino→indosso (porte vere) ---
 
@@ -297,6 +302,9 @@ def _costruisci_app(sessione):
             riepilogo = self.sessione.riepiloga_azione(testo)
             snap = await self._con_attesa(self.sessione.esegui_azione(riepilogo))
             await self._mostra(snap, self.cronaca.preleva())
+            # L'azione libera spende tempo: può far scattare l'imboscata (e quindi
+            # dovere un trailer) esattamente come una scelta di menu.
+            await self._drena_prosa()
 
         async def _mostra(self, snap, righe) -> None:
             self.fase_corrente = snap.fase
@@ -371,7 +379,20 @@ def _costruisci_app(sessione):
                 await menu.mount(*bottoni)
 
         def action_salva(self) -> None:
-            self.query_one("#log", RichLog).write(f"[green]{self.sessione.salva()}[/]")
+            # Il motore possiede il fatto (l'eccezione tipizzata col messaggio
+            # per il giocatore); l'host lo RENDE invece di morirci sopra —
+            # prima, S a scontro aperto (o sul death screen, dove la fase resta
+            # combattimento per disegno G-11) faceva panic dell'app Textual:
+            # sessione persa per un tasto (caccia 2026-08-16).
+            from main import RunConclusa, SalvataggioInCombattimento
+
+            rl = self.query_one("#log", RichLog)
+            try:
+                esito = self.sessione.salva()
+            except (RunConclusa, SalvataggioInCombattimento) as e:
+                rl.write(f"[yellow italic]✋ {e}[/]")
+                return
+            rl.write(f"[green]{esito}[/]")
 
         def on_unmount(self) -> None:
             if self.cronaca is not None:
@@ -445,6 +466,15 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
     consumo = getattr(provider, "consumo", None)
     if consumo is not None:
         print(f"[gioca] {consumo.riassunto()}")
+    # Il tally PER ROTTA (registro C, chiuso): il totale dice quanto si è speso,
+    # queste righe dicono DOVE — e quali rotte degradano (trasporto a parte).
+    try:
+        rotte = sessione.tally_rotte()
+    except Exception:
+        rotte = {}
+    for nome, (chiamate, degradi) in sorted(rotte.items()):
+        deg = f", {degradi} degradi" if degradi else ""
+        print(f"[gioca]   {nome}: {chiamate} chiamate{deg}")
     return 0
 
 

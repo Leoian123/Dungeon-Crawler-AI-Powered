@@ -487,7 +487,18 @@ def materializza_turno(risultato: RisultatoTurno, bus=None) -> int:
     """
     ent = istanzia_entita(risultato.turno.entita, risultato.budget.livello)
     if bus is not None and risultato.anomala:
-        bus.pubblica(AnomalyTriggered(entita=ent))
+        # L'anomalia si annuncia SOLO se si è MANIFESTATA (playtest 2026-08-12):
+        # il budget gonfiato è una possibilità, non un fatto — col copione
+        # offline (mob fisso dalla tabella) o un modello che non la coglie,
+        # «Il dungeon ride…» prometteva un evento che non arrivava mai. Il
+        # criterio è del mondo, non del provider: il grado dell'entità DEVE
+        # essere fuori dalla finestra del contesto (tier di zona / profondità).
+        from .territorio import finestra_gradi_loot
+
+        if risultato.turno.entita.grado not in finestra_gradi_loot(
+            risultato.budget.livello
+        ):
+            bus.pubblica(AnomalyTriggered(entita=ent))
     return ent
 
 

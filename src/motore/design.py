@@ -111,6 +111,7 @@ class EffettoAttivo:
     blocco: str | None = None
     potenza: str | None = None
     rischio: str | None = None
+    stile: str | None = None
 
 
 @dataclass(frozen=True)

@@ -241,7 +241,8 @@ def test_il_custode_torna_al_rientro_in_zona(run_pulita, tmp_path) -> None:
     em = esper.component_for_entity(ent, EntitaMob)
     assert em.nome == boss_della_zona(1, zona).nome
     assert "non c'è più" not in snapshot.prosa  # la coda onesta non deve mentire
-    assert {o.etichetta for o in snapshot.opzioni} == {"Combatti", "Scappi"}
+    etichette_menu = sorted(o.etichetta for o in snapshot.opzioni)
+    assert etichette_menu[0].startswith("Combatti") and "Scappi" in etichette_menu
 
 
 def test_la_discesa_non_richiede_il_custode_della_tana(mondo_isolato) -> None:

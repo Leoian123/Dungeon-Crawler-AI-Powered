@@ -12,10 +12,16 @@ Perimetro:
   vive nel composition root come `banco_nemici.py`, sole stdlib.
 - **Offline e seeded**: `provider=None` (copione, mai rete); ogni run è deterministica
   per (politica, seed) — due lanci identici producono lo stesso esito.
+- **Raccolto generativo** (`--json-oggetti`): gli oggetti NATI in-run dalla filiera
+  (fabbrica/pezzo unico/conio) escono come TEMPLATE completi — oggetto + provenienza
+  + uso. Lo script non genera: fotografa. Con `--live` la run esercita la pipeline
+  vera (GM, conio AI) e diventa l'e2e del gioco intero — dichiarando che il
+  bit-per-bit non vale più.
 
 Uso:
     PYTHONPATH="src;vendor" python -m misura_run --run 10 --seed-base 0
     PYTHONPATH="src;vendor" python -m misura_run --politiche combatti,fuga12 --json out.json
+    PYTHONPATH="src;vendor" python -m misura_run --politiche fuga12 --live --json-oggetti raccolto.json
 """
 
 from __future__ import annotations
@@ -51,20 +57,27 @@ class Politica:
     `ingaggia`: a scena con mob sceglie Combatti (True) o Scappi (False).
     `soglia_fuga`: in scontro, HP sotto questa soglia → Fuggi (None = mai).
     `riposa_sotto`: frazione di max HP sotto cui sceglie Riposa quando è di scena.
+    `mossa_preferita`: in scontro sceglie QUESTA mossa quando è pagabile (prima
+    del fallback «prima pagabile»): è la leva che fa esistere un build nello
+    strumento — senza, l'attacco base (sempre primo e gratuito) monopolizza.
     """
 
     nome: str
     ingaggia: bool = True
     soglia_fuga: int | None = None
     riposa_sotto: float | None = 0.6
+    mossa_preferita: str | None = None
 
 
-# Le quattro politiche della misura storica (§4.1), col riposo che oggi esiste.
+# Le quattro politiche della misura storica (§4.1), col riposo che oggi esiste,
+# più la politica MAGA (stili separati 2026-08-13): dardo arcano finché c'è mana
+# — è l'unica strada da cui `acc_mag_eff` entra nella misura.
 POLITICHE: dict[str, Politica] = {
     "combatti": Politica("combatti"),
     "fuga12": Politica("fuga12", soglia_fuga=12),
     "fuga20": Politica("fuga20", soglia_fuga=20),
     "scappa": Politica("scappa", ingaggia=False, soglia_fuga=10**9),
+    "mago8": Politica("mago8", soglia_fuga=8, mossa_preferita="dardo_arcano"),
 }
 
 
@@ -90,6 +103,15 @@ class EsitoRun:
     equip_indossati: int = 0
     riposi: int = 0
     hp_finale: int = 0
+    # I battiti di prosa fuori-banda effettivamente RESI (trailer, vestizione,
+    # epitaffio). Offline restano 0 per contratto — il copione degrada gli stadi
+    # non-gating: il valore è >0 solo con `--live`, dove certifica che la misura
+    # ha esercitato anche la narrazione di scontro e non il solo scheletro.
+    prose_fuori_banda: int = 0
+    # Il RACCOLTO generativo: i template degli oggetti NATI in-run dalla
+    # filiera (fabbrica/pezzo unico/conio libero), fotografati a fine run.
+    oggetti_coniati: int = 0
+    raccolto: list[dict] = field(default_factory=list)
 
 
 class _Cronista:
@@ -117,6 +139,14 @@ class _Cronista:
 
     def _su_morte(self, ev) -> None:
         self._esito.causa_morte = ev.causa
+        # Lo scontro FATALE non emette CombatResolved (G-11: il terminale è la
+        # morte, non una "sconfitta di scontro") — quindi non entrava in NESSUN
+        # contatore V/F/P e `scontri_persi` era strutturalmente 0: la metrica
+        # mentiva per costruzione. La morte in combattimento È lo scontro perso.
+        from motore import in_combattimento
+
+        if in_combattimento():
+            self._esito.scontri_persi += 1
 
     def _su_drop(self, _ev) -> None:
         self._esito.drop_raccolti += 1
@@ -131,6 +161,58 @@ class _Cronista:
             except ValueError:
                 pass
         self._coppie = []
+
+
+# --- Il rubinetto generativo (sola lettura: fotografa, non genera) ----------------
+
+def _raccolto_oggetti(esito: EsitoRun) -> list[dict]:
+    """Gli oggetti NATI in-run diventano TEMPLATE completi (descrizione inclusa).
+
+    Lo script non genera niente: la filiera esistente — fabbrica procedurale,
+    pezzo unico, conio libero — converge già tutta in `OggettiConiati`, nella
+    forma congelata `OggettoAttivo` (jsonable). Qui la si fotografa a run
+    ancora montata, aggiungendo provenienza (chi giocava, com'è finita) ed
+    esito d'uso (nello zaino? indossato?): un template che ha giocato — e con
+    che risultato — vale più di dieci generati a freddo."""
+    from dataclasses import asdict as _asdict
+
+    import esper
+
+    from motore import protagonista
+    from motore.equip import equip_attivo, fonti_zaino
+    from motore.oggetti import OggettiConiati
+
+    pent, _marker, _scheda = protagonista()
+    coniati = esper.try_component(pent, OggettiConiati)
+    if coniati is None or not coniati.voci:
+        return []
+    zaino = set(fonti_zaino(pent))
+    comp = equip_attivo(pent)
+    indossate = set(comp.fonti()) if comp is not None else set()
+    return [{
+        "oggetto": _asdict(attivo),
+        "provenienza": {
+            "politica": esito.politica, "seed": esito.seed,
+            "esito_run": esito.esito, "profondita": esito.profondita,
+        },
+        "uso": {
+            "in_zaino": attivo.slug in zaino,
+            "indossato": attivo.slug in indossate,
+        },
+    } for attivo in coniati.voci]
+
+
+def oggetto_da_template(template: dict):
+    """Template JSON → `OggettoAttivo`: il raccolto è una LIBRERIA pronta, non
+    un log. json degrada le tuple a liste; qui si risale alla forma congelata
+    esatta, quella che `oggetto_da_asset` traduce in oggetto vivo."""
+    from motore import OggettoAttivo
+
+    dati = dict(template["oggetto"])
+    for campo in ("modificatori", "resistenze"):
+        dati[campo] = tuple(tuple(coppia) for coppia in dati.get(campo) or ())
+    dati["mosse"] = tuple(dati.get("mosse") or ())
+    return OggettoAttivo(**dati)
 
 
 # --- Sensori (sola lettura dal motore: strumentazione, non host) ------------------
@@ -175,6 +257,14 @@ def _migliora_equip(sessione) -> tuple[int, object | None]:
         except ValueError:
             return 0
 
+    def _costituzione_di(pezzo) -> int:
+        from contracts import StatId
+
+        return sum(
+            m.valore for m in getattr(pezzo, "modificatori", ())
+            if m.stat is StatId.COSTITUZIONE
+        )
+
     for fonte in fonti_zaino(pent):
         oggetto = catalogo.get(fonte)
         if oggetto is None or comp.pezzo_per_fonte(fonte) is not None:
@@ -185,9 +275,14 @@ def _migliora_equip(sessione) -> tuple[int, object | None]:
                 # Prima la categoria (l'asse del corredo di riferimento), poi il
                 # GRADO a parità: i modificatori scalano col grado, e senza il
                 # tie-break una veste platino perderebbe per sempre contro la
-                # prima veste bronzo indossata.
-                chiave_att = (_rango(attuale.categoria), _rango_fonte(attuale.fonte))
-                chiave_new = (_rango(oggetto.categoria), _rango_fonte(fonte))
+                # prima veste bronzo indossata. Ultimo tie-break: la
+                # COSTITUZIONE del pezzo — il giocatore vero, davanti a due
+                # elmi uguali, tiene quello che porta HP (diagnosi 2026-08-13:
+                # l'elmo del Becchino restava nello zaino).
+                chiave_att = (_rango(attuale.categoria), _rango_fonte(attuale.fonte),
+                              _costituzione_di(attuale))
+                chiave_new = (_rango(oggetto.categoria), _rango_fonte(fonte),
+                              _costituzione_di(oggetto))
                 if chiave_att >= chiave_new:
                     continue
         elif isinstance(oggetto, Arma):
@@ -209,12 +304,27 @@ def _migliora_equip(sessione) -> tuple[int, object | None]:
 
 # --- Scelte ----------------------------------------------------------------------
 
+def _indice_mossa(chiave: str) -> int | None:
+    """L'indice di menu di una mossa del protagonista. Il menu di scontro è
+    «una voce per mossa del Repertorio, nello stesso ordine, + Fuggi ultima»
+    (contratto dell'istanza combattimento): l'`OpzioneVista` non porta chiavi,
+    quindi il laboratorio rilegge l'ordine dal motore. Sensore, sola lettura."""
+    from motore import mosse_di, protagonista
+
+    mosse = mosse_di(protagonista()[0])
+    return mosse.index(chiave) if chiave in mosse else None
+
+
 def _scelta_combattimento(politica: Politica, opzioni) -> int:
     """L'ultima voce è Fuggi (contratto del menu di scontro); le altre sono mosse."""
     ultima = len(opzioni) - 1
     hp, _massimo = _hp_correnti()
     if politica.soglia_fuga is not None and hp < politica.soglia_fuga:
         return ultima
+    if politica.mossa_preferita is not None:
+        indice = _indice_mossa(politica.mossa_preferita)
+        if indice is not None and indice < ultima and opzioni[indice].abilitata:
+            return indice  # il build gioca la SUA mossa finché è pagabile
     for opz in opzioni[:ultima]:
         if opz.abilitata:
             return opz.indice
@@ -241,8 +351,9 @@ def _scelta_scena(
     politica: Politica, opzioni, viste: Counter, rng: random.Random
 ) -> tuple[int, str]:
     """Priorità: ingaggio (se c'è un mob la scena è solo Combatti/Scappi) →
-    riposo sotto soglia → Scendi → Attraversa → stanza meno vista. Ritorna
-    (indice, etichetta-scelta) — l'etichetta alimenta il registro delle viste."""
+    riposo sotto soglia → porta del boss (pieno prima, poi dentro) → Scendi →
+    Attraversa → stanza meno vista. Ritorna (indice, etichetta-scelta) —
+    l'etichetta alimenta il registro delle viste."""
     per_tipo: dict[TipoAzione, list] = {}
     for opz in opzioni:
         per_tipo.setdefault(opz.tipo, []).append(opz)
@@ -267,6 +378,21 @@ def _scelta_scena(
         hp, massimo = _hp_correnti()
         if massimo > 0 and hp < politica.riposa_sotto * massimo:
             return per_tipo[TipoAzione.RIPOSA][0].indice, "@riposa"
+    # LA PORTA DEL BOSS (misura 2026-08-13): davanti alla stanza-boss NOTA un
+    # giocatore fa il PIENO prima di aprire — la politica entrava «quando
+    # capita», anche ferita, e il custode diventava una gara di logoramento
+    # persa in partenza. A pieno si entra DI PROPOSITO (il boss è il gate del
+    # varco, non una stanza qualunque); sotto il pieno si riposa se il riposo è
+    # di scena (a risorse piene l'opzione non si compone più), altrimenti si
+    # esplora come sempre.
+    if TipoAzione.MUOVI in per_tipo:
+        porta_boss = _porta_del_boss(per_tipo[TipoAzione.MUOVI])
+        if porta_boss is not None:
+            hp, massimo = _hp_correnti()
+            if hp < massimo and TipoAzione.RIPOSA in per_tipo:
+                return per_tipo[TipoAzione.RIPOSA][0].indice, "@riposa"
+            if hp >= massimo:
+                return porta_boss.indice, porta_boss.etichetta
     if TipoAzione.SCENDI in per_tipo:
         return per_tipo[TipoAzione.SCENDI][0].indice, ""
     if TipoAzione.ATTRAVERSA in per_tipo:
@@ -303,6 +429,29 @@ def _stanza_di(etichetta: str) -> int | None:
     return int(coda) if coda.isdigit() else None
 
 
+def _porta_del_boss(candidate) -> object | None:
+    """Il MUOVI che imbocca la stanza-boss NON battuta della zona corrente
+    (tipo T1 = dato di mappa, stesso sensore del nascondino). `None` nella tana
+    (lì vige il nascondino: il celestiale si evita, non si prepara), a custode
+    battuto, o se nessuna candidata è la sua stanza."""
+    from contracts import TierTerritorio
+    from motore import (
+        boss_sconfitto,
+        mappa_corrente,
+        stanza_boss_di,
+        zona_corrente,
+    )
+
+    zona = zona_corrente()
+    m = mappa_corrente()
+    if zona is None or m is None or zona.tier is TierTerritorio.PIANO:
+        return None
+    if boss_sconfitto(zona):
+        return None
+    boss = stanza_boss_di(zona, m[1].piano)
+    return next((o for o in candidate if _stanza_di(o.etichetta) == boss), None)
+
+
 # --- Il loop di una run ----------------------------------------------------------
 
 async def gioca_run(
@@ -311,13 +460,16 @@ async def gioca_run(
     *,
     max_turni: int = 400,
     stagione: str | None = None,
+    provider=None,
 ) -> EsitoRun:
     """Una run completa via porte: nuova partita → esplora/combatti/riposa/equipaggia
-    → terminale (vittoria/morte) o timeout. Deterministica per (politica, seed)."""
+    → terminale (vittoria/morte) o timeout. Deterministica per (politica, seed)
+    col default offline; `provider` iniettato (run generativa live) rinuncia al
+    bit-per-bit ma esercita la pipeline vera (GM, conio) da capo a fondo."""
     from main import costruisci_sessione
 
     kwargs = {"stagione": stagione} if stagione is not None else {}
-    sessione = costruisci_sessione(seed=seed, **kwargs)  # offline: mai rete
+    sessione = costruisci_sessione(seed=seed, provider=provider, **kwargs)
     esito = EsitoRun(politica=politica.nome, seed=seed)
     cronista = _Cronista(sessione.bus, esito)
     rng = random.Random(f"misura:{politica.nome}:{seed}")
@@ -328,12 +480,24 @@ async def gioca_run(
         sessione.coda.accoda(PlayerChoseOption(indice))
         return sessione.avanza()
 
+    async def _drena_prosa() -> None:
+        """Consuma i battiti fuori-banda come farebbe un host vero.
+
+        Senza questo, la misura girava su un gioco più povero di quello giocato:
+        trailer d'apertura, vestizione del premio ed epitaffio non venivano mai
+        chiesti, quindi `--live` non esercitava — né faceva pagare — tre delle
+        rotte del Master-Engine. Offline degradano tutti a `None` (il copione non
+        risponde agli stadi non-gating): il bit-per-bit della misura resta."""
+        while (prosa := await sessione.prossima_prosa()) is not None:
+            esito.prose_fuori_banda += 1
+
     try:
         while esito.turni < max_turni:
             if snapshot.run_conclusa:
                 break
             esito.turni += 1
             esito.profondita = snapshot.profondita
+            await _drena_prosa()
             if snapshot.fase == "combattimento":
                 snapshot = _passo(_scelta_combattimento(politica, snapshot.opzioni))
                 continue
@@ -357,6 +521,8 @@ async def gioca_run(
                 viste[etichetta] += 1
             snapshot = _passo(indice)
 
+        # L'EPITAFFIO è dovuto a run chiusa: il ciclo esce prima di drenarlo.
+        await _drena_prosa()
         esito.profondita = snapshot.profondita
         hp, _massimo = _hp_correnti() if snapshot.terminale is None else (0, 0)
         if snapshot.terminale is Terminale.PIANO_COMPLETATO:
@@ -366,6 +532,14 @@ async def gioca_run(
         else:
             esito.esito = "timeout"
             esito.hp_finale = hp
+        # Il raccolto si fotografa QUI: run ancora montata (il rubinetto legge il
+        # World), esito già noto (entra nella provenienza). Mai far fallire la
+        # misura per il raccolto: è un di più, non la misura.
+        try:
+            esito.raccolto = _raccolto_oggetti(esito)
+            esito.oggetti_coniati = len(esito.raccolto)
+        except Exception:
+            pass
     finally:
         cronista.chiudi()
         if snapshot.terminale is not None:
@@ -470,6 +644,13 @@ def _parser() -> argparse.ArgumentParser:
                         help="slug della stagione (default: quella di costruisci_sessione)")
     parser.add_argument("--json", type=Path, default=None,
                         help="scrive gli esiti per-run (JSON) su questo percorso")
+    parser.add_argument("--json-oggetti", type=Path, default=None,
+                        help="scrive i TEMPLATE degli oggetti coniati in-run "
+                             "(oggetto completo + provenienza + uso) su questo percorso")
+    parser.add_argument("--live", action="store_true",
+                        help="GM live dal composition root (chiave+SDK; senza, degrada "
+                             "all'offline scriptato). La run diventa GENERATIVA/e2e: "
+                             "esercita la pipeline vera ma perde il bit-per-bit")
     return parser
 
 
@@ -481,6 +662,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"politiche ignote: {', '.join(ignote)} (note: {', '.join(POLITICHE)})")
         return 2
 
+    provider = None
+    if args.live:
+        from provider import scegli_provider
+
+        # `["--live"]`: senza chiave o SDK si FALLISCE forte (SystemExit del
+        # composition root), mai il degrado silenzioso all'offline — una
+        # vendemmia scriptata che si crede live è il bug peggiore da diagnosticare.
+        provider, etichetta = scegli_provider(["--live"])
+        print(f"provider: {etichetta} — run generativa: la misura perde il bit-per-bit\n")
+
     esiti: list[EsitoRun] = []
     for nome in nomi:
         politica = POLITICHE[nome]
@@ -488,6 +679,7 @@ def main(argv: list[str] | None = None) -> int:
             seed = args.seed_base + i
             esito = asyncio.run(gioca_run(
                 politica, seed, max_turni=args.max_turni, stagione=args.stagione,
+                provider=provider,
             ))
             esiti.append(esito)
             print(
@@ -496,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"{esito.scontri_vinti}V/{esito.scontri_fuggiti}F/{esito.scontri_persi}P, "
                 f"{esito.zone_attraversate} zone, "
                 f"{esito.drop_raccolti} drop, {esito.equip_indossati} equip, "
-                f"{esito.riposi} riposi"
+                f"{esito.riposi} riposi, {esito.oggetti_coniati} coniati"
                 + (f" ({esito.causa_morte})" if esito.causa_morte else "")
             )
 
@@ -508,6 +700,17 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
         print(f"\nEsiti per-run scritti in {args.json}")
+    if args.json_oggetti is not None:
+        templates = [t for e in esiti for t in e.raccolto]
+        args.json_oggetti.write_text(
+            json.dumps({
+                "generatore": "misura_run",
+                "run": len(esiti),
+                "oggetti": templates,
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        print(f"\nRaccolti {len(templates)} template-oggetto in {args.json_oggetti}")
     return 0
 
 

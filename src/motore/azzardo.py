@@ -76,6 +76,7 @@ class DannoVariabile(EffettoAzzardo):
     minimo: int
     massimo: int
     tipo: object = None          # `TipoDanno`; None → GENERICO (nessuna resistenza matcha)
+    stile: object = None         # `StileAttacco`; None → FISICO (l'accuratezza del check 1)
 
 
 @dataclass
@@ -132,16 +133,25 @@ def risolvi_tiro_azzardo(effetto: TiroAzzardo, sorgente: int, rng) -> EsitoAzzar
     return effetto.esiti[int(inclinato * len(effetto.esiti))]
 
 
-def risolvi_effetto_azzardo(effetto: EffettoAzzardo, sorgente: int, rng) -> int:
-    """Il punto d'ingresso unico per il risolutore: `effetto → danno`.
+def risolvi_effetto_azzardo_con_faccia(
+    effetto: EffettoAzzardo, sorgente: int, rng
+) -> tuple[int, str]:
+    """`effetto → (danno, faccia)`: la FACCIA è l'etichetta diegetica pescata
+    (`TiroAzzardo`) o "" (`DannoVariabile`: la pescata è un numero, non una
+    faccia). È il contratto dormiente `EsitoAzzardo.etichetta` acceso
+    (playtest 2026-08-12): l'azzardo deve RACCONTARE l'azzardo — la faccia
+    finisce nella cronaca del colpo, mai muta.
 
-    **Segno = chi lo incassa**: positivo il bersaglio, negativo chi ha tirato. Una sola
-    funzione, così il combattimento ha **una** branch e non un ramo per primitivo — e
-    quando arriverà un terzo primitivo d'azzardo il risolutore non si accorgerà di nulla.
-
+    **Segno = chi lo incassa**: positivo il bersaglio, negativo chi ha tirato.
     Pesca **esattamente una volta**, dallo stream seeded del combattimento."""
     if isinstance(effetto, DannoVariabile):
-        return risolvi_danno_variabile(effetto, sorgente, rng)
+        return risolvi_danno_variabile(effetto, sorgente, rng), ""
     if isinstance(effetto, TiroAzzardo):
-        return risolvi_tiro_azzardo(effetto, sorgente, rng).danno
+        esito = risolvi_tiro_azzardo(effetto, sorgente, rng)
+        return esito.danno, esito.etichetta
     raise TypeError(f"primitivo d'azzardo senza risoluzione: {type(effetto).__name__}")
+
+
+def risolvi_effetto_azzardo(effetto: EffettoAzzardo, sorgente: int, rng) -> int:
+    """La lettura storica (solo danno): un solo risolutore, due proiezioni."""
+    return risolvi_effetto_azzardo_con_faccia(effetto, sorgente, rng)[0]

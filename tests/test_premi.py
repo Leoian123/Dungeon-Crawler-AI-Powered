@@ -28,7 +28,7 @@ from provider import FakeProvider
 def _vinci_uno_scontro(sessione):
     snap = asyncio.run(sessione.prossima_narrazione())
     etichette = {o.etichetta: o.indice for o in snap.opzioni}
-    sessione.coda.accoda(PlayerChoseOption(etichette["Combatti"]))
+    sessione.coda.accoda(PlayerChoseOption(next(v for k, v in etichette.items() if k.startswith("Combatti"))))
     snap = sessione.avanza()
     for _ in range(60):
         if snap.fase != "combattimento":

@@ -1,0 +1,72 @@
+{
+  "generatore": "misura_run",
+  "run": 1,
+  "oggetti": [
+    {
+      "oggetto": {
+        "slug": "amuleto-della-maschera-cd29",
+        "nome": "Amuleto della Maschera",
+        "tipo": "accessorio",
+        "grado": "bronzo",
+        "descrizione": "Attrezzeria di sala: leggera, scattante, strappata a chi non è mai uscito dal cinema.",
+        "slot": null,
+        "categoria": null,
+        "taglia": "media",
+        "sede": "collo",
+        "mitigazione_cent": null,
+        "danno_base": null,
+        "modificatori": [
+          [
+            "destrezza",
+            "lieve"
+          ]
+        ],
+        "mosse": [],
+        "resistenze": []
+      },
+      "provenienza": {
+        "politica": "fuga12",
+        "seed": 8,
+        "esito_run": "morte",
+        "profondita": 1
+      },
+      "uso": {
+        "in_zaino": true,
+        "indossato": true
+      }
+    },
+    {
+      "oggetto": {
+        "slug": "amuleto-di-borant-2ddb",
+        "nome": "Amuleto di Borant",
+        "tipo": "accessorio",
+        "grado": "bronzo",
+        "descrizione": "Fornitura ufficiale dello show: massiccia, sponsorizzata, con la garanzia scaduta.",
+        "slot": null,
+        "categoria": null,
+        "taglia": "media",
+        "sede": "collo",
+        "mitigazione_cent": null,
+        "danno_base": null,
+        "modificatori": [
+          [
+            "forza",
+            "lieve"
+          ]
+        ],
+        "mosse": [],
+        "resistenze": []
+      },
+      "provenienza": {
+        "politica": "fuga12",
+        "seed": 8,
+        "esito_run": "morte",
+        "profondita": 1
+      },
+      "uso": {
+        "in_zaino": true,
+        "indossato": true
+      }
+    }
+  ]
+}

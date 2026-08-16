@@ -24,7 +24,7 @@ import esper
 from contracts import RiposoConcluso, TipoAzione
 
 from .calibrazione import DURATA_AZIONE, RIPOSO_HP_PER_TICK, RIPOSO_MANA_PER_TICK
-from .derivate import max_hp, max_mana
+from .derivate import max_mana
 from .scheda import Mana, protagonista
 from .tempo import fast_forward, puo_downtime
 
@@ -52,7 +52,11 @@ def riposa(bus) -> RiposoConcluso | None:
 
     pent, _marker, scheda = protagonista()
     prima_hp = scheda.punti_vita
-    scheda.punti_vita = min(max_hp(pent), prima_hp + tick * RIPOSO_HP_PER_TICK)
+    # La cura passa dal proprietario UNICO della mutazione HP (`salute.muovi_hp`):
+    # il clamp al massimo derivato è la POLITICA di quel modulo, non una copia qui.
+    from .salute import muovi_hp
+
+    muovi_hp(pent, tick * RIPOSO_HP_PER_TICK)
     hp_recuperati = scheda.punti_vita - prima_hp
 
     mana = esper.try_component(pent, Mana)

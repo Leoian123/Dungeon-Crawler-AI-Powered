@@ -114,6 +114,9 @@ def test_il_moltiplicatore_corridoio_arriva_al_dado(mondo_isolato, monkeypatch) 
 
     monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 0.7)
     monkeypatch.setattr(tempo_mod, "_rng_dado", lambda _tick: _RngBordo())
+    from motore import mappa as mappa_mod
+
+    monkeypatch.setattr(mappa_mod, "fattore_minacce", lambda: 1.0)  # layer stanza
     bus = _arma_mondo()
     crea_entita_fase()
     _e, mappa = mappa_corrente()
@@ -168,6 +171,10 @@ def test_riposo_in_safe_room_mai_interrotto(mondo_isolato, monkeypatch) -> None:
     from motore import tempo as tempo_mod
 
     monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)
+    from motore import mappa as mappa_mod
+
+    monkeypatch.setattr(mappa_mod, "fattore_minacce", lambda: 1.0)  # qui si
+    # testa il layer STANZA: il layer minacce ha i suoi lucchetti (playtest_fix)
     bus = _arma_mondo()
     from motore.fase import crea_entita_fase
 

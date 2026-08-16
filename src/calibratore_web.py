@@ -125,7 +125,7 @@ def anteprima(archetipo: str, grado: str, livello: int) -> dict:
     from contracts import TipoDanno
     from motore.combattimento import mult_resistenza
     from motore.corredo import Corredo
-    from motore.derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
+    from motore.derivate import acc_fis_eff, acc_mag_eff, atk_eff, def_eff, eva_eff, max_hp
     from motore.modificatori import ResistenzaMod, Resistenze
     from motore.statistiche import Primarie
 
@@ -152,7 +152,8 @@ def anteprima(archetipo: str, grado: str, livello: int) -> dict:
             "atk_eff": atk_eff(ent),
             "def_eff_centesimi": def_eff(ent),
             "eva_eff": round(eva_eff(ent), 4),
-            "acc_eff": round(acc_eff(ent), 4),
+            "acc_fis_eff": round(acc_fis_eff(ent), 4),
+            "acc_mag_eff": round(acc_mag_eff(ent), 4),
             "resistenze_mult": {
                 t.value: round(mult_resistenza(ent, t), 4)
                 for t in (TipoDanno.MISCHIA, TipoDanno.FUOCO, TipoDanno.VELENO)
@@ -322,7 +323,8 @@ async function aggiornaAnteprima(){
   b.appendChild(kv('atk_eff',r.atk_eff));
   b.appendChild(kv('def_eff (cent.)',r.def_eff_centesimi));
   b.appendChild(kv('eva_eff',r.eva_eff));
-  b.appendChild(kv('acc_eff',r.acc_eff));
+  b.appendChild(kv('acc_fis_eff',r.acc_fis_eff));
+  b.appendChild(kv('acc_mag_eff',r.acc_mag_eff));
   b.appendChild(kv('geometria',r.geometria.armatura+' / '+r.geometria.taglia+' / '+r.geometria.arma));
   const R=r.resistenze_mult;
   b.appendChild(kv('mult danno','mischia '+R.mischia+' · fuoco '+R.fuoco+' · veleno '+R.veleno));

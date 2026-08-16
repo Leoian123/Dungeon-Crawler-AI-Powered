@@ -163,8 +163,9 @@ def test_sessione_vince_esplorando_fino_alla_scala(run_pulita) -> None:
                 sessione.coda.accoda(PlayerChoseOption(0))  # Attacca
             elif "Scendi la scala" in etichette:
                 sessione.coda.accoda(PlayerChoseOption(etichette.index("Scendi la scala")))
-            elif "Combatti" in etichette:
-                sessione.coda.accoda(PlayerChoseOption(etichette.index("Combatti")))
+            elif any(e.startswith("Combatti") for e in etichette):
+                sessione.coda.accoda(PlayerChoseOption(next(
+                    i for i, e in enumerate(etichette) if e.startswith("Combatti"))))
             else:  # solo movimento: vai verso la stanza col numero più alto (la scala è in fondo)
                 idx = max(
                     range(len(snap.opzioni)),

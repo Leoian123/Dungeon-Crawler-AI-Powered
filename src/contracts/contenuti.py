@@ -372,7 +372,8 @@ class MossaAsset(_Asset):
                     )
                 if e.blocco is None:
                     raise ValueError(f"mossa {self.slug}: applica_status senza blocco")
-                if e.tipo_danno is not None or e.potenza is not None or e.rischio is not None:
+                if (e.tipo_danno is not None or e.potenza is not None
+                        or e.rischio is not None or e.stile is not None):
                     raise ValueError(f"mossa {self.slug}: campi di danno su applica_status")
             if e.primitivo == "danno" and (e.blocco is not None or e.rischio is not None):
                 raise ValueError(f"mossa {self.slug}: campi impropri sul primitivo danno")

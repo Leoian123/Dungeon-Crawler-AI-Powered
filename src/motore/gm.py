@@ -821,8 +821,23 @@ def prepara_riepilogo(testo: str, tipo: TipoAzione, memoria: "MemoriaTurni") -> 
 
 # --- Spesa del tempo: l'AI ha PROPOSTO la Durata, il motore DISPONE i tick (J) --
 
-def spendi_tempo(bus, durata: Durata, *, ingresso_combattimento: bool = False) -> int:
-    """Spende la durata del turno in tick reali via le API di J. Ritorna i tick spesi.
+@dataclass(frozen=True)
+class SpesaTempo:
+    """L'esito di `spendi_tempo`: i tick spesi e, se il dado ha morso, l'entità
+    dell'incontro d'agguato — il dato che permette al turno GM di CUCIRE il
+    segnaposto sulla prosa (round 3: si leggeva il mob di stanza sopra la barra
+    dell'ambusher)."""
+
+    tick: int
+    incontro: int | None = None
+
+
+def spendi_tempo(
+    bus, durata: Durata, *,
+    ingresso_combattimento: bool = False, escludi_imboscata: str = "",
+) -> SpesaTempo:
+    """Spende la durata del turno in tick reali via le API di J. Ritorna la spesa
+    (tick reali + l'eventuale incontro d'agguato che l'ha interrotta).
 
     `TURNO` → `passa_turno` (1 tick); durate maggiori → `fast_forward` se il downtime
     è lecito, altrimenti degrada a un singolo `passa_turno`; su ingresso in
@@ -833,15 +848,20 @@ def spendi_tempo(bus, durata: Durata, *, ingresso_combattimento: bool = False) -
 
     # Con un bus vero il dado-evento può comporre l'agguato; senza bus (harness)
     # il seam resta scollegato: un incontro senza evento è un World incoerente.
-    componi = componi_imboscata_scena if bus is not None else None
+    # `escludi_imboscata` = il nemico appena ucciso (anti déjà-vu, playtest).
+    componi = (
+        (lambda: componi_imboscata_scena(escludi_nome=escludi_imboscata))
+        if bus is not None else None
+    )
     if ingresso_combattimento or in_combattimento():
-        return 0
+        return SpesaTempo(tick=0)
     if durata is not Durata.TURNO and puo_downtime():
-        return fast_forward(bus, durata, componi_imboscata=componi).tick_eseguiti
+        esito = fast_forward(bus, durata, componi_imboscata=componi)
+        return SpesaTempo(tick=esito.tick_eseguiti, incontro=esito.incontro)
     if puo_passare_turno():
-        passa_turno(bus, componi_imboscata=componi)
-        return 1
-    return 0
+        ris = passa_turno(bus, componi_imboscata=componi)
+        return SpesaTempo(tick=1, incontro=ris.incontro)
+    return SpesaTempo(tick=0)
 
 
 # --- Stadio 1: ideazione (consultiva, ≤1 chiamata, 0 retry) ---------------------
@@ -1359,7 +1379,31 @@ async def esegui_turno_gm(
                 piano=fascicolo.livello,
                 tick=fascicolo.tick,
             ))
-    tick_spesi = spendi_tempo(bus, durata, ingresso_combattimento=ingresso_combattimento)
+    spesa = spendi_tempo(
+        bus, durata, ingresso_combattimento=ingresso_combattimento,
+        # Anti déjà-vu: il nemico dello scontro appena narrato non riappare
+        # nell'imboscata dello stesso respiro (una ri-pescata seeded).
+        escludi_imboscata=(esito_scontro.nemico if esito_scontro is not None else ""),
+    )
+    tick_spesi = spesa.tick
+
+    # LA CUCITURA DELL'AGGUATO (round 3): la spesa del tempo ha innescato
+    # un'imboscata E questo messaggio sta per mostrare una prosa che parla
+    # d'altro (al reveal: il mob DI STANZA — si leggeva il Legionario sopra la
+    # barra del Ballerino). Il segnaposto è testo del MOTORE, appeso SOLO al
+    # messaggio: l'Archivio congela la prosa pulita (l'agguato è un fatto di
+    # QUESTO tick, la rilettura della stanza non deve ripeterlo) e la memoria
+    # riparte anch'essa dalla prosa di stanza (lo scontro scriverà la sua riga).
+    coda_agguato = ""
+    if spesa.incontro is not None:
+        from .incontri import nome_nemico_incontro  # pigro: ciclo gm↔incontri
+
+        chi = nome_nemico_incontro(spesa.incontro) or "qualcosa"
+        if reveal:
+            coda_agguato = (f"Prima che tu possa guardarti intorno, "
+                            f"{chi} ti piomba addosso: l'agguato è scattato.")
+        else:
+            coda_agguato = f"L'agguato scatta: {chi} ti piomba addosso."
 
     if not riga_memoria:
         riga_memoria = riassunto_turno(
@@ -1375,7 +1419,7 @@ async def esegui_turno_gm(
         f"tempo: {etichetta} (+{tick_spesi} tick)",
     )
     messaggio = MessaggioGM(
-        prosa=prosa,
+        prosa=f"{prosa}\n\n{coda_agguato}" if coda_agguato else prosa,
         dove=_dove(fascicolo),
         come=_come(fascicolo),
         tempo=TempoVista(
