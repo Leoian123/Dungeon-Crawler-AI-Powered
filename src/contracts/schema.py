@@ -106,6 +106,11 @@ class StatId(SchemaSnello, str, Enum):
     DIFESA = "difesa"          # mitigazione piatta, base 0: canale-modificatori dell'armatura (§5.3)
     SAGGEZZA = "saggezza"      # valore-nascosto, solo-privilegiati (canone DCC)
     FORTUNA = "fortuna"        # esistenza-negata (canone DCC)
+    # La stat SOCIALE (decisione utente 2026-08-16): il tiro del parlamentare —
+    # aprire bocca con un OSTILE esige un margine di carisma contro la classe
+    # del suo grado. Tira solo il protagonista (i mob non parlamentano fra
+    # loro): un mob senza base pesca il floor delle primarie e non la usa mai.
+    CARISMA = "carisma"
 
 
 class Blocco(SchemaSnello, str, Enum):
@@ -180,6 +185,12 @@ class TipoAzione(SchemaSnello, str, Enum):
     # (`puo_passare_turno`: narrazione ∧ nessuno unsafe — i DANNOSI non la
     # bloccano: serve proprio a far scorrere il veleno al sicuro).
     PASSA = "passa"
+    # `PARLAMENTA` (asse social, 2026-08-16): aprire bocca invece di aprire lo
+    # scontro. Di scena come le altre: la compone il motore quando è VERA —
+    # un PNG INTERPELLABILE in stanza (categoria che rompe il divieto del
+    # menu), o un OSTILE mai tentato (il gate è un margine di CARISMA contro
+    # la classe del suo grado; il tentativo è UNO per mob).
+    PARLAMENTA = "parlamenta"
     ALTRO = "altro"
 
 
@@ -668,6 +679,25 @@ class RuoloMob(str, Enum):
 
     OSTILE = "ostile"
     PNG = "png"
+
+
+class CategoriaPng(str, Enum):
+    """La CATEGORIA di un PNG: chi può rompere il divieto del menu.
+
+    La regola (decisione utente 2026-08-16): i PNG sono pilotati dal GM
+    server-side, MAI da un menu del giocatore (verbale 2026-08-10) — SALVO le
+    categorie qui sotto, che il giocatore può interpellare direttamente.
+    `ORDINARIO` è il default (il PNG GM-pilotato di sempre); `NARRATORE` è la
+    voce dello show: parla al giocatore SENZA possibilità di replica — mai
+    interpellabile, mai un dialogo. Vocabolario chiuso ma DICHIARATAMENTE
+    estendibile: «png di un certo tipo che decideremo poi» — un membro nuovo
+    è una riga qui + la scelta se entra in `INTERPELLABILI` (motore).
+    NON AI-facing: è dato d'authoring, mai un output del modello."""
+
+    ORDINARIO = "ordinario"          # GM-pilotato: il divieto vale pieno
+    MAESTRO_GILDA = "maestro_gilda"  # interpellabile: la prima utenza delle gilde
+    MANAGER = "manager"              # interpellabile: lo sponsor/procuratore del crawler
+    NARRATORE = "narratore"          # one-way: parla lui, il giocatore non replica
 
 
 class EffettoDati(BaseModel):

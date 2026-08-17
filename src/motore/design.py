@@ -64,6 +64,9 @@ class MobAttivo:
     aspetto: str = ""
     tratto: str = ""
     elite: bool = False
+    # Tassonomia + voce (2026-08-16): default retro-compatibili come sopra.
+    categoria: str = "ordinario"   # CategoriaPng.value (dataclass jsonable: str)
+    voce: str = ""
 
 
 @dataclass(frozen=True)
@@ -206,6 +209,11 @@ class PianoAttivo:
     tags: list[str] = field(default_factory=list)
     # La gerarchia territoriale (None = piano piatto storico, save legacy inclusi).
     territorio: TerritorioAttivo | None = None
+    # Il ROSTER PNG congelato (piazzatore P1): i personaggi che il piazzatore
+    # può mettere in scena — «il PNG è un RUOLO del piano», come il boss.
+    # Default vuoto: le stagioni congelate nei save storici deserializzano
+    # invariate (translator generico, campo assente = default).
+    png: list[MobAttivo] = field(default_factory=list)
 
     @property
     def n_stanze(self) -> int:

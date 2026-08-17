@@ -128,10 +128,24 @@ def _ripara_protagonista() -> None:
     """Riparazione LASCA dei save scritti prima che un componente posseduto del
     protagonista entrasse nel registry (H-12: degrado, non crash). Oggi: gli
     `ActionPoint` — un save legacy ne è privo e il sistema-turno li pretende
-    (`while ap > 0`, G §2.1); si reintegra il default di calibrazione."""
-    from ..calibrazione import AP_MAX_MVP
+    (`while ap > 0`, G §2.1); si reintegra il default di calibrazione.
+
+    E le PRIMARIE nate dopo il save (caccia-2, 2026-08-16): un vettore legacy
+    senza `carisma` faceva pescare a `stat_eff` il floor 1 — il crawler
+    ricaricato falliva OGNI parlamento (soglia bronzo 6) bruciando il tentativo
+    unico per mob. Si reintegrano le SOLE chiavi mancanti da
+    `PRIMARIE_BASE_CARL` (`setdefault`: la destrezza/costituzione
+    personalizzate del save sopravvivono; `DIFESA` non è nel profilo-base e
+    resta al suo legittimo «assente = 0»). Nessun bump di `SCHEMA_VERSION`:
+    è il caso da riparazione lasca, non da migrazione."""
+    from ..calibrazione import AP_MAX_MVP, PRIMARIE_BASE_CARL
     from ..scheda import ActionPoint
+    from ..statistiche import Primarie
 
     for ent, _marker in esper.get_component(Protagonista):
         if not esper.has_component(ent, ActionPoint):
             esper.add_component(ent, ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP))
+        prim = esper.try_component(ent, Primarie)
+        if prim is not None:
+            for stat, base in PRIMARIE_BASE_CARL.items():
+                prim.valori.setdefault(stat, base)

@@ -51,20 +51,33 @@ def componi_imboscata_scena(escludi_nome: str = "") -> int:
     `escludi_nome` (playtest 2026-08-12, anti déjà-vu): il nemico APPENA ucciso
     non riappare nell'imboscata immediatamente successiva — UNA ri-pescata
     seeded (se anche la seconda lo ripesca, resta lui: tabella piccola, è il
-    dungeon a essere monotono, non il dado)."""
+    dungeon a essere monotono, non il dado).
+
+    La TREGUA del parlamentato (playtest giro 3, 2026-08-16): chi ha ASCOLTATO
+    il crawler (gate del parlamento superato, mob vivo) non lo imbosca — i suoi
+    omonimi ESCONO dalla tabella e dal cast prima della pescata. La tregua è
+    un filtro duro, non una ri-pescata di cortesia: mai il déjà-vu del
+    personaggio che ti parla e un tick dopo ti salta addosso. L'imboscata in
+    sé resta (la zona non fa tregua): a candidati esauriti piomba la sagoma
+    di budget."""
     tick = tempo_piano_corrente()
     livello = livello_corrente()
     rng = _rng_imboscata(tick)
+
+    # I nomi in tregua: letti dal World (fatti del motore), zero RNG.
+    from .scena import nomi_in_tregua
+
+    tregua = nomi_in_tregua()
 
     piano = design_piano_corrente()
     # Col territorio l'agguato pesca dalla TABELLA DI SPAWN della zona corrente
     # (pesata per frequenza, stessa disciplina del copione); mai un boss.
     from .territorio import pesca_spawn
 
-    dalla_tabella = pesca_spawn(rng)
+    dalla_tabella = pesca_spawn(rng, escludi=tregua)
     if (dalla_tabella is not None and escludi_nome
             and dalla_tabella.nome == escludi_nome):
-        ripescato = pesca_spawn(rng)  # una sola ri-pescata, stesso stream
+        ripescato = pesca_spawn(rng, escludi=tregua)  # una sola ri-pescata, stesso stream
         dalla_tabella = ripescato or dalla_tabella
     if dalla_tabella is not None:
         mob = dalla_tabella
@@ -76,8 +89,8 @@ def componi_imboscata_scena(escludi_nome: str = "") -> int:
             descrizione=mob.descrizione,
             riferimento=mob.slug,
         )
-    elif piano is not None and piano.cast:
-        mob = rng.choice(list(piano.cast))
+    elif piano is not None and any(m.nome not in tregua for m in piano.cast):
+        mob = rng.choice([m for m in piano.cast if m.nome not in tregua])
         eg = EntitaGenerata(
             archetipo=mob.archetipo,
             grado=mob.grado,

@@ -449,6 +449,12 @@ _DEFS: tuple[Param, ...] = (
           "foglia esiste per la completezza della tabella enum→durata.",
           CAT_TEMPO, "una Durata", "scelta",
           scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.parlamenta", "turno", "Durata di PARLAMENTA (l'apertura del "
+          "dialogo). NOTA: nel pilota la scena NON spende tempo (le battute sono "
+          "fuori dall'orologio) — la foglia esiste per la completezza della tabella "
+          "enum→durata (un membro senza foglia è un KeyError all'import).",
+          CAT_TEMPO, "una Durata", "scelta",
+          scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     Param("DURATA_AZIONE.attraversa", "un_attimo", "Durata del passaggio di zona "
           "(territorio): varcare il confine custodito dal boss battuto.", CAT_TEMPO,
           "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
@@ -528,6 +534,13 @@ _DEFS: tuple[Param, ...] = (
           CAT_CARL, "intero ≥1", "int"),
     Param("CARL.fortuna", 5, "Fortuna base di Carl (esistenza-negata, usata nei tiri).", CAT_CARL,
           "intero ≥1", "int"),
+    # Carisma 8 vs soglie prove {bronzo 6, argento 10, oro 14…}: il crawler
+    # nudo parlamenta col bronzo (margine +2) e fallisce dall'argento in su —
+    # parlare coi mob di grado alto è un investimento (corredo sociale), non
+    # un'opzione gratis. Il knob della console tara la leva senza codice.
+    Param("CARL.carisma", 8, "Carisma base di Carl: la stat del PARLAMENTARE — margine vs "
+          "classe del grado del mob. Sotto la soglia del grado il mob non ascolta.",
+          CAT_CARL, "intero ≥1", "int"),
     Param("HP_DEFAULT", 30, "HP iniziale del protagonista (= Costituzione iniziale → nasce "
           "'integro').", CAT_CARL, "intero ≥1", "int", "HP"),
     # --- Riposo (l'anello «sostentati»: recupero per tick di downtime) ---
@@ -554,6 +567,15 @@ _DEFS: tuple[Param, ...] = (
           "(l'unica sala privata, lontana da sponsor e almanacco — contratto ora, "
           "meccanica con lo sponsor system). Al più uno per mappa.",
           CAT_MAPPA, "0 – 1", "float"),
+    Param("STANZE.prob_gilda_tutorial", 0.25, "Probabilità per zona di stampare una "
+          "GILDA DEL TUTORIAL sui primi piani (STANZE.gilda_fino_al_piano) — la lore "
+          "di stagione le promette «disseminate nei piani da 1 a 3» e senza stampa lo "
+          "slot del maestro (piazzatore PNG) non esiste mai (playtest 2026-08-17, F4). "
+          "Al più una per zona; mai su partenza/scala/boss.",
+          CAT_MAPPA, "0 – 1", "float"),
+    Param("STANZE.gilda_fino_al_piano", 3, "L'ultimo piano che può stampare gilde del "
+          "tutorial (canone DCC: piani 1-3). 0 = mai.",
+          CAT_MAPPA, "intero ≥0", "int", "piano"),
     Param("STANZE.fraz_corridoi", 0.5, "Probabilità (seeded, per stanza) che una stanza "
           "connettiva — grado ≥2 sul grafo, non speciale — sia stampata CORRIDOIO: "
           "transizione, mob possibili.", CAT_MAPPA, "0 – 1", "float"),
@@ -573,6 +595,11 @@ _DEFS: tuple[Param, ...] = (
           "i nomi dell'ambientazione — diventano incontrabili. Sotto, il canale "
           "PNG rifiuta di materializzarli (gate in `materializza_png`).",
           CAT_MAPPA, "intero ≥1", "int", "piano"),
+    Param("PNG.per_zona", 1, "Quanti PNG il piazzatore mette in scena per zona "
+          "(slot per tipo di stanza: manager nel bagno, maestro nelle gilde). "
+          "0 = piazzatore spento. Densità prudente di default: il personaggio "
+          "è un evento, non un arredo.",
+          CAT_MAPPA, "intero ≥0", "int", "png"),
     Param("SCENA.max_battute", 12, "Tetto di battute per scena narrativa (S1): "
           "al tetto il motore chiude d'ufficio (posta non vinta = persa). "
           "Anti-loop e tetto di costo: ogni battuta è una chiamata veloce.",
@@ -960,11 +987,14 @@ RIPOSO_HP_PER_TICK = valore("RIPOSO.hp_per_tick")
 RIPOSO_MANA_PER_TICK = valore("RIPOSO.mana_per_tick")
 PROB_DROP = valore("PROB_DROP")
 STANZE_PROB_BAGNO = valore("STANZE.prob_bagno")
+STANZE_PROB_GILDA_TUTORIAL = valore("STANZE.prob_gilda_tutorial")
+STANZE_GILDA_FINO_AL_PIANO = valore("STANZE.gilda_fino_al_piano")
 STANZE_FRAZ_CORRIDOI = valore("STANZE.fraz_corridoi")
 STANZE_PROB_SAFE_LATERALE = valore("STANZE.prob_safe_laterale")
 STANZE_SAFE_OGNI_ZONE = valore("STANZE.safe_ogni_zone")
 STANZE_MOLT_IMBOSCATA_CORRIDOIO = valore("STANZE.molt_imboscata_corridoio")
 ELITE_PIANO_MINIMO = valore("ELITE.piano_minimo")
+PNG_PER_ZONA = valore("PNG.per_zona")
 SCENA_MAX_BATTUTE = valore("SCENA.max_battute")
 BOSS_DROP_GARANTITO = valore("BOSS.drop_garantito")
 IMBOSCATA_MINACCE_RIFERIMENTO = valore("IMBOSCATA.minacce_riferimento")
@@ -1043,6 +1073,7 @@ PRIMARIE_BASE_CARL: dict[StatId, int] = {
     StatId.FORZA: valore("CARL.forza"), StatId.DESTREZZA: valore("CARL.destrezza"),
     StatId.COSTITUZIONE: valore("CARL.costituzione"), StatId.INTELLIGENZA: valore("CARL.intelligenza"),
     StatId.SAGGEZZA: valore("CARL.saggezza"), StatId.FORTUNA: valore("CARL.fortuna"),
+    StatId.CARISMA: valore("CARL.carisma"),
 }
 
 
@@ -1157,6 +1188,11 @@ def primarie_da_archetipo(
         StatId.DIFESA: profilo.difesa_base,
         StatId.SAGGEZZA: profilo.saggezza_base + rango,
         StatId.FORTUNA: profilo.fortuna_base + rango,
+        # Carisma del MOB: SEGNAPOSTO derivato dal rango (la presenza scenica
+        # cresce col grado). Nessuna foglia-archetipo dedicata finché nessuna
+        # meccanica la legge: nel parlamentare tira SOLO il protagonista — il
+        # carisma del mob esiste per completezza del vettore, non per un tiro.
+        StatId.CARISMA: 1 + rango,
     }
 
 

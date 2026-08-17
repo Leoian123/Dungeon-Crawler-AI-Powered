@@ -323,8 +323,25 @@ from .piano import (
 from .master import ConsumoRotta, Corsia, MasterEngine, ROTTE, Rotta, registra_rotta
 from .catalogo import GRADO_DA_TIER, grado_da_tier, gradi_del_tier
 from .incontri import componi_imboscata_scena, entita_mob_incontro, nome_nemico_incontro
-from .png import dialoga, materializza_png
-from .scena import IstanzaScena, battuta_scena, fatti_scena
+from .piazzatore import piazza_png_di_zona
+from .png import (
+    INTERPELLABILI,
+    dettagli_png_in_stanza,
+    dialoga,
+    materializza_png,
+    png_interpellabile_in_stanza,
+)
+from .scena import (
+    EsitoParlamento,
+    IstanzaScena,
+    apri_scena_con_mob,
+    battuta_scena,
+    fatti_scena,
+    nomi_in_tregua,
+    puo_parlamentare,
+    righe_identita_scena,
+    tenta_parlamento,
+)
 from .territorio import (
     ORDINE_SPINA,
     SistemaAttraversamento,
@@ -687,6 +704,12 @@ __all__ = [
     "finestra_gradi_loot",
     "rimaterializza_custode",
     "IstanzaScena",
+    "EsitoParlamento",
+    "apri_scena_con_mob",
+    "nomi_in_tregua",
+    "puo_parlamentare",
+    "righe_identita_scena",
+    "tenta_parlamento",
     "battuta_scena",
     "fatti_scena",
     "ORDINE_SPINA",
@@ -819,6 +842,10 @@ __all__ = [
     "nome_nemico_incontro",
     "dialoga",
     "materializza_png",
+    "dettagli_png_in_stanza",
+    "piazza_png_di_zona",
+    "png_interpellabile_in_stanza",
+    "INTERPELLABILI",
     "png_in_stanza_corrente",
     "ROTTE",
     "Rotta",

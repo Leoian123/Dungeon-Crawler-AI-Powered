@@ -1,7 +1,12 @@
 {
   "slug": "archivista-del-sesto",
   "versione": 1,
-  "tags": ["png", "demo", "nascondino", "non-morti"],
+  "tags": [
+    "png",
+    "demo",
+    "nascondino",
+    "non-morti"
+  ],
   "nome": "L'Archivista del Sesto",
   "archetipo": "zombie",
   "grado": "bronzo",
@@ -9,5 +14,9 @@
   "descrizione": "Uno zombie in cardigan che cataloga i caduti del piano su schede perforate. Non attacca: prende appunti. Sa chi è passato, chi è sceso e chi non è mai risalito — e lo dice, se glielo chiedi con garbo.",
   "prosa_stanza": "Tra due schedari rovesciati, uno zombie in cardigan timbra una scheda senza guardarti. «Nome, piano d'ingresso, causa presunta del decesso», recita. Poi alza gli occhi: «Ah. Tu sei ancora VIVO. Che seccatura amministrativa.»",
   "durata": "turno",
-  "mosse": []
+  "mosse": [],
+  "categoria": "maestro_gilda",
+  "aspetto": "cardigan color polvere, occhiali riparati col nastro, timbro appeso al collo",
+  "tratto": "cataloga ogni cosa che vede, anche a metà frase",
+  "voce": "burocratese d'archivio: frasi brevi da modulo compilato, numeri di protocollo inventati, ogni tanto si interrompe per timbrare; mai un'esclamazione"
 }

@@ -596,6 +596,41 @@ def _risolvi_territorio(
         return None
 
 
+def _roster_png(
+    piano, *, ufficiali: Path | None, locali: Path | None, note_mosse,
+) -> list[MobAsset]:
+    """Il roster PNG del piano (piazzatore P1): auto-riempito dalla libreria
+    per affinità di tag — «l'assemblatore riempie, il piazzatore dispone».
+
+    Candidati: categoria ≠ ordinario (interpellabili e narratore) oppure Elité,
+    con sovrapposizione di tag col piano > 0 (stessa metrica di `affini`,
+    deterministica). Un candidato che non passa il lint espressivo si SALTA
+    senza sporcare gli errori di authoring: non è un riferimento dell'autore,
+    è una pescata dell'assemblatore. Ordinato per (-sovrapposizione, slug):
+    stabile e riproducibile."""
+    from contracts import CategoriaPng
+
+    richiesti = {t.strip().lower() for t in piano.tags if t.strip()}
+    if not richiesti:
+        return []
+    classifica: list[tuple[int, str, MobAsset]] = []
+    for slug, (asset, _vista) in sorted(_collezione("mob", ufficiali, locali).items()):
+        if asset is None:
+            continue
+        if asset.categoria is CategoriaPng.ORDINARIO and not asset.elite:
+            continue
+        sovrapposizione = len(richiesti & _tags_asset("mob", asset))
+        if sovrapposizione == 0:
+            continue
+        scarti: list[str] = []
+        _lint_mob_espressivo(asset, scarti, note_mosse)
+        if scarti:
+            continue  # l'asset malformato non entra: degrado silenzioso, mai errore
+        classifica.append((-sovrapposizione, slug, asset))
+    classifica.sort()
+    return [asset for _s, _slug, asset in classifica]
+
+
 def risolvi_stagione(
     stagione: Stagione | str,
     *, ufficiali: Path | None = None, locali: Path | None = None,
@@ -644,13 +679,18 @@ def risolvi_stagione(
             )
             if territorio_risolto is None and piano.territorio is not None:
                 continue  # slug pendenti già a registro: il piano non si monta
+        # Il roster PNG (piazzatore P1): pescato dalla libreria per affinità,
+        # PRIMA della costruzione (il modello risolto è congelato).
+        roster_png = _roster_png(
+            piano, ufficiali=ufficiali, locali=locali, note_mosse=note_mosse,
+        )
         try:
             piani_risolti.append(
                 PianoRisolto(
                     slug=piano.slug, versione=piano.versione, tags=piano.tags,
                     titolo=piano.titolo, tema=piano.tema, stile=piano.stile,
                     lore=piano.lore, budget=piano.budget, cast=cast, stanze=piano.stanze,
-                    territorio=territorio_risolto,
+                    territorio=territorio_risolto, png=roster_png,
                 )
             )
         except ValueError as errore:  # cast⊆budget + coerenza territorio (validator)
@@ -662,6 +702,11 @@ def risolvi_stagione(
                     mob_extra.extend(roster)
                 for tabella in territorio_risolto.spawn:
                     mob_extra.extend(v.mob for v in tabella.voci)
+            # Gli archetipi del roster PNG entrano nel vocabolario chiuso della
+            # run: il PNG piazzato si materializza col profilo calibrato come
+            # tutti (senza questa riga, `materializza_png` rifiuterebbe ogni
+            # roster con archetipo non già citato da budget/cast).
+            mob_extra.extend(roster_png)
             for slug_arch in (
                 list(piano.budget.archetipi)
                 + [m.archetipo for m in cast]
@@ -1131,6 +1176,20 @@ class SessioneGioco:
         # L'engine memoizzato sul provider corrente: il tally per rotta vive
         # quanto la sessione, non quanto una singola chiamata (`_engine`).
         self._engine_avvolto: tuple[object, MasterEngine] | None = None
+        # La SCENA SOCIALE aperta (2026-08-16): effimera come l'istanza di
+        # combattimento («interrotta = abbandonata», mai nel save). L'esito
+        # passa al turno GM successivo come FattiScena (gemello di
+        # _fatti_scontro); `_scena_degradi` conta i battiti muti consecutivi —
+        # offline il copione non parla: al secondo muto la scena si chiude
+        # d'ufficio invece di bruciare 12 battute identiche.
+        self._scena_sociale = None            # IstanzaScena | None
+        self._fatti_scena = None              # FattiScena | None (handoff GM)
+        self._scena_degradi = 0
+        # Il RIFIUTO al gate del parlamento (playtest giro 3): la riga-fatto
+        # per il fascicolo del turno GM successivo — il gate non apre scena,
+        # quindi non passa da _fatti_scena. Effimero come i gemelli; la
+        # traccia DURATURA è il documento INTERAZIONE scritto al gate.
+        self._rifiuto_parlamento = ""
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
@@ -1257,6 +1316,8 @@ class SessioneGioco:
             rng=self.rng,
             bus=self.bus,
             esito_scontro=self._fatti_scontro,
+            esito_scena=self._fatti_scena,
+            rifiuto_parlamento=self._rifiuto_parlamento,
             avanzamento=self.on_avanzamento,
             # Barriera: durante gli await del provider un'altra sessione può aver
             # preso il run-World — il ricontrollo scatta PRIMA della scrittura.
@@ -1265,13 +1326,22 @@ class SessioneGioco:
         )
         if not esito.da_cache:  # un turno riletto non consuma i fatti: li narrerà il prossimo
             self._fatti_scontro = None
+            # Il gemello si consuma INSIEME (caccia-2): senza, ogni reveal
+            # fresco ri-iniettava [fascicolo/esito-scena] — la conversazione
+            # chiusa veniva ri-narrata a ogni stanza nuova, congelata pure
+            # nei record d'Archivio di stanze non correlate.
+            self._fatti_scena = None
+            self._rifiuto_parlamento = ""  # stessa disciplina dei gemelli
         self.ultimo_messaggio = esito.messaggio
         if esito.risultato is not None:
             from motore import stanza_quieta
+            from motore.png import stanza_riservata_al_png
 
-            if not stanza_quieta():
+            if not stanza_quieta() and not stanza_riservata_al_png():
                 # Nel luogo quieto l'entità del turno è un segnaposto di formato
                 # («Quiete»): non deve mai diventare il nome-ripiego del nemico.
+                # Stessa regola nella stanza dell'interpellabile (F1): lì
+                # l'entità non è mai un abitante ostile.
                 self._nome_mob = esito.risultato.turno.entita.nome
         self._sincronizza_scena()
         return self._snapshot_corrente(esito.messaggio.prosa)
@@ -1297,12 +1367,16 @@ class SessioneGioco:
             bus=self.bus,
             azione=riepilogo.testo_proposto,
             esito_scontro=self._fatti_scontro,
+            esito_scena=self._fatti_scena,
+            rifiuto_parlamento=self._rifiuto_parlamento,
             avanzamento=self.on_avanzamento,
             guardia_scrittura=self._guardia_aperta,  # come in prossima_narrazione
             memoria_narrativa=self.memoria_lunga,
         )
         if not esito.da_cache:
             self._fatti_scontro = None
+            self._fatti_scena = None
+            self._rifiuto_parlamento = ""
         self.ultimo_messaggio = esito.messaggio
         self._sincronizza_scena()
         return self._snapshot_corrente(esito.messaggio.prosa)
@@ -1313,6 +1387,10 @@ class SessioneGioco:
         `_agisci_narrazione` PRIMA di pubblicare l'evento)."""
         if self._istanza is not None or not getattr(evento, "imboscata", False):
             return
+        # Lo scontro travolge la conversazione: la scena (effimera) si
+        # abbandona nel momento in cui il combattimento si apre davvero —
+        # stessa regola dell'ingaggio da menu.
+        self.abbandona_parlamento()
         self._imboscata_in_corso = True
         self._istanza = IstanzaCombattimento(
             self.bus, nemico=nome_nemico_incontro(evento.entita)
@@ -2059,7 +2137,127 @@ class SessioneGioco:
         elif 0 <= indice < len(self._scena):
             self._agisci_narrazione(self._scena[indice])
 
+    # --- Scena sociale (asse social, 2026-08-16): apertura, battuta, chiusura ---
+
+    def _apri_parlamento(self) -> None:
+        """Apre la scena sociale dalla voce di menu «Parlamenta».
+
+        Due strade, decise dalla SCENA (mai dall'host): con un OSTILE in stanza
+        il motore tira il GATE (margine di carisma vs classe del grado, UNA
+        volta per mob — `tenta_parlamento` marca comunque); col PNG
+        interpellabile si apre e basta (le categorie che rompono il divieto:
+        maestro di gilda, manager — verbale 2026-08-16). La riga-fatto del
+        gate va in `ultimo_rifiuto`/prosa: il tiro non è mai muto."""
+        from motore import (
+            apri_scena_con_mob,
+            mob_corrente,
+            png_interpellabile_in_stanza,
+            tenta_parlamento,
+        )
+
+        ostile = mob_corrente()
+        if ostile is not None:
+            esito = tenta_parlamento(ostile)
+            if esito is None:
+                self.ultimo_rifiuto = "Ha già smesso di ascoltarti."
+                return
+            if not esito.riuscito:
+                # Il fallito è fallito (anti-pesca sociale): la voce non si
+                # ricompone mai più per questo mob. La riga del motore lo dice.
+                self.ultimo_rifiuto = f"⚄ {esito.riga_fatto} — non ti ascolta."
+                # Il rifiuto NON è invisibile al GM (playtest giro 3): la
+                # riga-fatto va al fascicolo del prossimo turno e — durevole
+                # quanto `parlamento_tentato` — alla memoria INTERAZIONE.
+                self._rifiuto_parlamento = esito.riga_fatto
+                from motore.scena import registra_rifiuto_parlamento
+
+                registra_rifiuto_parlamento(
+                    nome_mob_corrente(), esito, self.memoria_lunga
+                )
+                return
+            self._scena_sociale = apri_scena_con_mob(ostile)
+            self._scena_sociale.momenti.append(esito.riga_fatto)
+            self._scena_degradi = 0
+            return
+        png = png_interpellabile_in_stanza()
+        if png is None:
+            self.ultimo_rifiuto = "Non c'è nessuno che ti ascolti."
+            return
+        self._scena_sociale = apri_scena_con_mob(png)
+        self._scena_degradi = 0
+
+    async def battuta_parlamento(self, testo: str) -> str:
+        """UNA battuta del giocatore nella scena aperta: ritorna la prosa
+        (mai vuota — degrado deterministico del canale scena).
+
+        Barriera di sessione DOPO l'await (stessa disciplina dei premi e della
+        pipeline GM): se la sessione cade durante l'attesa, la coroutine cade
+        senza scrivere. OFFLINE (copione: ogni battito degrada) la scena si
+        chiude d'ufficio al SECONDO muto consecutivo invece di bruciare 12
+        battute identiche — il rilievo l'ha chiamata «12 righe mute e posta
+        sempre persa»; qui la posta del pilota è vuota, ma la cortesia vale."""
+        from motore import battuta_scena as _battuta
+        from motore.scena import _RIGA_MUTA, _chiudi_d_ufficio
+
+        self._guardia_aperta()
+        istanza = self._scena_sociale
+        if istanza is None or not istanza.aperta:
+            raise RuntimeError("nessuna scena aperta: il menu non doveva arrivarci")
+        if in_combattimento():
+            # Il flip di fase (imboscata) a scena aperta: la scena si abbandona
+            # PRIMA di chiamare la rotta (che è phase-gated e solleverebbe).
+            self.abbandona_parlamento()
+            return "Lo scontro travolge la conversazione."
+        prosa = await _battuta(
+            self._engine(), istanza, testo,
+            memoria_narrativa=self.memoria_lunga, sistema=PREFISSO_RIFINITURA,
+        )
+        self._guardia_aperta()  # barriera post-await: mai scrivere su sessione caduta
+        self._scena_degradi = self._scena_degradi + 1 if prosa == _RIGA_MUTA else 0
+        if istanza.aperta and self._scena_degradi >= 2:
+            _chiudi_d_ufficio(istanza)
+            # La chiusura d'ufficio dell'host scrive la memoria come quella del
+            # motore (caccia-2): senza, la scena offline spariva dal ricordo —
+            # riga-fatto del parlamento compresa.
+            from motore.scena import registra_interazione
+
+            registra_interazione(istanza, self.memoria_lunga)
+            prosa = f"{prosa}\n\nLa conversazione muore lì."
+        if not istanza.aperta:
+            self._chiudi_parlamento()
+        return prosa
+
+    def abbandona_parlamento(self) -> None:
+        """La scena interrotta è una scena ABBANDONATA (contratto S1): nessuno
+        stato da riavvolgere — l'unica scrittura sarebbe stata alla chiusura."""
+        self._scena_sociale = None
+        self._scena_degradi = 0
+
+    def _chiudi_parlamento(self) -> None:
+        """Scena conclusa: i FATTI passano al prossimo turno GM (gemello di
+        `_fatti_scontro` — risolvi prima, narra dopo vale anche per le parole)."""
+        from motore import fatti_scena
+
+        self._fatti_scena = fatti_scena(self._scena_sociale)
+        self._scena_sociale = None
+        self._scena_degradi = 0
+        self._sincronizza_scena()
+
     def _agisci_narrazione(self, azione: OpzioneScena) -> None:
+        # Un'azione di menu A SCENA APERTA è il giocatore che lascia la
+        # conversazione: l'abbandono avviene QUI, nel punto che possiede il
+        # cambio di scena — mai uno `scena_aperta=True` appeso sopra uno
+        # scontro o un'altra stanza (rilievo playtest 2026-08-16, giro 2). La
+        # barriera in `battuta_parlamento` resta come cintura per i flip
+        # fuori banda.
+        if self._scena_sociale is not None:
+            self.abbandona_parlamento()
+        if azione.tipo is TipoAzione.PARLAMENTA:
+            # ⚠️ Ramo ESPLICITO prima del fallback di ingaggio (la mina del
+            # fall-through: un tipo senza ramo APRE UNO SCONTRO). Aprire bocca
+            # non è mai aprire le ostilità.
+            self._apri_parlamento()
+            return
         if azione.tipo is TipoAzione.SCENDI:
             self.coda.accoda(PlayerDiscende())  # la serve SistemaDiscesa (gate: scala)
             return
@@ -2192,6 +2390,9 @@ class SessioneGioco:
             terminale=self.terminale,
             profondita=livello_corrente(),
             tick=tick_ora,
+            scena_aperta=(
+                self._scena_sociale is not None and self._scena_sociale.aperta
+            ),
         )
 
     def _onora_permadeath(self) -> None:
@@ -2474,6 +2675,7 @@ def _mob_a_attivo(mob: MobAsset) -> MobAttivo:
         descrizione=mob.descrizione, prosa_stanza=mob.prosa_stanza,
         durata=mob.durata, tags=list(mob.tags),
         aspetto=mob.aspetto, tratto=mob.tratto, elite=mob.elite,
+        categoria=mob.categoria.value, voce=mob.voce,
         mosse=list(mob.mosse),
         override=(
             mob.override.model_dump(exclude_none=True)
@@ -2536,6 +2738,7 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
                 stanze=piano.stanze,
                 tags=list(piano.tags),
                 territorio=_territorio_a_attivo(piano.territorio),
+                png=[_mob_a_attivo(mob) for mob in piano.png],
             )
             for piano in risolta.piani
         ],

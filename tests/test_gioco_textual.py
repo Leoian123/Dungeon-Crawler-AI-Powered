@@ -21,10 +21,11 @@ def test_gioca_un_incontro_dalla_ui() -> None:
         app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
         async with app.run_test() as pilot:
             await pilot.pause()
-            # 1) La narrazione è pronta: prosa + menu Combatti/Scappi.
+            # 1) La narrazione è pronta: prosa + menu Combatti/Scappi/Parlamenta
+            #    (2026-08-16: l'ostile mai tentato è parlamentabile).
             assert app.fase_corrente == "narrazione"
             assert app.prosa_corrente.strip()  # la narrazione ha prodotto prosa
-            assert len(app.query(Button)) == 2
+            assert len(app.query(Button)) == 3
 
             # 2) Combatti → combattimento (menu DINAMICO: le mosse del Repertorio
             #    del protagonista + Fuggi ultima — oggi 2 mosse iniziali → 3 voci).

@@ -87,6 +87,7 @@ def stampa_tipi(
     boss: int | None = None,
     safe_garantita: bool = False,
     prob_safe: float = 0.0,
+    prob_gilda: float = 0.0,
 ) -> None:
     """Stampa i `TipoStanza` sulla topologia — il «Borderlands della mappa»:
     vocabolario chiuso × pescate seeded × vincoli. L'AI non c'entra: narra i
@@ -97,7 +98,11 @@ def stampa_tipi(
     territorio sa qual è la stanza del custode); SAFE ROOM al più una —
     garantita (`safe_garantita`, la quota di spina §11) o a pescata
     (`prob_safe`, il premio del vicolo laterale); BAGNO raro, al più uno;
-    CORRIDOIO solo su stanze connettive (grado ≥2), a frazione seeded.
+    CORRIDOIO solo su stanze connettive (grado ≥2), a frazione seeded;
+    GILDA DEL TUTORIAL a pescata (`prob_gilda`, i primi piani — playtest
+    2026-08-17 F4: senza stampa lo slot del maestro non esisteva mai), al
+    più una, pescata IN CODA allo stream così le stampe esistenti restano
+    byte-identiche (a `prob_gilda=0` zero pescate extra).
     Le stanze non stampate sono NORMALI per assenza (`Piano.tipi`).
 
     Va chiamata con un RNG **dedicato** (stream `…:tipi`): la topologia già
@@ -120,6 +125,14 @@ def stampa_tipi(
     for stanza in libere:
         if len(piano.adiacenze[stanza]) >= 2 and rng.random() < STANZE_FRAZ_CORRIDOI:
             tipi[stanza] = TipoStanza.CORRIDOIO
+    # La gilda VINCE sul corridoio (il corridoio è flavor del dado, la gilda è
+    # uno slot promesso): candidate = libere non ancora tipizzate O corridoi.
+    # Pescata in coda allo stream: a prob 0 zero pescate extra (stampe storiche
+    # byte-identiche); safe room e bagno non si sovrascrivono mai.
+    candidate = [s for s in libere
+                 if s not in tipi or tipi[s] is TipoStanza.CORRIDOIO]
+    if candidate and prob_gilda > 0 and rng.random() < prob_gilda:
+        tipi[rng.choice(candidate)] = TipoStanza.GILDA_TUTORIAL
     piano.tipi = tipi
 
 
@@ -326,8 +339,25 @@ def png_in_stanza_corrente() -> int | None:
     if m is None:
         return None
     stanza = m[1].stanza_corrente
+    # L'ancora di ZONA (caccia-2): gli indici di stanza sono per-mappa-di-zona
+    # e il PNG sopravvive al despawn per esenzione — senza questo filtro veniva
+    # ritrovato in QUALUNQUE zona con una stanza di pari indice. Sul piano
+    # piatto (nessun territorio) la chiave è "" e il filtro è identità.
+    from .territorio import stato_territorio
+
+    stato = stato_territorio()
+    chiave_zona = stato.zona_corrente if stato is not None else ""
+    # L'ancora di PIANO (stress-test piazzatore, F2): le chiavi di zona si
+    # RIPETONO tra piani («citta/0» esiste sul piano 1 e sul 2) e la discesa
+    # non elimina i PNG del piano lasciato (esenzione dal despawn) — senza
+    # questo filtro il manager del piano 1 era un fantasma interpellabile
+    # nella zona omonima del piano 2.
+    from .piano import livello_corrente
+
+    livello = livello_corrente()
     for ent, em in esper.get_component(EntitaMob):
-        if em.ruolo is RuoloMob.PNG and em.stanza == stanza:
+        if (em.ruolo is RuoloMob.PNG and em.stanza == stanza
+                and em.zona == chiave_zona and em.livello == livello):
             return ent
     return None
 
@@ -464,14 +494,46 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         # Il menu DICE chi c'è (playtest round 2: rivisitare la stanza del mob
         # congedato dava un «Combatti» cieco): il nome è verità del World.
         nome = nome_mob_corrente()
-        return (
+        con_mob: list[OpzioneScena] = [
             OpzioneScena(
                 tipo=TipoAzione.COMBATTI,
                 etichetta=f"Combatti — {nome}" if nome else "Combatti",
             ),
             OpzioneScena(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
-        )
+        ]
+        # PARLAMENTA con l'OSTILE (2026-08-16): la voce compare solo se il
+        # tentativo non è mai stato speso (uno per mob, il marker persiste).
+        # Il GATE — margine di carisma vs classe del grado — lo tira il motore
+        # alla scelta, mai qui: comporre è una lettura.
+        def _parlamentabile() -> bool:
+            from .scena import puo_parlamentare
+
+            return puo_parlamentare(mob_corrente())
+
+        if _lettura_tollerante("parlamento", _parlamentabile, False):
+            con_mob.append(OpzioneScena(
+                tipo=TipoAzione.PARLAMENTA,
+                etichetta=f"Parlamenta — {nome}" if nome else "Parlamenta",
+            ))
+        return tuple(con_mob)
     opzioni: list[OpzioneScena] = []
+    # PARLAMENTA col PNG INTERPELLABILE (2026-08-16): solo le categorie che
+    # rompono il divieto del menu (maestro di gilda, manager — il verbale
+    # 2026-08-10 resta la regola per gli ordinari, GM-pilotati; il narratore
+    # parla senza replica e non si interpella). Nessun gate: il PNG ascolta.
+    def _png_da_interpellare():
+        from .png import png_interpellabile_in_stanza
+
+        ent = png_interpellabile_in_stanza()
+        if ent is None:
+            return None
+        return esper.try_component(ent, EntitaMob)
+
+    em_png = _lettura_tollerante("png_interpellabile", _png_da_interpellare, None)
+    if em_png is not None:
+        opzioni.append(OpzioneScena(
+            tipo=TipoAzione.PARLAMENTA, etichetta=f"Parlamenta — {em_png.nome}",
+        ))
     if scala_presente():
         opzioni.append(OpzioneScena(tipo=TipoAzione.SCENDI, etichetta="Scendi la scala"))
     # ATTRAVERSA (territorio): il varco verso la zona successiva — compare SOLO

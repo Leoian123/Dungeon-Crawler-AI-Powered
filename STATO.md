@@ -11,7 +11,7 @@
 > appartiene (e sparisce dal registro del debito); non si appende una voce di diario.
 > Quando emerge un difetto o una decisione da prendere, entra nel registro §4.2 con la
 > sua priorità. Ultima revisione: **2026-08-16** (branch `narrative-system`) — suite
-> **1097 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
+> **1117 verdi + 3 skip**, `python -m main` gioca capo-a-fine sul piano-mondo
 > territoriale «Pianoterra dei Morti» (stagione «Nascondino con il Morto»);
 > l'authoring AI dei roster (`genera_stagione`) è verificato LIVE (dry-run 8/8
 > boss, cache attiva, zero guasti). La vincibilità è MISURABILE (`misura_run.py`,
@@ -444,6 +444,100 @@ dormiente `PlayerTentaProva` aspetta), ideazione GM (`IntenzioneScena` +
 sul listino beneficio/tributo e allo sbocco in scontro. Lucchetti:
 `test_scena` (11).
 
+**S2 — IL PILOTA È ACCESO (decisioni utente 2026-08-16, implementate lo stesso
+giorno)**. Le decisioni a verbale: (1) il divieto del menu (2026-08-10) RESTA la
+regola — lo rompono SOLO le categorie interpellabili: **maestro di gilda**,
+**manager**, il **narratore AI** (che però parla SENZA possibilità di replica:
+mai un dialogo) e categorie future da decidere. Vocabolario chiuso
+`CategoriaPng` nel contratto; l'ORDINARIO resta GM-pilotato. (2) I mob OSTILI
+parlamentano solo superando un **margine di CARISMA** contro la classe del loro
+grado (`classe_da_grado`: parlare con un mob d'oro è una prova d'oro) — carisma
+è la PRIMARIA nuova (`StatId.CARISMA`, palese, `CARL.carisma` 8 §11: il crawler
+nudo convince il bronzo, dall'argento serve corredo sociale); il tentativo è
+**UNO per mob** (`EntitaMob.parlamento_tentato`, persiste nel save: il rifiutato
+resta rifiutato) e la riga-fatto del motore non è mai muta. (3) La resa del
+personaggio (decisione C): il dato persiste nel backend e VESTE il frontend —
+campo **`voce`** su MobAsset→MobAttivo→EntitaMob (cadenza, registro, frasario;
+~1-2 frasi: budget token minimo) con **obbligo di forma** per interpellabili ed
+Elité (un asset senza voce non esiste), iniettato imperativo nei prompt di
+dialogo (`[png/voce]`) e scena (`[scena/png/voce]` via `righe_identita_scena`:
+il ponte identità→scena che il rilievo dava per mancante).
+
+Il cablaggio (tutte le mine del rilievo disinnescate): `TipoAzione.PARLAMENTA`
+con la sua foglia `DURATA_AZIONE` (niente KeyError all'import); voce di menu
+composta quando è VERA (ostile mai tentato — anche accanto a Combatti/Scappi —
+o PNG interpellabile in stanza) e ramo ESPLICITO in `_agisci_narrazione` prima
+del fall-through (parlare non apre mai uno scontro); porte di sessione
+`battuta_parlamento`/`abbandona_parlamento` con barriera post-await;
+**l'abbandono ha UN proprietario** (playtest giro 2, 2026-08-16): qualunque
+azione di menu a scena aperta — e l'apertura dello scontro d'imboscata —
+abbandona la scena PRIMA di agire, così `fase=combattimento` e
+`scena_aperta=True` non convivono mai nello snapshot (la barriera dentro
+`battuta_parlamento` resta come cintura sui flip fuori banda);
+**`scena_aperta` nello `SnapshotVista`** (la convenzione «menu
+vuoto ⇒ turno GM» è sospesa a scena aperta: l'host raccoglie battute); OFFLINE
+la scena si chiude d'ufficio al secondo battito muto (mai 12 righe identiche);
+`FattiScena` entra nel **fascicolo del turno GM successivo**
+(`[fascicolo/esito-scena]`: il vicolo cieco è chiuso); **il rifiuto al gate
+non è invisibile** (playtest giro 3, 2026-08-16 — il gate non apre scena e
+non lasciava nulla): doppio canale — la riga-fatto va al fascicolo del turno
+successivo (`[fascicolo/rifiuto-parlamento]`, handoff effimero consumato coi
+gemelli) e alla memoria INTERAZIONE (`registra_rifiuto_parlamento`, documento
+`parlamento-rifiutato-<slug>` durevole quanto `parlamento_tentato`); **la
+tregua del parlamentato** (stesso giro): chi ha ASCOLTATO il crawler (gate
+superato → `EntitaMob.parlamento_riuscito`, fotografato per zona in
+`StatoTerritorio.parlamenti_riusciti` come i tentativi spesi) non lo imbosca —
+il compositore d'imboscata esclude i nomi in tregua con un filtro DURO su
+tabella di spawn (`pesca_spawn(escludi=…)`) e cast, sagoma di budget in fondo
+(l'imboscata resta, cambia l'imboscatore; il rifiutato NON è in tregua); la
+TUI ha la modalità scena sull'input dell'azione libera. La scena non spende tempo
+né RNG (replay intatto). Il canale PNG è provato **dall'asset** (playtest:
+`MobAsset.categoria` è un enum — l'estrazione del `.value` in
+`materializza_png` è il fix che rende interpellabile il PNG materializzato da
+libreria). Lucchetti: `test_parlamento`
+(18, incluse le mine e gli exploit dei playtest come oracoli).
+**Piazzatore PNG — P1 FATTO** (2026-08-17, progetto in
+`docs/future/piazzatore-png.md`): roster congelato `PianoAttivo.png`
+auto-riempito dal risolutore per affinità di tag (categoria ≠ ordinario o
+Elité — l'archivista entra nel pianoterra senza authoring); modulo
+`motore/piazzatore.py` — pescata SEEDED (`master_seed:png:{piano}:{zona}`),
+slot per tipo di stanza (canone DCC: manager nel bagno, maestro nelle gilde,
+safe room riservata alla troupe P3), idempotente, un personaggio per nome,
+tetto `PNG.per_zona` §11 — agganciato a `rigenera_mappa_zona`; il vincolo
+giro-3 (mai un interpellabile dietro un custode) è STRUTTURALE e tenuto DA
+DUE LATI: gli slot esistono solo nei tipi quieti/gilda, e — falla F1 dello
+stress-test 2026-08-17: le gilde non sono «quiete», il reveal materializzava
+un ostile davanti al maestro — la stanza dell'interpellabile è RISERVATA
+(`stanza_riservata_al_png`: soppressione dello spawn al reveal identica al
+luogo quieto, mai nella stanza-boss). Altre falle chiuse dallo stress: F2 le
+chiavi di zona si ripetono tra piani e la discesa non elimina i PNG del
+piano lasciato → il sensore e gli slot filtrano per LIVELLO (niente
+interpellabili fantasma sul piano nuovo); F3 un personaggio (categoria ≠
+ordinario) nel cast/spawn/boss esisterebbe due volte → validator del
+risolutore; F4 (playtest in-game 2026-08-17) `stampa_tipi` non stampava MAI
+le gilde → il piazzatore era verde nei lucchetti e MORTO in partita (lo slot
+del maestro non esisteva, e la lore promette gilde «nei piani 1-3») → foglie
+`STANZE.prob_gilda_tutorial` (0.25/zona) + `STANZE.gilda_fino_al_piano` (3),
+pescata in CODA allo stream `…:tipi` (stampe storiche byte-identiche a prob
+0) e la gilda VINCE sul corridoio (flavor) ma mai su safe/bagno/boss.
+Playtest headless del piazzamento (driver, offline): 6 seed su 12 piazzano
+l'archivista nelle prime 3 zone; reveal pulito nella sua stanza, menu
+«Parlamenta — L'Archivista del Sesto», fascicolo con png+stanza, parlamento
+offline che degrada e chiude, PNG mai consumato, memoria scena scritta,
+unicità tra zone E tra piani (la gilda del piano 2 resta vuota finché lui è
+vivo al piano 1 — la ricorrenza è P3), zero fantasmi. Migliorie incassate: il fascicolo GM non è più cieco sui PNG
+(`[fascicolo/png]` + regia interpellabile/pilotato, e al reveal
+`[fascicolo/png/scena]` con la `prosa_stanza` finora inutilizzata);
+`materializza_png` su archetipo fuori registry = rifiuto dichiarato, mai
+KeyError (mina #7 chiusa); gli archetipi del roster entrano nel vocabolario
+chiuso della run. Lucchetti: `test_piazzatore` (14, inclusi il giro di zona
+completo senza duplicati, la stampa gilda e l'oracolo del playtest: seed 9
+piazza l'archivista dal solo seed, senza laboratori).
+Fuori dal pilota, dichiarato: prezzo della posta (le scene aprono a posta
+vuota), sbocco in scontro, spinta GM/narratore — il §5 del documento li
+copre come P2 (agenda come dato che unifica posta e sbocco) e P3 (troupe
+ricorrente, respiro post-boss), in attesa delle decisioni §7.
+
 ### 2.2 Combattimento
 
 **Due check, e nessuno dei due è un dado da JRPG**: check 1 = il *se* colpisci (gate
@@ -787,7 +881,11 @@ tutto in §2.1; il caching in AUTHORING è misurato live: `cache_letti > 0`, §2
 
 **C-bis. Il ciclo di gioco è più povero dei sistemi che lo servono** (misurato
 giocando, 2026-08-15 — non dedotto dai doc)
-- **Il verbo «parla» non esiste in partita.** `motore/png.py` e `motore/scena.py`
+- ~~Il verbo «parla» non esiste in partita~~ **PILOTA ACCESO (2026-08-16)**:
+  Parlamenta con gate di carisma sui mob ostili e categorie interpellabili
+  (dettaglio in §2.1-quater). Restano di S2-pieno: prezzo della posta, sbocco
+  in scontro, piazzamento PNG in stanza, spinta narratore. Il testo storico:
+  **Il verbo «parla» non esisteva in partita.** `motore/png.py` e `motore/scena.py`
   hanno **zero chiamanti in produzione** (compaiono solo come re-export in
   `motore/__init__.py`); la rotta `scena.blocco` è dichiarata e mai eseguita. È
   la scelta dichiarata «contratto ora, pilota poi» (§2.1-ter/quater), ma il conto
@@ -847,6 +945,31 @@ scratchpad di sessione):
 - Id documento-memoria `mob-p{livello}-s{stanza}` senza la zona: collisione fra
   zone del piano-mondo.
 - `conia_procedurale` può coniare due slug identici (stat diverse) nella stessa run.
+
+**C-quater. Caccia-2 sul terreno social (2026-08-16, sera)** — workflow 6
+cacciatori × verifica avversariale sulla superficie appena costruita + residui
+C-ter. 22 reperti unici, 8 verificati → **8 confermati → 8 CORRETTI** (lucchetti
+in `test_caccia2_social`, 7): save legacy col carisma al floor 1 (crawler muto a
+vita — riparazione lasca in `_ripara_protagonista`, `setdefault` dal
+profilo-base: le stat personalizzate sopravvivono); anti-pesca sociale aggirabile
+col giro di zona (la rimaterializzazione dal seed azzerava `parlamento_tentato`
+— ora il marker viaggia nella fotografia `StatoTerritorio.parlamenti_spesi`,
+riempitivi E custode); TUI in modo-scena dopo un'azione di menu (Invio → panic
+Textual — uscita speculare in `_agisci`); chiusura offline al 2° muto senza
+memoria (estratta `registra_interazione`, ora con ancore piano/tick);
+`_fatti_scena` mai consumato da `prossima_narrazione` (la scena chiusa
+ri-narrata a ogni reveal); PNG fantasma cross-zona (ancora `EntitaMob.zona`).
+
+**Residui della caccia-2 (dimostrati, non verificati — il prossimo lotto)**:
+il prompt di scena non dice che il mob convinto era OSTILE né la categoria;
+doppio Invio rapido sulla battuta (la guardia `_occupato` non copre); snodo di
+scena su stat=DIFESA (scala centesimi vs soglie in unità: l'AI che sceglie la
+stat decide di fatto l'esito — valutare un vocabolario di stat PROVABILI);
+«Parlamenta — Sagoma indistinta» (il fallback compone la voce sul segnaposto e
+brucia il tentativo); il calibratore web non mostra CARISMA; e i C-ter storici
+che RESISTONO: FattiScontro persi dal salva-esci immediato, turno GM spurio a
+run vinta (TUI), RNG consumato pre-await, filo post-load divergente, id memoria
+`mob-p{L}-s{S}` senza zona, slug duplicati del conio.
 
 **D. Test e taratura**
 - `test_banco_nemici` è diventato uno **specchio della formula** (ricalcola l'atteso con

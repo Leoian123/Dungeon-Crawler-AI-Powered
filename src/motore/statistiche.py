@@ -95,6 +95,9 @@ REGISTRY_STAT: dict[StatId, RigaStat] = {
     StatId.SAGGEZZA: RigaStat(Visibilita.VALORE_NASCOSTO, Modificabilita.SOLO_PRIVILEGIATI),
     # Fortuna: "ufficialmente non una stat reale" — usata nei tiri, negata alla proiezione.
     StatId.FORTUNA: RigaStat(Visibilita.ESISTENZA_NEGATA, Modificabilita.TUTTI),
+    # Carisma: la stat sociale del parlamentare (2026-08-16). Palese e
+    # modificabile da tutti — il corredo potrà portarla come porta le altre.
+    StatId.CARISMA: RigaStat(Visibilita.PALESE, Modificabilita.TUTTI),
 }
 
 

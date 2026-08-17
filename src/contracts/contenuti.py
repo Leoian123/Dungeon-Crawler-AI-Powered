@@ -28,6 +28,7 @@ from .schema import (
     ArchetipoId,
     Blocco,
     CategoriaArmatura,
+    CategoriaPng,
     Durata,
     Fascia,
     FasciaCosto,
@@ -174,6 +175,17 @@ class MobAsset(_Asset):
     # custodisce varchi e non è un incontro: si INCONTRA, dal piano minimo
     # §11 `ELITE.piano_minimo` in su). Farlo morire è roba del futuro.
     elite: bool = False
+    # CATEGORIA (decisione utente 2026-08-16): chi può rompere il divieto del
+    # menu. Default ORDINARIO = GM-pilotato (i save e gli asset storici
+    # deserializzano invariati); le categorie interpellabili portano l'obbligo
+    # di forma della VOCE (validator sotto).
+    categoria: CategoriaPng = CategoriaPng.ORDINARIO
+    # La VOCE (decisione utente 2026-08-16): come il personaggio PARLA —
+    # cadenza, registro, scelta di frasi, tic verbali. Non è la lore (aspetto/
+    # tratto dicono chi è; la voce dice come suona). Entra nel prompt di
+    # dialogo e scena: è il dato che impedisce «dialoghi diversi fra loro solo
+    # a parole e non per cadenza». Compatta per il budget token: 1-2 frasi.
+    voce: str = ""
     # Espressività per-mob (Fase 5): mosse proprie (vuoto = quelle dell'archetipo,
     # poi il default del motore) e override PARZIALE del profilo d'archetipo —
     # vince campo-per-campo. Authoring-facing: numeri legali qui, mai in
@@ -199,6 +211,25 @@ class MobAsset(_Asset):
                         "del dungeon esige la lore piena (descrizione, "
                         "aspetto, tratto)"
                     )
+        return self
+
+    @model_validator(mode="after")
+    def _interpellabile_esige_la_voce(self) -> "MobAsset":
+        """OBBLIGO DI FORMA della voce (decisione utente 2026-08-16): un PNG che
+        il giocatore può interpellare direttamente — o che parla da narratore —
+        senza una voce autorata sarebbe «un archetipo ripetitivo: dialoghi
+        diversi solo a parole». Come la lore per l'Elité: senza voce, l'asset
+        interpellabile non può esistere. Vale anche per l'Elité (l'idolo ha una
+        voce per definizione)."""
+        esige = self.elite or self.categoria in (
+            CategoriaPng.MAESTRO_GILDA, CategoriaPng.MANAGER, CategoriaPng.NARRATORE,
+        )
+        if esige and not self.voce.strip():
+            raise ValueError(
+                f"{self.slug}: `voce` obbligatoria per categoria "
+                f"{self.categoria.value}{' / elite' if self.elite else ''} — "
+                "cadenza, registro e frasario sono l'identità parlata, non un extra"
+            )
         return self
 
 
@@ -691,6 +722,13 @@ class PianoRisolto(BaseModel):
     cast: list[MobAsset] = Field(min_length=1)
     stanze: int | None = None
     territorio: TerritorioRisolto | None = None
+    # Il ROSTER PNG del piano (piazzatore P1, 2026-08-17): i personaggi NON
+    # ostili che il piazzatore può mettere in scena — riempito dal risolutore
+    # per affinità di tag con la libreria (categoria ≠ ordinario, o Elité).
+    # NON è cast: niente vincolo di budget (il PNG non è il vivaio ostile) e
+    # l'Elité qui PUÒ stare — è esattamente il suo posto. Default vuoto:
+    # stagioni risolte storiche invariate.
+    png: list[MobAsset] = Field(default_factory=list)
 
     @property
     def n_stanze(self) -> int:
@@ -704,6 +742,15 @@ class PianoRisolto(BaseModel):
             raise ValueError(f"{dove} fuori budget: {mob.slug} ha archetipo {mob.archetipo}")
         if not set(mob.blocchi) <= set(self.budget.blocchi):
             raise ValueError(f"{dove} fuori budget: {mob.slug} ha blocchi non ammessi")
+        if mob.categoria is not CategoriaPng.ORDINARIO:
+            # Il PERSONAGGIO non è un incontro (stress-test piazzatore, F3):
+            # cast, spawn e boss sono il vivaio OSTILE — un interpellabile o
+            # un narratore lì dentro esisterebbe due volte (ostile del reveal
+            # E piazzabile dal roster PNG), stesso nome, due corpi.
+            raise ValueError(
+                f"{dove}: {mob.slug} è un personaggio ({mob.categoria.value}), "
+                "non un incontro — vive nel roster PNG, mai nel vivaio ostile"
+            )
 
     @model_validator(mode="after")
     def _cast_nel_budget(self) -> "PianoRisolto":

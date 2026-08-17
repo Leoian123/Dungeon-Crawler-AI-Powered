@@ -47,7 +47,16 @@ def materializza_png(mob, livello: int, stanza: int) -> int | None:
 
     GATE ELITÉ (contratto, decisione utente 2026-08-11): l'idolo del dungeon
     non si incontra sotto il piano minimo (`ELITE.piano_minimo`, §11) —
-    `None` = rifiuto dichiarato, il chiamante non ha materializzato nulla."""
+    `None` = rifiuto dichiarato, il chiamante non ha materializzato nulla.
+
+    GUARDIA ARCHETIPO (B3, piazzatore P1): un archetipo fuori dal registry
+    congelato della run era un KeyError a valle (mina #7 del rilievo S2) —
+    ora è lo stesso rifiuto dichiarato del gate Elité (la guardia di
+    `_rimaterializza_vivi`: si salta, mai un crash)."""
+    from .design import registry_archetipi_correnti
+
+    if mob.archetipo not in registry_archetipi_correnti():
+        return None
     if getattr(mob, "elite", False):
         from .calibrazione import ELITE_PIANO_MINIMO
 
@@ -61,8 +70,67 @@ def materializza_png(mob, livello: int, stanza: int) -> int | None:
     em = esper.component_for_entity(ent, EntitaMob)
     em.ruolo = RuoloMob.PNG
     em.elite = bool(getattr(mob, "elite", False))
+    # Tassonomia + voce (2026-08-16): l'identità parlata viaggia con l'entità
+    # (round-trippa nel save col resto di EntitaMob) — i prompt la vestono.
+    # `categoria` arriva come str (MobAttivo) o come enum `CategoriaPng`
+    # (MobAsset): serve il VALORE — `str()` su un enum (str, Enum) darebbe
+    # "CategoriaPng.MAESTRO_GILDA" e il PNG non sarebbe mai interpellabile.
+    categoria = getattr(mob, "categoria", "ordinario") or "ordinario"
+    em.categoria = str(getattr(categoria, "value", categoria))
+    em.voce = str(getattr(mob, "voce", "") or "")
     em.stanza = stanza
+    # L'ancora di zona (caccia-2): la stanza del PNG vale SOLO nella zona in
+    # cui è stato materializzato — "" sui piani piatti (nessun territorio).
+    from .territorio import stato_territorio
+
+    stato = stato_territorio()
+    em.zona = stato.zona_corrente if stato is not None else ""
     return ent
+
+
+# Le categorie che ROMPONO il divieto del menu (decisione utente 2026-08-16):
+# il giocatore può interpellarle direttamente. NARRATORE resta fuori (parla
+# lui, senza replica); ORDINARIO resta GM-pilotato (verbale 2026-08-10).
+INTERPELLABILI: tuple[str, ...] = ("maestro_gilda", "manager")
+
+
+def png_interpellabile_in_stanza() -> int | None:
+    """Il PNG della stanza corrente SE il giocatore può rivolgergli la parola
+    (categoria in `INTERPELLABILI`); `None` altrimenti. È il sensore della
+    voce di menu «Parlamenta»: comporre è una lettura, mai una scrittura."""
+    from .mappa import png_in_stanza_corrente
+
+    ent = png_in_stanza_corrente()
+    if ent is None:
+        return None
+    em = esper.try_component(ent, EntitaMob)
+    if em is None or em.categoria not in INTERPELLABILI:
+        return None
+    return ent
+
+
+def stanza_riservata_al_png() -> bool:
+    """Vero se la stanza corrente è dell'INTERPELLABILE: il reveal NON vi
+    materializza ostili (stress-test piazzatore, F1 — le gilde non sono
+    «quiete» e il reveal piazzava un mob DAVANTI al maestro: il vincolo
+    giro-3 violato dal motore stesso). Mai vero nella stanza-boss: il
+    custode non si sopprime — il varco si apre battendolo."""
+    from .territorio import stanza_corrente_e_del_boss
+
+    return (png_interpellabile_in_stanza() is not None
+            and not stanza_corrente_e_del_boss())
+
+
+def dettagli_png_in_stanza() -> EntitaMob | None:
+    """L'`EntitaMob` del PNG nella stanza corrente (`None` se assente): il
+    sensore del fascicolo GM (P1.4 — il GM non narra più una stanza ignorando
+    chi ci sta dentro). Sola lettura, gemello di `dettagli_mob_corrente`."""
+    from .mappa import png_in_stanza_corrente
+
+    ent = png_in_stanza_corrente()
+    if ent is None:
+        return None
+    return esper.try_component(ent, EntitaMob)
 
 
 def _slug_png(em: EntitaMob) -> str:
@@ -93,6 +161,14 @@ async def dialoga(
     ) if x)
     if dettagli:
         righe.append(f"[png/identita] {dettagli}")
+    if em.voce:
+        # La VOCE (2026-08-16): cadenza, registro, frasario — l'istruzione che
+        # separa due personaggi ANCHE quando dicono la stessa cosa. Imperativa:
+        # il modello la deve ESEGUIRE, non parafrasare.
+        righe.append(
+            f"[png/voce] Parla ESATTAMENTE così — cadenza, registro, scelta "
+            f"delle frasi: {em.voce}"
+        )
     if em.elite:
         righe.append(
             "[png/elite] È un ELITÉ: il personaggio che TUTTI nel dungeon "

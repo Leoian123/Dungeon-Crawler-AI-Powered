@@ -42,6 +42,27 @@ class EntitaMob:
     # (il ruolo resta PNG). Default False: i save storici deserializzano
     # invariati. Il dialogo lo dice al GM; la mortalità è roba del futuro.
     elite: bool = False
+    # Tassonomia + voce (2026-08-16): la categoria decide chi può rompere il
+    # divieto del menu (interpellabili), la voce è l'identità PARLATA che i
+    # prompt di dialogo/scena vestono. Default retro-compatibili (save storici
+    # invariati). `categoria` è il value di `CategoriaPng` (dato jsonable).
+    categoria: str = "ordinario"
+    voce: str = ""
+    # PARLAMENTO (2026-08-16): il tentativo di parlamentare con un OSTILE si fa
+    # UNA volta per mob (anti-pesca sociale, gemello dello snodo di scena): il
+    # marker persiste col mob — il fallito resta fallito anche dopo un load.
+    parlamento_tentato: bool = False
+    # La TREGUA del parlamentato (playtest giro 3): True se il gate è stato
+    # SUPERATO — chi ti ha ascoltato non ti imbosca (il compositore d'imboscata
+    # esclude i suoi omonimi vivi). Default retro-safe come i gemelli.
+    parlamento_riuscito: bool = False
+    # L'ANCORA DI ZONA (caccia-2, 2026-08-16): la chiave della zona in cui
+    # `stanza` vale ("" = piano piatto/legacy). Gli indici di stanza sono
+    # per-mappa-di-zona: il PNG — che sopravvive al despawn di zona per
+    # esenzione — veniva ritrovato da `png_in_stanza_corrente` in QUALUNQUE
+    # zona avesse una stanza di pari indice (menu «Parlamenta» nella zona
+    # sbagliata). Default retro-safe: i save storici deserializzano invariati.
+    zona: str = ""
 
 
 @dataclass

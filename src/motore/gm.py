@@ -45,6 +45,7 @@ from dataclasses import dataclass, field, replace
 from typing import Callable
 
 from contracts import (
+    FattiScena,
     ClasseBeneficio,
     ClasseProva,
     DocumentoMemoria,
@@ -373,6 +374,10 @@ class Fascicolo:
     memoria: tuple[str, ...]
     azione: str = ""                        # "" = turno di reveal (nessuna azione)
     esito_scontro: FattiScontro | None = None  # handoff dall'istanza di combattimento
+    esito_scena: "FattiScena | None" = None    # handoff dalla scena sociale (2026-08-16)
+    # Il RIFIUTO al gate del parlamento (playtest giro 3): la riga-fatto del
+    # motore — il gate non apre scena, quindi non passa da esito_scena. "" = niente.
+    rifiuto_parlamento: str = ""
     piano_etichetta: str = ""               # grounding compatto del design attivo
     # Voci dalla MEMORIA NARRATIVA (porta, Fase 6): documenti recuperati per
     # rilevanza — contesto lungo oltre la finestra dei riassunti-turno.
@@ -390,6 +395,11 @@ class Fascicolo:
     # Il TIPO della stanza corrente ("" = normale, che non aggiunge nulla): il
     # GM lo NARRA — safe room da safe room, bagno da bagno — mai lo sceglie.
     stanza_tipo: str = ""
+    # Il PNG in stanza (piazzatore P1.4 — chiude B1: il fascicolo era CIECO
+    # sui PNG e il GM poteva narrare la stanza ignorando chi ci sta dentro).
+    # `png_scena` = la sua prosa autorata, SOLO al reveal (materiale di scena).
+    png_riga: str = ""
+    png_scena: str = ""
 
 
 def componi_fascicolo(
@@ -397,6 +407,8 @@ def componi_fascicolo(
     *,
     azione: str = "",
     esito_scontro: FattiScontro | None = None,
+    esito_scena=None,
+    rifiuto_parlamento: str = "",
 ) -> Fascicolo:
     """Raccoglie il fascicolo dal World corrente. Sola lettura, zero chiamate."""
     pent, _marker, _scheda = protagonista()
@@ -457,8 +469,11 @@ def componi_fascicolo(
     # convergono sullo stesso mob per stanza, e nessuno stream di sessione
     # viene toccato (replay e imboscate restano al loro posto, F-13).
     riga_mob_atteso, query_mob_atteso = "", ""
+    from .png import INTERPELLABILI, dettagli_png_in_stanza, stanza_riservata_al_png
+
     if (zona is not None and not azione and not stanza_visitata()
-            and mob_corrente() is None and not stanza_quieta()):
+            and mob_corrente() is None and not stanza_quieta()
+            and not stanza_riservata_al_png()):
         if stanza_corrente_e_del_boss() and not boss_sconfitto(zona):
             atteso, imperativo = custode, True
         else:
@@ -482,6 +497,36 @@ def componi_fascicolo(
                     f'riferimento="{atteso.slug}")'
                 )
             query_mob_atteso = f"{atteso.nome} {atteso.slug}"
+    # Il PNG in stanza (P1.4): il GM lo RICEVE, mai lo decide — e al reveal
+    # riceve anche la sua scena autorata (`prosa_stanza`, finora inutilizzata
+    # per i PNG: B6). La regia distingue interpellabile da GM-pilotato.
+    riga_png, scena_png = "", ""
+    dett_png = dettagli_png_in_stanza()
+    if dett_png is not None:
+        regia = (
+            "il giocatore PUÒ rivolgergli la parola dal menu («Parlamenta»): "
+            "mettilo in scena, non parlare al suo posto"
+            if dett_png.categoria in INTERPELLABILI
+            else "PNG di colore, GM-pilotato: puoi dargli voce tu"
+        )
+        if stanza_riservata_al_png():
+            # La stanza dell'interpellabile non spawna ostili (F1): il formato
+            # esige un'entità, ma qui — come nel luogo quieto — non è un abitante.
+            regia += (
+                "; questa è la SUA stanza: NESSUN nemico entra in scena, "
+                "l'entità richiesta dal formato non va nominata come minaccia"
+            )
+        elite_png = " È un ELITÉ: l'idolo del dungeon." if dett_png.elite else ""
+        riga_png = (
+            f"in stanza c'è {dett_png.nome} ({dett_png.categoria})"
+            + (f" — {dett_png.descrizione[:200]}" if dett_png.descrizione else "")
+            + f"; {regia}{elite_png}"
+        )
+        if not azione and not stanza_visitata() and piano is not None:
+            scena_png = next(
+                (mob.prosa_stanza[:300] for mob in piano.png
+                 if mob.nome == dett_png.nome and mob.prosa_stanza), "",
+            )
     tipo_corrente = tipo_stanza_corrente()
     return Fascicolo(
         tick=tempo_piano_corrente(),
@@ -498,11 +543,15 @@ def componi_fascicolo(
         memoria=memoria.finestra(),
         azione=azione,
         esito_scontro=esito_scontro,
+        esito_scena=esito_scena,
+        rifiuto_parlamento=rifiuto_parlamento,
         piano_etichetta=etichetta,
         scena_precedente=_coda_prosa(memoria.ultima_prosa) if memoria.ultima_prosa else "",
         territorio_riga=riga_territorio,
         mob_atteso_riga=riga_mob_atteso,
         mob_atteso_query=query_mob_atteso,
+        png_riga=riga_png,
+        png_scena=scena_png,
     )
 
 
@@ -550,6 +599,10 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append(f"[fascicolo/territorio] {f.territorio_riga}")
     if f.mob_atteso_riga:
         righe.append(f"[fascicolo/mob-atteso] {f.mob_atteso_riga}")
+    if f.png_riga:
+        righe.append(f"[fascicolo/png] {f.png_riga}")
+    if f.png_scena:
+        righe.append(f"[fascicolo/png/scena] {f.png_scena}")
     if f.stanza_tipo:
         glossa = _GLOSSA_TIPO_STANZA.get(f.stanza_tipo, "")
         if f.stanza_tipo in (TipoStanza.SAFE_ROOM.value, TipoStanza.BAGNO.value):
@@ -574,6 +627,26 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append("[fascicolo/memoria] finora: " + " | ".join(f.memoria))
     if f.memoria_lunga:
         righe += [f"[fascicolo/memoria-lunga] {voce}" for voce in f.memoria_lunga]
+    if f.rifiuto_parlamento:
+        # Il rifiuto al gate (playtest giro 3): senza questa riga il GM poteva
+        # narrare il mob «disponibile» un tick dopo il voltafaccia — l'anti-pesca
+        # sociale è un fatto del motore e va raccontata come tale.
+        righe.append(
+            f"[fascicolo/rifiuto-parlamento] {f.rifiuto_parlamento} — il mob ha "
+            "voltato le spalle al crawler: il tentativo era UNO e non si ripete, "
+            "non narrarlo mai più come disponibile al dialogo"
+        )
+    if f.esito_scena is not None:
+        # La scena sociale APPENA conclusa (2026-08-16): il turno GM la eredita
+        # come eredita lo scontro — senza questa riga il fascicolo non sapeva
+        # che la conversazione era avvenuta (il vicolo cieco del rilievo).
+        sc = f.esito_scena
+        righe.append(
+            f"[fascicolo/esito-scena] la scena con {', '.join(sc.partecipanti)} "
+            f"si è chiusa: {sc.esito.value}"
+            + (f"; posta: {sc.posta}" if sc.posta else "")
+            + (f"; {'; '.join(sc.momenti)}" if sc.momenti else "")
+        )
     if f.esito_scontro is not None:
         e = f.esito_scontro
         if getattr(e, "fuga", False):
@@ -1060,6 +1133,8 @@ async def esegui_turno_gm(
     bus=None,
     azione: str = "",
     esito_scontro: FattiScontro | None = None,
+    esito_scena=None,
+    rifiuto_parlamento: str = "",
     ingresso_combattimento: bool = False,
     avanzamento: Avanzamento | None = None,
     guardia_scrittura: Callable[[], None] | None = None,
@@ -1093,7 +1168,10 @@ async def esegui_turno_gm(
     # dal composition root passa com'è (corsie vere, tally per rotta).
     engine = provider if isinstance(provider, MasterEngine) else MasterEngine.avvolgi(provider)
 
-    fascicolo = componi_fascicolo(memoria, azione=azione, esito_scontro=esito_scontro)
+    fascicolo = componi_fascicolo(
+        memoria, azione=azione, esito_scontro=esito_scontro, esito_scena=esito_scena,
+        rifiuto_parlamento=rifiuto_parlamento,
+    )
     # Memoria narrativa (porta, Fase 6): i documenti rilevanti per l'azione o per
     # il nemico appena affrontato entrano come contesto lungo. Sola lettura, zero
     # chiamate: il recupero è deterministico (contratto della porta).
@@ -1344,11 +1422,16 @@ async def esegui_turno_gm(
     if guardia_scrittura is not None:
         guardia_scrittura()  # barriera: ultimo await passato, il World si tocca ORA
     _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
-    quiete_reveal = reveal and stanza_quieta()
+    from .png import stanza_riservata_al_png
+
+    quiete_reveal = reveal and (stanza_quieta() or stanza_riservata_al_png())
     if quiete_reveal:
         # Il luogo QUIETO (safe room/bagno, T2) non materializza: la stanza È la
         # scena — l'entità del turno gated resta un requisito di formato, mai
         # un abitante. La visita si segna comunque (il menu deve esistere).
+        # Stessa regola per la stanza dell'INTERPELLABILE (F1): il maestro non
+        # riceve un ostile davanti alla porta — il vincolo giro-3 vale anche
+        # per il reveal, non solo per il piazzatore.
         segna_visitata()
     elif reveal:  # materializza SOLO al reveal: il mob appartiene alla stanza
         ent = materializza_turno(risultato, bus)

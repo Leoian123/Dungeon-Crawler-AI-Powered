@@ -69,6 +69,7 @@ def _costruisci_app(sessione):
             # (l'epitaffio non ha più un flag di host: la sua unicità è del motore,
             #  che dichiara il battito una volta sola — vedi `_segna_prosa`.)
             self._menu_zaino = False   # il menu mostra l'inventario invece della scena
+            self._in_scena = False     # scena sociale aperta: l'input raccoglie BATTUTE
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -190,6 +191,29 @@ def _costruisci_app(sessione):
                 snap = await self._con_attesa(self.sessione.prossima_narrazione())
             await self._mostra(snap, righe)
             await self._drena_prosa()
+            if snap.scena_aperta and not self._in_scena:
+                # PARLAMENTA riuscito: la scena è aperta — l'input raccoglie
+                # BATTUTE finché il motore non la chiude (o il giocatore tronca).
+                self._entra_in_scena()
+            elif self._in_scena and not snap.scena_aperta:
+                # L'USCITA speculare (caccia-2, 2026-08-16): un'azione di menu a
+                # scena aperta (Combatti, Scappi, Muovi…) la ABBANDONA nel
+                # motore — senza questo ramo la TUI restava in modo-scena con
+                # l'input-battute attivo, e l'Invio successivo finiva su
+                # `battuta_parlamento` senza scena: RuntimeError, panic Textual,
+                # sessione persa. La sincronia dei modi è dell'host.
+                self._in_scena = False
+                campo = self.query_one("#azione", Input)
+                campo.value = ""
+                campo.remove_class("attiva")
+
+        def _entra_in_scena(self) -> None:
+            self._in_scena = True
+            campo = self.query_one("#azione", Input)
+            campo.value = ""
+            campo.placeholder = "Cosa dici? (vuoto = tronchi la conversazione)"
+            campo.add_class("attiva")
+            campo.focus()
 
         # --- Zaino ed equip: la demo del canale loot→zaino→indosso (porte vere) ---
 
@@ -277,6 +301,29 @@ def _costruisci_app(sessione):
             campo = self.query_one("#azione", Input)
             testo = event.value.strip()
             rl = self.query_one("#log", RichLog)
+            if self._in_scena:
+                # MODALITÀ SCENA (2026-08-16): il testo è una BATTUTA, non
+                # un'azione — va alla porta di scena, mai al turno GM (la mina
+                # del menu-vuoto). Vuoto = il giocatore tronca la conversazione.
+                campo.value = ""
+                if not testo:
+                    self.sessione.abbandona_parlamento()
+                    self._in_scena = False
+                    campo.remove_class("attiva")
+                    await self._mostra(self.sessione.avanza(), [])
+                    return
+                self._chat_narrazione(f"— «{testo}»")
+                prosa = await self._con_attesa(self.sessione.battuta_parlamento(testo))
+                self._chat_narrazione(prosa)
+                snap = self.sessione.avanza()
+                if not snap.scena_aperta:
+                    self._in_scena = False
+                    campo.remove_class("attiva")
+                    await self._mostra(snap, self.cronaca.preleva())
+                else:
+                    campo.placeholder = "Cosa rispondi? (vuoto = tronchi)"
+                    campo.focus()
+                return
             if not testo:  # vuoto = annulla (in entrambe le fasi della finestra)
                 campo.remove_class("attiva")
                 self._in_conferma = False

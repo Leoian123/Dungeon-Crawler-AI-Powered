@@ -110,6 +110,12 @@ class SnapshotVista(BaseModel):
     # dell'ultimo messaggio GM, congelato per interi scontri e riposi
     # (riscontro playtest 2026-08-12). Additivo: 0 = ignoto (host storici).
     tick: int = 0
+    # SCENA SOCIALE aperta (2026-08-16): il segnale che SOSPENDE la convenzione
+    # «menu vuoto ⇒ chiedi un turno GM» — senza, un host farebbe partire
+    # `esegui_turno_gm` in mezzo al dialogo. Con `True` l'host raccoglie una
+    # BATTUTA di testo libero e la instrada alla porta di scena, non al GM.
+    # Additivo con default: gli host storici deserializzano invariati.
+    scena_aperta: bool = False
 
     @property
     def run_conclusa(self) -> bool:

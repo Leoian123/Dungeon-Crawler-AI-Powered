@@ -30,6 +30,10 @@ def _elite(slug: str = "vetusto-re-del-multisala", **extra):
         descrizione="Il primo crawler a superare dieci piani: nessuno l'ha più visto salire.",
         aspetto="mantello di locandine cucite, corona di biglietti strappati",
         tratto="parla di sé in terza persona, come lo show gli ha insegnato",
+        # Obbligo di forma della VOCE (2026-08-16): l'idolo ha una voce per
+        # definizione — un Elité senza non può esistere come asset.
+        voce="periodi lunghi da cerimonia di premiazione, pause teatrali, "
+             "mai una domanda: il Re non chiede, concede",
     ) | extra
     return MobAsset.model_validate(dati)
 

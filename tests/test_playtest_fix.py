@@ -579,7 +579,7 @@ def test_imboscata_senza_deja_vu(mondo_isolato, monkeypatch) -> None:
     b = _mob_a_attivo(mob_sintetico("un-altro", prosa="p"))
     sequenza = iter([a, b])
     monkeypatch.setattr(territorio_mod, "pesca_spawn",
-                        lambda _rng: next(sequenza, b))
+                        lambda _rng, escludi=frozenset(): next(sequenza, b))
     enc = componi_imboscata_scena(escludi_nome=a.nome)
     em = entita_mob_incontro(enc)
     assert em is not None and em.nome == b.nome, (

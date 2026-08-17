@@ -102,6 +102,19 @@ class StatoTerritorio:
     # seed del copione: stesso mob) — il morto resta morto, il congedato
     # ritorna. Default retro-safe: i save storici deserializzano invariati.
     stanze_con_vivi: dict[str, list[int]] = field(default_factory=dict)
+    # I PARLAMENTI SPESI (caccia-2, 2026-08-16): per zona, le stanze il cui
+    # ostile ha già consumato il tentativo unico. La rimaterializzazione ricrea
+    # l'entità dal seed — un `EntitaMob` fresco nasce con
+    # `parlamento_tentato=False` e il rifiutato tornava parlamentabile:
+    # bastava alzare il carisma e rifare il giro di zona per ribaltare il
+    # rifiuto (il retry che l'anti-pesca sociale vieta). Il marker entra nella
+    # stessa fotografia dei vivi: un solo proprietario di «chi torna, e come».
+    parlamenti_spesi: dict[str, list[int]] = field(default_factory=dict)
+    # La TREGUA del parlamentato (playtest giro 3): per zona, le stanze il cui
+    # ostile ha ASCOLTATO (gate superato). Stessa disciplina dei tentativi
+    # spesi: senza fotografia il giro di zona azzererebbe la tregua e il
+    # personaggio che ti ha ascoltato tornerebbe a imboscarti.
+    parlamenti_riusciti: dict[str, list[int]] = field(default_factory=dict)
 
 
 def stato_territorio() -> StatoTerritorio | None:
@@ -234,7 +247,12 @@ def _stampa_tipi_zona(livello: int, zona: Zona, piano_zona: Piano) -> None:
     rara e da trovare, mai regalata) e a pescata nei vicoli laterali (il premio
     della deviazione, `STANZE.prob_safe_laterale`). RNG su stream DEDICATO
     (`…:tipi`): la topologia già pubblicata resta byte-identica."""
-    from .calibrazione import STANZE_PROB_SAFE_LATERALE, STANZE_SAFE_OGNI_ZONE
+    from .calibrazione import (
+        STANZE_GILDA_FINO_AL_PIANO,
+        STANZE_PROB_GILDA_TUTORIAL,
+        STANZE_PROB_SAFE_LATERALE,
+        STANZE_SAFE_OGNI_ZONE,
+    )
     from .mappa import stampa_tipi
 
     rng_tipi = random.Random(f"{master_seed()}:piano:{livello}:zona:{zona.chiave}:tipi")
@@ -246,6 +264,10 @@ def _stampa_tipi_zona(livello: int, zona: Zona, piano_zona: Piano) -> None:
         boss=stanza_boss_di(zona, piano_zona),
         safe_garantita=di_spina and zona.tier.ordine % ogni == ogni - 1,
         prob_safe=0.0 if di_spina else STANZE_PROB_SAFE_LATERALE,
+        # La gilda del tutorial sui primi piani (F4): la lore la promette,
+        # la mappa ora la stampa — è lo slot del maestro (piazzatore).
+        prob_gilda=(float(STANZE_PROB_GILDA_TUTORIAL)
+                    if livello <= int(STANZE_GILDA_FINO_AL_PIANO) else 0.0),
     )
 
 
@@ -282,6 +304,11 @@ def rigenera_mappa_zona(livello: int, zona: Zona) -> int:
         if zona.chiave not in stato.zone_visitate:
             stato.zone_visitate.append(zona.chiave)
         _rimaterializza_vivi(livello, zona, stato)
+    # Il PIAZZATORE (P1): il casting della zona appena montata — seeded,
+    # idempotente (il rientro non duplica: i PNG sopravvivono al despawn).
+    from .piazzatore import piazza_png_di_zona
+
+    piazza_png_di_zona(livello, zona)
     return ent
 
 
@@ -324,6 +351,11 @@ def _rimaterializza_vivi(livello: int, zona: Zona, stato: StatoTerritorio) -> No
         ), livello)
         em = esper.component_for_entity(ent, EntitaMob)
         em.stanza = stanza
+        # L'anti-pesca sociale sopravvive alla rimaterializzazione: il mob
+        # ricreato eredita il tentativo speso dalla fotografia (caccia-2) —
+        # e la TREGUA con lui (giro 3).
+        em.parlamento_tentato = stanza in stato.parlamenti_spesi.get(zona.chiave, [])
+        em.parlamento_riuscito = stanza in stato.parlamenti_riusciti.get(zona.chiave, [])
         mappa.mob_stanza[stanza] = ent
 
 
@@ -485,10 +517,18 @@ def _tabella_spawn(territorio: TerritorioAttivo, tier: TierTerritorio):
     return ()
 
 
-def pesca_spawn(rng: random.Random) -> MobAttivo | None:
+def pesca_spawn(
+    rng: random.Random, escludi: frozenset[str] = frozenset()
+) -> MobAttivo | None:
     """UN riempitivo dalla tabella della zona corrente, pescato PESATO
     (`PESO_FREQUENZA`, foglia §11 — la frequenza è categoria del contratto).
-    `None` senza territorio: il chiamante usa la via storica (cast)."""
+    `None` senza territorio: il chiamante usa la via storica (cast).
+
+    `escludi` (tregua del parlamentato, giro 3): i nomi filtrati ESCONO dalla
+    tabella prima della pescata (mai una ri-pescata a tentativi: il filtro è
+    onesto e la pescata resta una). A insieme vuoto la pescata è byte-identica
+    allo storico. `None` anche a tabella interamente esclusa: il chiamante
+    ripiega (cast filtrato o sagoma di budget)."""
     from .calibrazione import PESO_FREQUENZA
 
     territorio = territorio_attivo()
@@ -496,6 +536,8 @@ def pesca_spawn(rng: random.Random) -> MobAttivo | None:
     if territorio is None or zona is None:
         return None
     voci = _tabella_spawn(territorio, zona.tier)
+    if escludi:
+        voci = [v for v in voci if v.mob.nome not in escludi]
     if not voci:
         return None
     pesi = [PESO_FREQUENZA[v.frequenza] for v in voci]
@@ -594,6 +636,20 @@ def rimaterializza_custode() -> int | None:
     )
     ent = istanzia_entita(eg, livello)
     registra_mob(ent)
+    # Anche il CUSTODE eredita il tentativo di parlamento speso (caccia-2):
+    # ricrearlo dal seed non riapre il negoziato rifiutato.
+    stato = stato_territorio()
+    m = mappa_corrente()
+    if stato is not None and m is not None:
+        em = esper.component_for_entity(ent, EntitaMob)
+        em.parlamento_tentato = (
+            m[1].stanza_corrente
+            in stato.parlamenti_spesi.get(stato.zona_corrente, [])
+        )
+        em.parlamento_riuscito = (
+            m[1].stanza_corrente
+            in stato.parlamenti_riusciti.get(stato.zona_corrente, [])
+        )
     return ent
 
 
@@ -644,6 +700,20 @@ def _fotografa_vivi_di_zona() -> None:
         if em.ruolo is RuoloMob.OSTILE and em.stanza is not None
     })
     stato.stanze_con_vivi[stato.zona_corrente] = stanze
+    # Il marker del parlamento viaggia CON la fotografia: al rientro il mob
+    # ricreato dal seed lo eredita (`_rimaterializza_vivi`/`rimaterializza_custode`).
+    stato.parlamenti_spesi[stato.zona_corrente] = sorted({
+        em.stanza for _ent, em in esper.get_component(EntitaMob)
+        if em.ruolo is RuoloMob.OSTILE and em.stanza is not None
+        and em.parlamento_tentato
+    })
+    # E con lui la TREGUA (giro 3): chi ha ascoltato resta in tregua anche
+    # dopo un giro di zona — il rientro la ripristina dal seed.
+    stato.parlamenti_riusciti[stato.zona_corrente] = sorted({
+        em.stanza for _ent, em in esper.get_component(EntitaMob)
+        if em.ruolo is RuoloMob.OSTILE and em.stanza is not None
+        and em.parlamento_riuscito
+    })
 
 
 def _despawna_mob_di_zona() -> None:
