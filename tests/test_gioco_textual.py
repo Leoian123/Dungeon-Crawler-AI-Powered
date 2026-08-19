@@ -148,6 +148,59 @@ def test_zaino_e_scheda_dalla_ui() -> None:
         cal.PROB_DROP = vecchio
 
 
+def _carisma_alto() -> None:
+    """Il gate del parlamento reso deterministico (stesso trucco dei test del
+    motore): carisma sopra ogni soglia, mutazione diretta del World attivo."""
+    import esper
+
+    from contracts import StatId
+    from motore.scheda import protagonista
+    from motore.statistiche import Primarie
+
+    pent, _m, _s = protagonista()
+    esper.component_for_entity(pent, Primarie).valori[StatId.CARISMA] = 40
+
+
+def test_mode_scena_batte_e_tronca() -> None:
+    """Il parlamentare dalla TUI (il pilot che mancava): Parlamenta apre la
+    scena e l'input raccoglie BATTUTE (porta di scena, mai il turno GM); una
+    battuta non chiude; l'invio VUOTO tronca e il menu riprende la scena."""
+    pytest.importorskip("textual")
+    from textual.widgets import Button, Input
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            _carisma_alto()
+            parlamenta = next(
+                b for b in app.query(Button)
+                if str(b.label).startswith("Parlamenta")
+            )
+            await pilot.click(f"#{parlamenta.id}")
+            await pilot.pause()
+            assert app._in_scena, "il gate superato entra in mode-scena"
+            assert app.sessione.avanza().scena_aperta
+
+            campo = app.query_one("#azione", Input)
+            campo.focus()
+            await pilot.pause()
+            await pilot.press(*"Chi comanda qui?")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._in_scena, "una battuta non chiude la scena"
+            assert app.sessione.avanza().scena_aperta
+
+            campo.focus()
+            await pilot.pause()
+            await pilot.press("enter")  # vuoto = il giocatore tronca
+            await pilot.pause()
+            assert not app._in_scena, "l'invio vuoto tronca la conversazione"
+            assert not app.sessione.avanza().scena_aperta
+
+    asyncio.run(run())
+
+
 def test_permadeath_chiude_il_menu() -> None:
     pytest.importorskip("textual")
     from textual.widgets import Button
