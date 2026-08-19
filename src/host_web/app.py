@@ -33,6 +33,7 @@ from main import (
     STAGIONE_DEFAULT,
     SalvataggioInCombattimento,
     affini,
+    bacheca,
     carica_asset,
     carica_sessione,
     costruisci_sessione,
@@ -40,6 +41,8 @@ from main import (
     elenca_crawler,
     elimina_asset_locale,
     elimina_crawler,
+    etichetta_oggetto,
+    fantasmi_locali,
     risolvi_stagione,
     salva_asset_locale,
     vocabolario,
@@ -71,6 +74,13 @@ class NuovoCrawler(BaseModel):
     nome: str = Field(min_length=1, max_length=40)
     seed: int = 0
     stagione: str | None = None  # slug della stagione; None = quella di default
+    # RUN DEL GIORNO (sovra-run C): il seed diventa `seed_del_giorno(oggi,
+    # stagione)` — stessa data, stesso dungeon per chiunque. La DATA la mette
+    # l'HOST (qui): il motore non guarda mai l'orologio (J).
+    daily: bool = False
+    # DUNGEON INFESTATO (sovra-run D): le sconfitte del ledger locale entrano
+    # come fantasmi-lore. Opt-in esplicito: senza flag, run storica identica.
+    infestata: bool = False
 
 
 class CaricaCrawler(BaseModel):
@@ -113,6 +123,15 @@ class RichiestaAnteprima(BaseModel):
 class RichiestaAzione(BaseModel):
     model_config = ConfigDict(extra="forbid")
     testo: str
+    versione: int
+
+
+class RichiestaEquip(BaseModel):
+    """Indossa/togli per FONTE (ADR-1: rimozione per fonte, mai operazione
+    inversa). La fonte deve stare nello zaino: il resto lo arbitra il motore."""
+
+    model_config = ConfigDict(extra="forbid")
+    fonte: str = Field(min_length=1)
     versione: int
 
 
@@ -395,6 +414,17 @@ def crea_app(stato: StatoHost) -> FastAPI:
         except ValueError as errore:
             raise ErroreApi(422, "anteprima_non_valida", str(errore))
 
+    @app.get("/api/bacheca")
+    async def bacheca_crawler() -> dict:
+        """La BACHECA sovra-run: i necrologi PROIETTATI dal ledger degli esiti
+        (Fase B). Nessuna guardia di sessione: è storia, si legge anche a hub
+        spento — e un ledger sabotato è una bacheca vuota, mai un crash."""
+        return {
+            "necrologi": [
+                p.model_dump(mode="json") for p in bacheca(stato.directory)
+            ]
+        }
+
     @app.get("/api/crawlers")
     async def crawlers() -> dict:
         """L'elenco degli slot (slot = crawler, H §1): la vista dell'hub. Nessuna
@@ -444,9 +474,20 @@ def crea_app(stato: StatoHost) -> FastAPI:
                 )
             except ValueError as errore:
                 raise ErroreApi(422, "stagione_non_risolvibile", str(errore))
+            seed = ric.nuovo.seed
+            if ric.nuovo.daily:
+                from datetime import date
+
+                from contracts import seed_del_giorno
+
+                seed = seed_del_giorno(date.today().isoformat(), risolta.numero)
+            fantasmi = (
+                fantasmi_locali(stato.directory) if ric.nuovo.infestata else ()
+            )
             sessione = costruisci_sessione(
-                nome=ric.nuovo.nome, seed=ric.nuovo.seed,
+                nome=ric.nuovo.nome, seed=seed,
                 directory=stato.directory, provider=provider, stagione=risolta,
+                fantasmi=fantasmi,
             )
         else:
             sessione = carica_sessione(
@@ -457,10 +498,13 @@ def crea_app(stato: StatoHost) -> FastAPI:
                     404, "salvataggio_illeggibile",
                     "Il salvataggio non esiste o non è leggibile.",
                 )
-        stato.adotta(
-            sessione, etichetta,
-            crawler={"uuid": sessione.uuid, "nome": sessione.etichetta},
-        )
+        crawler = {"uuid": sessione.uuid, "nome": sessione.etichetta}
+        if ric.nuovo is not None:
+            # Il seed EFFETTIVO (post-daily): la UI può dire «run del giorno,
+            # seed N» e la verifica futura della classifica è proprio questo
+            # numero (esito.seed == seed_del_giorno(data)).
+            crawler["seed"] = seed
+        stato.adotta(sessione, etichetta, crawler=crawler)
         if ric.carica is not None:
             # Il forum della run riparte dai turni GM congelati (H §11).
             stato.ricostruisci_thread(sessione.ricostruisci_thread())
@@ -508,6 +552,58 @@ def crea_app(stato: StatoHost) -> FastAPI:
         """Il party per la UI (oggi: il solo protagonista — la lista è il seam)."""
         sessione = _sessione()
         return {"party": [sessione.scheda().model_dump(mode="json")]}
+
+    @app.get("/api/partita/zaino")
+    async def zaino() -> dict:
+        """L'inventario per la UI: fonte + etichetta diegetica (la vestizione
+        del Guardaroba vince sul catalogo) + stato indossata. Sola lettura."""
+        sessione = _sessione()
+        indossate = set(sessione.fonti_indossate())
+        return {
+            "fonti": [
+                {
+                    "fonte": fonte,
+                    "etichetta": etichetta_oggetto(fonte),
+                    "indossata": fonte in indossate,
+                }
+                for fonte in sessione.scheda().zaino
+            ]
+        }
+
+    def _guardia_equip(ric: RichiestaEquip):
+        """Guardie comuni di Indossa/Togli: run viva, versione fresca, fase di
+        narrazione (in scontro l'intento resterebbe in coda non servita:
+        meglio un rifiuto detto che un click muto), fonte davvero posseduta."""
+        sessione = _sessione()
+        _guardie_di_gioco(ric.versione)
+        if stato.snapshot is not None and stato.snapshot.fase != "narrazione":
+            raise ErroreApi(
+                409, "fase_non_valida",
+                "L'equipaggiamento si cambia in narrazione, non in scontro.",
+            )
+        if ric.fonte not in sessione.scheda().zaino:
+            raise ErroreApi(
+                422, "fonte_assente", f"{ric.fonte!r} non è nello zaino."
+            )
+        return sessione
+
+    @app.post("/api/partita/equipaggia")
+    async def equipaggia(ric: RichiestaEquip) -> dict:
+        sessione = _guardia_equip(ric)
+        async with stato.lock:
+            snap = sessione.equipaggia(ric.fonte)
+            righe = stato.cronaca.preleva() if stato.cronaca else []
+            nuovi = stato.registra_turno(snap, righe=righe, messaggio=None)
+        return _risposta_turno(nuovi)
+
+    @app.post("/api/partita/togli")
+    async def togli(ric: RichiestaEquip) -> dict:
+        sessione = _guardia_equip(ric)
+        async with stato.lock:
+            snap = sessione.togli(ric.fonte)
+            righe = stato.cronaca.preleva() if stato.cronaca else []
+            nuovi = stato.registra_turno(snap, righe=righe, messaggio=None)
+        return _risposta_turno(nuovi)
 
     @app.get("/api/partita")
     async def leggi_partita() -> dict:

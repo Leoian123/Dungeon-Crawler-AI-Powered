@@ -306,3 +306,127 @@ def test_la_prosa_fuori_banda_arriva_al_forum(host, monkeypatch) -> None:
     # E il thread lo conserva: il reload pagina non perde il battito.
     thread = client.get("/api/partita/thread").json()
     assert any(p["genere"] == "prosa" for p in thread["post"])
+
+
+# --- Zaino/equip e lotto sovra-run (collegamenti 3-4, 2026-08-19) ---------------
+
+def _metti_nello_zaino(fonte: str) -> None:
+    """Il bottino senza combattere (trucco dei test motore): la fonte entra
+    nello Zaino del protagonista via World attivo — l'endpoint poi la vede."""
+    from motore.equip import assicura_zaino
+    from motore.scheda import protagonista
+
+    pent, _m, _s = protagonista()
+    assicura_zaino(pent).fonti.append(fonte)
+
+
+def test_zaino_indossa_e_togli_dal_browser(host) -> None:
+    """Il filo dell'inventario via API: zaino vuoto → bottino → Indossa
+    (fonte indossata, versione cresciuta) → Togli. Il motore arbitra, l'host
+    trasporta."""
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = _narra(client, apertura["versione"])
+    assert client.get("/api/partita/zaino").json() == {"fonti": []}
+
+    _metti_nello_zaino("tibia-affilata")
+    zaino = client.get("/api/partita/zaino").json()["fonti"]
+    assert len(zaino) == 1 and zaino[0]["indossata"] is False
+    assert zaino[0]["etichetta"], "l'etichetta diegetica non è mai vuota"
+
+    r = client.post(
+        "/api/partita/equipaggia",
+        json={"fonte": "tibia-affilata", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 200
+    corpo = r.json()
+    zaino = client.get("/api/partita/zaino").json()["fonti"]
+    assert zaino[0]["indossata"] is True
+
+    r = client.post(
+        "/api/partita/togli",
+        json={"fonte": "tibia-affilata", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 200
+    assert client.get("/api/partita/zaino").json()["fonti"][0]["indossata"] is False
+
+
+def test_equip_rifiuta_fonte_non_posseduta(host) -> None:
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = _narra(client, apertura["versione"])
+    r = client.post(
+        "/api/partita/equipaggia",
+        json={"fonte": "spada-inventata", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 422
+    assert r.json()["codice"] == "fonte_assente"
+
+
+def _esito_nel_ledger(directory, nome: str = "Katia") -> None:
+    from contracts import EsitoRun, Terminale
+    from motore.persistenza.esiti import scrivi_esito
+
+    esito = EsitoRun(
+        uuid_run="deadbeef", nome=nome, seed=7, terminale=Terminale.SCONFITTA,
+        causa="La Regina Scaduta", tick=33,
+    )
+    scrivi_esito(directory, esito.model_dump(mode="json") | {"id": esito.chiave()})
+
+
+def test_la_bacheca_serve_i_necrologi(host, tmp_path) -> None:
+    """GET /api/bacheca = la proiezione del ledger, senza sessione aperta:
+    è storia, si legge anche a hub spento."""
+    client, _stato = host
+    assert client.get("/api/bacheca").json() == {"necrologi": []}
+    _esito_nel_ledger(tmp_path)
+    necrologi = client.get("/api/bacheca").json()["necrologi"]
+    assert len(necrologi) == 1
+    assert necrologi[0]["nome"] == "Katia"
+    assert necrologi[0]["titolo"].startswith("†")
+    assert "La Regina Scaduta" in necrologi[0]["corpo"]
+
+
+def test_la_run_del_giorno_deriva_il_seed_dalla_data(host) -> None:
+    """`daily: true` → il seed lo detta la data (lato HOST: il motore non
+    guarda mai l'orologio). Il seed effettivo torna al client: è il numero
+    che la classifica futura verificherà."""
+    from datetime import date
+
+    from contracts import seed_del_giorno
+
+    client, _stato = host
+    r = client.post(
+        "/api/partita",
+        json={"nuovo": {"nome": "Daily", "seed": 999, "daily": True}},
+    )
+    assert r.status_code == 201
+    atteso = seed_del_giorno(date.today().isoformat(), 1)  # stagione-1 → numero 1
+    assert r.json()["crawler"]["seed"] == atteso, (
+        "il daily ignora il seed scelto a mano e usa quello del giorno"
+    )
+
+
+def test_il_dungeon_infestato_monta_i_fantasmi(host, tmp_path) -> None:
+    """`infestata: true` → le sconfitte del ledger locale entrano come
+    fantasmi-lore congelati nel World; senza flag, zero footprint (il
+    comportamento storico non cambia di un bit)."""
+    from motore.fantasmi import fantasmi_correnti
+
+    client, _stato = host
+    _esito_nel_ledger(tmp_path)
+    r = client.post(
+        "/api/partita",
+        json={"nuovo": {"nome": "Cacciatore", "seed": 3, "infestata": True}},
+    )
+    assert r.status_code == 201
+    montati = fantasmi_correnti()
+    assert montati is not None and len(montati.lista) == 1
+    assert montati.lista[0].nome == "Katia"
+
+    client.post("/api/partita/esci", json={"versione": r.json()["versione"]})
+    r = client.post(
+        "/api/partita", json={"nuovo": {"nome": "Prudente", "seed": 3}}
+    )
+    assert r.status_code == 201
+    assert fantasmi_correnti() is None, "senza flag: run storica identica"

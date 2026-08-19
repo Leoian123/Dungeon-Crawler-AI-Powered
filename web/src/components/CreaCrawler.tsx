@@ -16,6 +16,8 @@ export function CreaCrawler({
   const [nome, setNome] = useState("");
   const [seed, setSeed] = useState(1);
   const [stagione, setStagione] = useState<string>("");
+  const [daily, setDaily] = useState(false);
+  const [infestata, setInfestata] = useState(false);
   const stagioni = useAssets("stagioni");
   const disponibili = (stagioni.data?.asset ?? []).filter((s) => s.valido);
   const apri = useApriPartita();
@@ -40,10 +42,36 @@ export function CreaCrawler({
         <input
           type="number"
           value={seed}
-          disabled={apri.isPending}
+          disabled={apri.isPending || daily}
           onChange={(e) => setSeed(Number(e.target.value) || 0)}
-          className="rounded border border-pergamena/25 bg-abisso px-3 py-2 text-pergamena focus:border-torcia/60 focus:outline-none"
+          className="rounded border border-pergamena/25 bg-abisso px-3 py-2 text-pergamena focus:border-torcia/60 focus:outline-none disabled:opacity-40"
         />
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={daily}
+          disabled={apri.isPending}
+          onChange={(e) => setDaily(e.target.checked)}
+          className="accent-torcia"
+        />
+        <span>
+          <b className="text-torcia">Run del giorno</b> — il seed lo detta la
+          data: stesso dungeon per tutti i crawler di oggi
+        </span>
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={infestata}
+          disabled={apri.isPending}
+          onChange={(e) => setInfestata(e.target.checked)}
+          className="accent-torcia"
+        />
+        <span>
+          <b className="text-torcia">Dungeon infestato</b> — le tracce dei tuoi
+          crawler caduti appaiono come lore
+        </span>
       </label>
       <label className="flex flex-col gap-1 text-sm">
         Stagione dello show
@@ -67,7 +95,13 @@ export function CreaCrawler({
           onClick={() =>
             apri.mutate({
               gm,
-              nuovo: { nome: nome.trim(), seed, stagione: stagione || null },
+              nuovo: {
+                nome: nome.trim(),
+                seed,
+                stagione: stagione || null,
+                daily,
+                infestata,
+              },
             })
           }
           className="rounded bg-torcia px-4 py-2 font-bold text-abisso transition hover:bg-torcia/90 disabled:opacity-40"

@@ -9,9 +9,11 @@ import type {
   AssetVista,
   CorpoErrore,
   RiepilogoAzione,
+  RispostaBacheca,
   RispostaCrawlers,
   RispostaThread,
   RispostaTurno,
+  RispostaZaino,
   SchedaVista,
   StatoPartita,
   TipoAsset,
@@ -78,6 +80,12 @@ export const api = {
       "/api/partita/scena/battuta",
       post({ testo, versione }),
     ),
+  zaino: () => richiesta<RispostaZaino>("/api/partita/zaino"),
+  equipaggia: (fonte: string, versione: number) =>
+    richiesta<RispostaTurno>("/api/partita/equipaggia", post({ fonte, versione })),
+  togli: (fonte: string, versione: number) =>
+    richiesta<RispostaTurno>("/api/partita/togli", post({ fonte, versione })),
+  bacheca: () => richiesta<RispostaBacheca>("/api/bacheca"),
   salva: (versione: number) =>
     richiesta<{ messaggio: string }>("/api/partita/salva", post({ versione })),
   // Libreria dei contenuti (GM mode). Gli asset viaggiano come oggetti grezzi:

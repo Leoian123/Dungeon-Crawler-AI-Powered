@@ -179,6 +179,7 @@ function applicaTurno(qc: QueryClient, risposta: RispostaTurno) {
   qc.setQueryData<StatoPartita>(["partita"], stato);
   void qc.invalidateQueries({ queryKey: ["thread"] }); // il thread si RILEGGE
   void qc.invalidateQueries({ queryKey: ["scheda"] }); // HP/status possono cambiare
+  void qc.invalidateQueries({ queryKey: ["zaino"] }); // drop e indosso lo cambiano
 }
 
 function risincronizza(qc: QueryClient) {
@@ -275,6 +276,34 @@ export function useEseguiAzione() {
     ({ testo, versione }: { testo: string; versione: number }) =>
       api.eseguiAzione(testo, versione),
   );
+}
+
+export function useZaino(abilitata: boolean) {
+  return useQuery({
+    queryKey: ["zaino"],
+    queryFn: api.zaino,
+    enabled: abilitata,
+  });
+}
+
+/** Indossa per fonte: mutation di turno (la versione cresce, il motore arbitra). */
+export function useEquipaggia() {
+  return useMutazioneTurno(
+    ({ fonte, versione }: { fonte: string; versione: number }) =>
+      api.equipaggia(fonte, versione),
+  );
+}
+
+export function useTogli() {
+  return useMutazioneTurno(
+    ({ fonte, versione }: { fonte: string; versione: number }) =>
+      api.togli(fonte, versione),
+  );
+}
+
+/** La bacheca sovra-run: i necrologi proiettati dal ledger degli esiti. */
+export function useBacheca() {
+  return useQuery({ queryKey: ["bacheca"], queryFn: api.bacheca });
 }
 
 /** Una battuta della scena sociale (vuota = tronca la conversazione). */

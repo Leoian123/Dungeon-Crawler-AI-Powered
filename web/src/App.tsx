@@ -29,6 +29,7 @@ import {
   ProgressoGM,
 } from "./components/Pannelli";
 import { PannelloParty } from "./components/SchedaPG";
+import { PannelloZaino } from "./components/Zaino";
 import { ThreadForum } from "./components/ThreadForum";
 
 function Partita({ stato }: { stato: StatoPartita }) {
@@ -69,8 +70,13 @@ function Partita({ stato }: { stato: StatoPartita }) {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         {/* Colonna sinistra: il party (sticky su desktop, sopra al thread su mobile). */}
-        <aside className="lg:sticky lg:top-4 lg:w-64 lg:shrink-0 xl:w-72">
+        <aside className="flex flex-col gap-3 lg:sticky lg:top-4 lg:w-64 lg:shrink-0 xl:w-72">
           <PannelloParty />
+          {/* Indossa/Togli solo in narrazione: in scontro il server rifiuta (409). */}
+          <PannelloZaino
+            versione={stato.versione}
+            bloccato={bloccata || stato.fase === "combattimento"}
+          />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">

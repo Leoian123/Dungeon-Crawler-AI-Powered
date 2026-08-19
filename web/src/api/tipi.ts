@@ -87,7 +87,8 @@ export interface StatoPartita {
   occupato: boolean;
   morto: boolean;
   vittoria: boolean;
-  crawler: { uuid: string; nome: string } | null;
+  /** `seed` = quello EFFETTIVO (post «run del giorno»), solo per run nuove. */
+  crawler: { uuid: string; nome: string; seed?: number } | null;
   snapshot: SnapshotVista | null;
   gm: string;
 }
@@ -153,12 +154,54 @@ export interface SchedaVista {
   skills: SkillVista[];
   equip: EquipVista[];
   progressione: ProgressioneVista;
+  /** Le FONTI possedute (loot degli scontri): il dettaglio vive in
+   *  GET /api/partita/zaino (etichette diegetiche + stato indossata). */
+  zaino: string[];
+}
+
+/** Una voce dell'inventario: fonte di dominio + etichetta diegetica (la
+ *  vestizione del Guardaroba vince sul catalogo) + stato indossata. */
+export interface VoceZaino {
+  fonte: string;
+  etichetta: string;
+  indossata: boolean;
+}
+
+export interface RispostaZaino {
+  fonti: VoceZaino[];
+}
+
+/** Un necrologio della bacheca sovra-run: PROIEZIONE del ledger degli esiti
+ *  (composizione deterministica dai fatti — l'AI al più veste, mai inventa). */
+export interface NecrologioCrawler {
+  uuid_run: string;
+  nome: string;
+  titolo: string;
+  corpo: string;
+  stagione: number;
+  profondita: number;
+  ts: string;
+}
+
+export interface RispostaBacheca {
+  necrologi: NecrologioCrawler[];
 }
 
 export type GmScelta = "fake" | "live";
 
 export type ApriPartita =
-  | { gm: GmScelta; nuovo: { nome: string; seed: number; stagione?: string | null } }
+  | {
+      gm: GmScelta;
+      nuovo: {
+        nome: string;
+        seed: number;
+        stagione?: string | null;
+        /** Run del giorno: il server deriva il seed dalla data (sovra-run C). */
+        daily?: boolean;
+        /** Dungeon infestato: le morti del ledger locale come fantasmi-lore. */
+        infestata?: boolean;
+      };
+    }
   | { gm: GmScelta; carica: { uuid: string } };
 
 // --- Contenuti dello show (asset riusabili, speculari a contracts/contenuti.py) --
