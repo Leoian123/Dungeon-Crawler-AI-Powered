@@ -177,6 +177,7 @@ from motore import (
     tick,
     travasa,
 )
+from motore.fantasmi import consuma_fantasma_corrente, monta_fantasmi
 from provider import FakeProvider
 
 # Il menu di combattimento NON è più una costante: lo compone `IstanzaCombattimento`
@@ -1210,10 +1211,14 @@ class SessioneGioco:
         seed: int = 0,
         n_stanze: int | None = None,
         stagione: StagioneAttiva | None = None,
+        fantasmi: tuple = (),
     ) -> "SessioneGioco":
         """Nuova run: il protagonista NASCE al confine guscio→run. L'uuid identifica
         lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta.
-        `stagione` è il design RISOLTO e convertito: congelato nel World."""
+        `stagione` è il design RISOLTO e convertito: congelato nel World.
+        `fantasmi` (tuple di `FantasmaRun`, Fase D) è INPUT esplicito dell'host:
+        congelato nel World come la stagione, persiste col save — mai un
+        default implicito."""
         sessione = cls(provider, directory=directory, seed=seed)
         sessione.uuid = uuid4().hex[:8]
         sessione.etichetta = nome
@@ -1224,12 +1229,18 @@ class SessioneGioco:
             uuid=sessione.uuid, seed=seed,
             n_stanze=n_stanze, stagione=stagione,
         )
+        # Il set di fantasmi si congela SUBITO dopo la nascita del World (stesso
+        # confine della stagione): da qui in poi è dato di run, save incluso.
+        monta_fantasmi(fantasmi)
         _registra_sessione_attiva(sessione)  # il run-World è suo
         sessione.coda = sessione.guscio.coda
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
         sessione.archivio = Archivio(master_seed=master_seed(), model_id=MODEL_ID_DEFAULT)
         sessione.memoria = MemoriaTurni()
         sessione.memoria_lunga = MemoriaSuArchivio(sessione.archivio)
+        # Wiki del Master (W1): il freeze estrae la slice dal master e la
+        # congela nel terzo artefatto — l'UNICO incrocio run↔master in lettura.
+        sessione._monta_wiki_da_master()
         return sessione
 
     @classmethod
@@ -1245,9 +1256,23 @@ class SessioneGioco:
         # sessione eventualmente aperta. Un save illeggibile a questo strato non
         # deve costare NULLA a nessuno (H-12: menu intatto E mondo intatto).
         try:
-            carica_da_disco(directory, uuid)
+            sonda = carica_da_disco(directory, uuid)
         except CaricamentoFallito:
             return None
+        # Wiki del Master (W1): il MARCATORE nel save dichiara la slice — il
+        # contratto VITALE si onora PRIMA di toccare qualunque World: artefatto
+        # assente/corrotto ⇒ `SliceWikiIlleggibile` (mai la sostituzione
+        # silenziosa del mondo, rev. 3 §3.1). Senza marcatore: run senza wiki,
+        # save legacy inclusi, tutto come prima.
+        dati_wiki = None
+        con_wiki = any(
+            comp.tag == "marcatore_wiki"
+            for ent in sonda.corpo.entita for comp in ent.componenti
+        )
+        if con_wiki:
+            from motore.persistenza.salvataggio import carica_wiki_slice
+
+            dati_wiki = carica_wiki_slice(directory, uuid)  # vitale: solleva
         sessione = cls(provider, directory=directory, seed=seed)
         # Da qui l'ingresso smonta il run-World corrente: la precedente va
         # invalidata anche se il PAYLOAD poi tradisce (il suo mondo è perduto).
@@ -1287,6 +1312,12 @@ class SessioneGioco:
         # La memoria narrativa RIPARTE dallo stesso sidecar: i documenti congelati
         # (record `memoria_doc`) sono già dentro l'Archivio ricaricato.
         sessione.memoria_lunga = MemoriaSuArchivio(sessione.archivio)
+        if dati_wiki is not None:
+            # La slice rimonta DALL'ARTEFATTO (mai dal master, che può essere
+            # mutato): ieri e oggi la run vede lo stesso mondo.
+            from motore.wiki import monta_slice, slice_da_dict
+
+            monta_slice(slice_da_dict(dati_wiki))
         sessione.etichetta = next(
             (v.etichetta for v in indice_crawler(directory) if v.uuid == uuid), uuid
         )
@@ -1332,6 +1363,7 @@ class SessioneGioco:
             # nei record d'Archivio di stanze non correlate.
             self._fatti_scena = None
             self._rifiuto_parlamento = ""  # stessa disciplina dei gemelli
+            consuma_fantasma_corrente()  # la traccia narrata non torna (Fase D)
         self.ultimo_messaggio = esito.messaggio
         if esito.risultato is not None:
             from motore import stanza_quieta
@@ -1377,6 +1409,7 @@ class SessioneGioco:
             self._fatti_scontro = None
             self._fatti_scena = None
             self._rifiuto_parlamento = ""
+            consuma_fantasma_corrente()  # stessa disciplina (Fase D)
         self.ultimo_messaggio = esito.messaggio
         self._sincronizza_scena()
         return self._snapshot_corrente(esito.messaggio.prosa)
@@ -2005,7 +2038,110 @@ class SessioneGioco:
             # riprende da DOVE si era: mai da capo dopo un load.
             rng_state=_serializza_rng(self.rng),
         )
+        # Wiki (W1): il terzo artefatto segue il save (riscrittura idempotente:
+        # la slice è immutabile per la run) e l'outbox si drena — un save prima
+        # del drenaggio non perde mai una proposta.
+        self._riscrivi_wiki_slice()
+        self._drena_outbox()
         return "Partita salvata."
+
+    def _monta_wiki_da_master(self) -> None:
+        """Il freeze della wiki (W1, rev. 3 §4): estrae la slice dal master
+        host-side, la monta nel World col marcatore e la congela nel terzo
+        artefatto; registra l'estrazione (il prerequisito dello scrub,
+        §2.1.3). No-op a master vuoto: zero footprint, save come prima."""
+        import wiki_master
+        from motore.persistenza.salvataggio import salva_wiki_slice
+        from motore.wiki import monta_slice, slice_da_contratto
+
+        stagione = stagione_corrente()
+        numero = stagione.numero if stagione is not None else 1
+        slice_dto = wiki_master.estrai_slice(numero)
+        if slice_dto is None:
+            return
+        monta_slice(slice_da_contratto(slice_dto))
+        salva_wiki_slice(
+            self.guscio.directory, self.uuid, slice_dto.model_dump(mode="json")
+        )
+        wiki_master.registra_estrazione(self.uuid, slice_dto.versione)
+
+    def _riscrivi_wiki_slice(self) -> None:
+        from motore.persistenza.salvataggio import salva_wiki_slice
+        from motore.wiki import slice_a_dict, slice_corrente
+
+        corrente = slice_corrente()
+        if corrente is not None and self.uuid:
+            salva_wiki_slice(self.guscio.directory, self.uuid, slice_a_dict(corrente))
+
+    def _drena_outbox(self) -> None:
+        """Le proposte pendenti → l'outbox su file (artefatto PROPRIO, fuori
+        dalla coppia save: `invalida` non lo tocca — rev. 3 §4-bis).
+
+        BEST-EFFORT (avversariale 2026-08-18, F-W4): un outbox inscrivibile
+        (lock, antivirus, sabotaggio esterno) non deve MAI rompere il
+        salvataggio — le proposte tornano in coda (persistente nel save) e
+        si riconsegnano al prossimo confine."""
+        from motore.persistenza.outbox import scrivi_proposte
+        from motore.wiki import drena_proposte, riaccoda_proposte
+
+        proposte = drena_proposte()
+        if not (proposte and self.uuid):
+            return
+        try:
+            scrivi_proposte(self.guscio.directory, self.uuid, proposte)
+        except OSError:
+            riaccoda_proposte(proposte)
+
+    def _componi_esito(self) -> dict | None:
+        """L'ATOMO dello strato sovra-run (Fase A): come è finita questa run,
+        in piccolo — solo dati che il motore possiede già al terminale, mai
+        stat vive. `causa` e `momenti` esistono solo per la SCONFITTA (sono i
+        fatti dell'epitaffio); la vittoria non ha un carnefice."""
+        from contracts.esito import EsitoRun
+
+        terminale = self.guscio.terminale
+        if terminale is None or terminale is Terminale.USCITA_VOLONTARIA:
+            return None  # l'uscita volontaria non è un esito: la run riprenderà
+        try:
+            seme = master_seed()
+        except Exception:
+            seme = 0  # lasco: un esito senza seed vale più di nessun esito
+        try:
+            tick = tempo_piano_corrente()
+        except Exception:
+            tick = 0
+        stagione = stagione_corrente()
+        causa, momenti = "", ()
+        if terminale is Terminale.SCONFITTA:
+            fatti = self._fatti_epitaffio
+            causa = (fatti.nemico if fatti is not None else "") or self._nome_mob
+            momenti = fatti.momenti if fatti is not None else ()
+        esito = EsitoRun(
+            uuid_run=self.uuid,
+            nome=self.etichetta,
+            seed=seme,
+            terminale=terminale,
+            stagione=stagione.numero if stagione is not None else 1,
+            profondita=livello_corrente(),
+            tick=tick,
+            causa=causa,
+            momenti=momenti,
+        )
+        return esito.model_dump(mode="json") | {"id": esito.chiave()}
+
+    def _deposita_esito(self) -> None:
+        """Il deposito nel ledger sovra-run (`esiti.jsonl`) — BEST-EFFORT come
+        l'outbox (F-W4): né un ledger inscrivibile né un World in stato strano
+        devono MAI rompere il ritiro dello slot. Un esito perso è un necrologio
+        in meno; un ritiro rotto è save-scumming."""
+        from motore.persistenza.esiti import scrivi_esito
+
+        try:
+            esito = self._componi_esito()
+            if esito is not None:
+                scrivi_esito(self.guscio.directory, esito)
+        except Exception:
+            pass
 
     # --- Ciclo di vita della run (hub): scheda, thread, uscita, terminale -------
 
@@ -2110,6 +2246,7 @@ class SessioneGioco:
         # Il drop vinto col provider live e mai coniato non si perde in un
         # salva-ed-esci: stesso flush che `salva()` fa (caccia 2026-08-16).
         self._scarica_drop_pendente()
+        self._drena_outbox()  # anche il salva-ed-esci consegna le proposte
         self.guscio.esci_volontariamente()
         self.guscio.concludi(
             archivio=self.archivio, etichetta=self.etichetta, timestamp=time.time(),
@@ -2124,6 +2261,7 @@ class SessioneGioco:
         ha già rilevato il terminale sul bus; qui l'hand-off — che INVALIDA il save
         (permadeath, H-20) — e il teardown."""
         self._guardia_aperta()
+        self._drena_outbox()  # l'ultimo segmento di run non perde proposte
         self.guscio.concludi()
         self._chiusa = True
         _rilascia_sessione_attiva(self)
@@ -2421,6 +2559,15 @@ class SessioneGioco:
             return
         self._slot_ritirato = True
         if self.uuid:
+            # Il DRENAGGIO precede l'invalidazione (rev. 3 §4-bis — il buco
+            # del panel: il permadeath distruggeva il veicolo delle proposte
+            # prima di ogni raccolta). L'outbox è fuori dalla coppia save:
+            # `invalida` rimuove stato+sidecar+slice, mai le proposte.
+            self._drena_outbox()
+            # L'ESITO segue le proposte: nel ledger sovra-run PRIMA
+            # dell'invalidazione (Fase A) — anche l'esito sopravvive al
+            # permadeath, è il suo scopo.
+            self._deposita_esito()
             invalida(self.guscio.directory, self.uuid)
 
     @property
@@ -3034,6 +3181,7 @@ def costruisci_sessione(
     directory: Path | None = None,
     provider=None,
     stagione: Stagione | StagioneRisolta | str | None = None,
+    fantasmi: tuple = (),
 ) -> SessioneGioco:
     """Cabla contenuto+provider → `SessioneGioco.nuova`. Senza `directory` la run
     vive in una tempdir usa-e-getta (demo/test).
@@ -3074,6 +3222,7 @@ def costruisci_sessione(
         seed=seed,
         n_stanze=n_stanze,
         stagione=_stagione_a_attiva(risolta),
+        fantasmi=fantasmi,
     )
 
 
@@ -3105,6 +3254,14 @@ def elimina_crawler(uuid: str, *, directory: Path | None = None) -> bool:
         f"{uuid}.archivio.gz",
         f"{uuid}.bak.stato.json",
         f"{uuid}.bak.archivio.gz",
+        # Wiki (W1): la slice congelata (col suo backup di terna) E l'outbox —
+        # QUI sì, perché è la pulizia esplicita del giocatore, non un terminale
+        # di run (l'outbox sopravvive al permadeath, non alla scelta di
+        # cancellare lo slot).
+        f"{uuid}.wiki.gz",
+        f"{uuid}.bak.wiki.gz",
+        f"{uuid}.proposte.jsonl",
+        f"{uuid}.proposte.consumate.jsonl",
     )
     trovato = False
     for nome in nomi:
@@ -3132,6 +3289,45 @@ def elenca_crawler(directory: Path | None = None) -> list[CrawlerVista]:
         )
         for v in indice_crawler(directory)
     ]
+
+
+def bacheca(directory: Path | None = None) -> list["NecrologioCrawler"]:
+    """La BACHECA dei crawler (strato sovra-run, Fase B): i necrologi PROIETTATI
+    dal ledger degli esiti, in ordine di deposito. Porta di membrana per gli
+    host (solo DTO `contracts`): zero World, zero LLM — funziona anche a hub
+    spento, e la spazzatura nel ledger resta muta (composizione lasca)."""
+    from motore.necrologio import necrologi_da_ledger
+    from motore.persistenza.esiti import leggi_esiti
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    return necrologi_da_ledger(leggi_esiti(directory))
+
+
+def fantasmi_locali(
+    directory: Path | None = None, *, massimo: int = 5
+) -> tuple["FantasmaRun", ...]:
+    """I FANTASMI delle run precedenti in questa directory (strato sovra-run,
+    Fase D, sorgente LOCALE): le sconfitte del ledger proiettate in
+    `FantasmaRun`, le più recenti per prime, al più `massimo`. L'host li passa
+    ESPLICITAMENTE a `costruisci_sessione(fantasmi=…)` — mai un default
+    implicito: una run senza fantasmi resta il comportamento storico."""
+    from contracts import EsitoRun, FantasmaRun, Terminale as _T
+    from motore.persistenza.esiti import leggi_esiti
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    fantasmi = []
+    for riga in reversed(leggi_esiti(directory)):
+        if len(fantasmi) >= massimo:
+            break
+        try:
+            esito = EsitoRun.model_validate(
+                {k: v for k, v in riga.items() if k != "id"}
+            )
+        except Exception:
+            continue  # lasco: la spazzatura del ledger non genera spettri
+        if esito.terminale is _T.SCONFITTA:
+            fantasmi.append(FantasmaRun.da_esito(esito))
+    return tuple(fantasmi)
 
 
 def etichetta_oggetto(fonte: str) -> str:

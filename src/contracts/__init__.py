@@ -100,6 +100,31 @@ from .memoria import (
     MemoriaNarrativa,
     TipoDocumento,
 )
+from .wiki import (
+    ApprovazioneVoce,
+    ContestoScena,
+    LinkVoce,
+    PropostaWiki,
+    ProvenienzaVoce,
+    RegiaVoce,
+    RESTRITTIVITA_REGIA,
+    RevisioneVoce,
+    ScopeVoce,
+    SegretezzaVoce,
+    TipoVoce,
+    VoceSlice,
+    VoceWiki,
+    WikiMaster,
+    WikiSlice,
+)
+from .esito import (
+    ClassificaGiorno,
+    EsitoRun,
+    FantasmaRun,
+    NecrologioCrawler,
+    VoceClassifica,
+    seed_del_giorno,
+)
 from .contenuti import (
     ArchetipoAsset,
     AssetVista,
@@ -155,6 +180,29 @@ from .vista import (
 from .provider import Provider, TCandidato
 
 __all__ = [
+    # strato sovra-run (Fase A; B/C/D preparati, non consumati)
+    "ClassificaGiorno",
+    "EsitoRun",
+    "FantasmaRun",
+    "NecrologioCrawler",
+    "VoceClassifica",
+    "seed_del_giorno",
+    # wiki del master (W1)
+    "ApprovazioneVoce",
+    "ContestoScena",
+    "LinkVoce",
+    "PropostaWiki",
+    "ProvenienzaVoce",
+    "RegiaVoce",
+    "RESTRITTIVITA_REGIA",
+    "RevisioneVoce",
+    "ScopeVoce",
+    "SegretezzaVoce",
+    "TipoVoce",
+    "VoceSlice",
+    "VoceWiki",
+    "WikiMaster",
+    "WikiSlice",
     # bus
     "BusEventi",
     "Handler",

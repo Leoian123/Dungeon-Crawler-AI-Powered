@@ -400,6 +400,13 @@ class Fascicolo:
     # `png_scena` = la sua prosa autorata, SOLO al reveal (materiale di scena).
     png_riga: str = ""
     png_scena: str = ""
+    # Le voci della Wiki del Master recuperate per questo turno (W1): righe
+    # già formattate ([fascicolo/wiki] …) dalle due corsie deterministiche.
+    wiki_righe: tuple[str, ...] = ()
+    # La TRACCIA di un'altra run in questa stanza (sovra-run, Fase D): riga-fatto
+    # del motore, LORE soltanto. "" = nessun fantasma qui. Il consumo (una
+    # narrazione sola) lo compie la sessione a turno scritto, come i gemelli.
+    fantasma_riga: str = ""
 
 
 def componi_fascicolo(
@@ -545,6 +552,7 @@ def componi_fascicolo(
         esito_scontro=esito_scontro,
         esito_scena=esito_scena,
         rifiuto_parlamento=rifiuto_parlamento,
+        fantasma_riga=_riga_fantasma(),
         piano_etichetta=etichetta,
         scena_precedente=_coda_prosa(memoria.ultima_prosa) if memoria.ultima_prosa else "",
         territorio_riga=riga_territorio,
@@ -553,6 +561,15 @@ def componi_fascicolo(
         png_riga=riga_png,
         png_scena=scena_png,
     )
+
+
+def _riga_fantasma() -> str:
+    """La traccia sovra-run nella stanza corrente (Fase D): sola lettura dal
+    World, come le altre righe del fascicolo. Lasca: un World senza mappa o
+    senza fantasmi risponde ""."""
+    from .fantasmi import traccia_fantasma_corrente
+
+    return traccia_fantasma_corrente()
 
 
 def _dove(f: Fascicolo) -> str:
@@ -603,6 +620,7 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append(f"[fascicolo/png] {f.png_riga}")
     if f.png_scena:
         righe.append(f"[fascicolo/png/scena] {f.png_scena}")
+    righe.extend(f.wiki_righe)  # già formattate, regia inclusa (W1)
     if f.stanza_tipo:
         glossa = _GLOSSA_TIPO_STANZA.get(f.stanza_tipo, "")
         if f.stanza_tipo in (TipoStanza.SAFE_ROOM.value, TipoStanza.BAGNO.value):
@@ -627,6 +645,15 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append("[fascicolo/memoria] finora: " + " | ".join(f.memoria))
     if f.memoria_lunga:
         righe += [f"[fascicolo/memoria-lunga] {voce}" for voce in f.memoria_lunga]
+    if f.fantasma_riga:
+        # La traccia di un'altra run (sovra-run, Fase D): il GM la VESTE come
+        # reperto del passato — LORE soltanto, nessun effetto meccanico, mai
+        # un'entità viva da mettere in scena.
+        righe.append(
+            f"[fascicolo/fantasma] {f.fantasma_riga} — una traccia di un altro "
+            "crawler, del passato: narrala come reperto (un cadavere, un'incisione, "
+            "un ricordo del dungeon), MAI come presenza viva o minaccia meccanica"
+        )
     if f.rifiuto_parlamento:
         # Il rifiuto al gate (playtest giro 3): senza questa riga il GM poteva
         # narrare il mob «disponibile» un tick dopo il voltafaccia — l'anti-pesca
@@ -1189,6 +1216,15 @@ async def esegui_turno_gm(
             )
             if voci:
                 fascicolo = replace(fascicolo, memoria_lunga=voci)
+    # La Wiki del Master (W1): le voci della slice congelata, dalle due
+    # corsie deterministiche (motore: fatti in scena; lessicale: l'azione).
+    # Zero chiamate, zero I/O: la slice è in-World dal freeze.
+    from .calibrazione import WIKI_VOCI_PER_TURNO
+    from .wiki import righe_wiki
+
+    voci_wiki = righe_wiki(azione, limite=int(WIKI_VOCI_PER_TURNO))
+    if voci_wiki:
+        fascicolo = replace(fascicolo, wiki_righe=tuple(voci_wiki))
     # Il reveal dipende dallo STATO DELLA STANZA (mai narrata → va materializzata),
     # anche con fatti di scontro pendenti: sono il fascicolo del turno, non la sua
     # natura. Il caso speciale è il post-scontro nella STESSA stanza: lì il turno
@@ -1259,6 +1295,12 @@ async def esegui_turno_gm(
     # (statico per la run → cache piena) e vincola il budget del gate.
     piano_attivo = design_piano_corrente()
     sistema = prefisso_gm(stagione_corrente(), piano_attivo)
+    # Le voci COSTANTI della wiki (W1): statiche per piano come le righe
+    # [piano/*] — il regime di cache del prefisso regge (byte-identiche
+    # finché non si scende). "" senza slice: prefisso storico intatto.
+    from .wiki import costanti_prefisso
+
+    sistema += costanti_prefisso()
 
     # --- Ramo RESOCONTO (Fase 5, Probl. 3): scontro appena chiuso, nessuna
     # azione — si narra dai FATTI. Niente ideazione né gating: il vecchio flusso
@@ -1462,6 +1504,19 @@ async def esegui_turno_gm(
                 piano=fascicolo.livello,
                 tick=fascicolo.tick,
             ))
+            # Il primo PRODUTTORE dell'outbox wiki (W1, rev. 3 §4-bis): il
+            # personaggio memorabile della run diventa una PROPOSTA per il
+            # canone — dai fatti, id deterministico, col taint corrente.
+            # Firma `sistema` alla promozione; invisibile finché non approvata.
+            from .wiki import accoda_proposta
+
+            accoda_proposta(
+                tipo="personaggio", titolo=eg.nome,
+                testo=(f"{eg.grado.value}: {dettagli}" if dettagli
+                       else eg.grado.value),
+                fatto=("mob:" + (eg.riferimento
+                                 or f"p{fascicolo.livello}-s{fascicolo.stanza}")),
+            )
     spesa = spendi_tempo(
         bus, durata, ingresso_combattimento=ingresso_combattimento,
         # Anti déjà-vu: il nemico dello scontro appena narrato non riappare

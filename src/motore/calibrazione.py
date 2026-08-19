@@ -600,6 +600,11 @@ _DEFS: tuple[Param, ...] = (
           "0 = piazzatore spento. Densità prudente di default: il personaggio "
           "è un evento, non un arredo.",
           CAT_MAPPA, "intero ≥0", "int", "png"),
+    Param("WIKI.voci_per_turno", 2, "Quante voci della Wiki del Master entrano nel "
+          "fascicolo di UN turno GM (corsie deterministiche sulla slice congelata). "
+          "0 = corsia dinamica spenta (le costanti nel prefisso restano). Budget "
+          "anti-diluizione: poche voci pertinenti battono molte voci pallide.",
+          CAT_SCENA, "intero ≥0", "int", "voci"),
     Param("SCENA.max_battute", 12, "Tetto di battute per scena narrativa (S1): "
           "al tetto il motore chiude d'ufficio (posta non vinta = persa). "
           "Anti-loop e tetto di costo: ogni battuta è una chiamata veloce.",
@@ -996,6 +1001,7 @@ STANZE_MOLT_IMBOSCATA_CORRIDOIO = valore("STANZE.molt_imboscata_corridoio")
 ELITE_PIANO_MINIMO = valore("ELITE.piano_minimo")
 PNG_PER_ZONA = valore("PNG.per_zona")
 SCENA_MAX_BATTUTE = valore("SCENA.max_battute")
+WIKI_VOCI_PER_TURNO = valore("WIKI.voci_per_turno")
 BOSS_DROP_GARANTITO = valore("BOSS.drop_garantito")
 IMBOSCATA_MINACCE_RIFERIMENTO = valore("IMBOSCATA.minacce_riferimento")
 IMBOSCATA_PESO_NON_RIVELATE = valore("IMBOSCATA.peso_non_rivelate")

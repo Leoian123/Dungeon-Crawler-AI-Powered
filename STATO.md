@@ -538,6 +538,123 @@ vuota), sbocco in scontro, spinta GM/narratore — il §5 del documento li
 copre come P2 (agenda come dato che unifica posta e sbocco) e P3 (troupe
 ricorrente, respiro post-boss), in attesa delle decisioni §7.
 
+### 2.1-quinquies Wiki del Master: gli appunti persistenti del GM (W1 FATTO)
+
+**Studio in `docs/future/wiki-master.md`** (rev. 3: confutazione utente +
+panel avversario macchina, tutte le falle integrate) — **W1 implementato**
+in versione da sviluppo, gratuita per costruzione (stdlib+Pydantic, zero
+SQLite/embeddings/rete). Gli organi: porta `WikiMaster` e DTO in
+`contracts/wiki.py` (contratto per-corsia: motore+lessicale deterministiche,
+semantica W3 best-effort-congelata); store file-based `src/wiki_master.py`
+(voci per-slug in `wiki/`, API sole scrittrici, revisioni append-only,
+gate proposta→approvata STRUTTURALE: l'estrazione vede solo le approvate);
+**slice congelata nel save** al freeze (`motore/wiki.py` + terzo artefatto
+`<uuid>.wiki.gz` a contratto VITALE — `SliceWikiIlleggibile` al load se
+corrotto col marcatore presente; master mutato ≠ run mutata, F-6 per
+costruzione); **outbox** `<uuid>.proposte.jsonl` FUORI dalla coppia save
+(sopravvive a `invalida`/permadeath, id deterministici anti save-scumming,
+taint di regia ereditato, drenata a salva/esci/terminale PRIMA di
+invalidare); iniezione: voci costanti nel prefisso (cache intatta), voci
+dinamiche in `[fascicolo/wiki]` con regia resa (velato/solo-contesto),
+foglia `WIKI.voci_per_turno` §11; primo produttore vivo: il mob memorabile
+del reveal diventa proposta. Segretezza: `admin` non esce MAI dal master
+(property-test). 4 voci demo in `wiki/`. Lucchetti: `test_wiki_master`
+(15). **Playtest approfondito 2026-08-18** (driver in-game): la
+verifica-stella regge — nel reveal della gilda di seed 9 il canone
+dell'Archivista si innesca dalla CORSIA DI MOTORE (l'entità in scena,
+zero keyword digitate) accanto a `[fascicolo/png]`; il turno con la riga
+wiki si congela e si rilegge identico dopo il load; il CERCHIO COMPLETO
+funziona (reveal → proposta del Fante nell'outbox → consuma → promozione
+a voce → la run nuova la vede in slice e la innesca per nome); dedup
+reale sotto save-scumming. DUE falle trovate e chiuse: F-W2 le STOPWORD
+innescavano tutto («L'Archivista DEL Sesto» matchava «Fante DEL Fronte
+Fermo» sull'articolo: il canone scattava su ogni azione → stopword
+italiane fuori dalla tokenizzazione, attivazioni da 8/8 a 4/8 pertinenti);
+F-W3 lo scan freddo del master costava ~7 ms/voce (1.5 s a 200 voci a
+ogni creazione di run) → cache per firma mtime/size (pattern
+`_collezione`): estrazione in cache 14 ms, retrieval 1 ms.
+**Avversariale di scrittura esterna 2026-08-18** (driver: master mutato
+sotto run viva, tampering artefatti, sabotaggio outbox, master avvelenato):
+F-6 regge su tutti i fronti — prefisso byte-identico dopo revisione+
+approvazione esterna, voce cancellata dal master viva in slice, voce
+intrusa fuori dalla run in corso ma dentro la run nuova; tampering del
+terzo artefatto a sessione viva INERTE (la run gioca sul World) e
+auto-risanato al salvataggio; riga spazzatura nell'outbox saltata senza
+perdere le vere. DUE falle chiuse: F-W4 l'outbox inscrivibile (lock/AV/
+sabotaggio) faceva esplodere `salva()` DOPO la scrittura del save →
+drenaggio best-effort con ri-accodamento (`riaccoda_proposte`, la coda è
+persistente: si riconsegna al confine successivo); F-W5 un file del master
+con slug interno diverso dal nome creava DOPPIONI in slice → il nome del
+file è l'identità, mismatch scartato lasco. Threat model dichiarato nel
+doc §3.1: il contratto vitale protegge dalla corruzione, non dal
+proprietario (H §10.4, nessun DRM); lucchetti a 17.
+**Stress-test 2026-08-18** (driver headless): morte REALE via bus →
+il funnel drena l'outbox prima di `invalida`, le proposte sopravvivono e
+`salva()` rifiuta post-mortem; scope di piano tagliente (piano_a=3 sparisce
+al piano 4, la costante resta); prefisso byte-identico; scan lasco su voce
+corrotta; move-on-read del consumo; `elimina_crawler` pulisce tutto. UNA
+falla trovata e chiusa: la coppia di backup non era diventata TERNA —
+ora `backup_coppia` copia anche la slice (stesso istante, mai
+auto-ripristino: il contratto vitale resta un rifiuto dichiarato). Nota di
+design a verbale per W2: la SCENA che interpreta un PNG non riceve il
+canone wiki (il canone alimenta il turno GM, non `_prompt_scena`) — il
+GM sa chi è l'Archivista, la scena che gli dà voce no: candidata
+«wiki nella scena» accanto al cruscotto. Restano W2 (indice SQLite
+derivato, cruscotto SPA, bundle/export a estrazione, importer lorebook,
+wiki-nella-scena) e W3 (corsia semantica, consolidamento offline, vincoli
+cablati sulle pescate, scrub) — decisioni §11 del doc pendenti, ratifica
+verità-nei-file inclusa (il W1 è già file-based).
+
+### 2.1-sexies Strato sovra-run: esiti, bacheca, daily, fantasmi (A/B/C/D lato motore FATTE)
+La direzione «online asincrono» decisa il 2026-08-19: run rigorosamente
+single-player, strato sociale sopra — necrologi, seed del giorno, classifiche,
+fantasmi come lore. Attraverso il confine viaggiano solo ESITI (piccoli dati),
+mai stato di gioco, mai chiamate LLM, mai la chiave. Fase A operativa:
+`EsitoRun` (`contracts/esito.py`) depositato da `_onora_permadeath` nel ledger
+`esiti.jsonl` (`motore/persistenza/esiti.py` — gemello dell'outbox wiki:
+fuori dalla coppia save, sopravvive all'invalidazione, dedup per chiave
+deterministica, scrittura best-effort F-W4, lettura tollerante senza
+move-on-read). Solo morte/vittoria producono un esito (l'uscita volontaria è
+rifiutata dal contratto); `causa`/`momenti` vengono dai fatti dell'epitaffio.
+GIRO AVVERSARIALE fatto (2026-08-19, `test_esiti_avversariale.py`): una falla
+trovata e chiusa — chiave del dedup portata da (run, terminale) a PER-RUN,
+così la «vittoria» di una run resuscitata da copia esterna non affianca la
+morte già a ledger (la prima chiusura fa storia). Verificati muti: martello
+sulle porte post-terminale, resurrezione esterna (il save ripristinato CARICA
+— no-DRM — ma non fa storia due volte), doppia sessione sullo slot, iniezione
+JSONL dal nome del crawler, ledger sabotato (file→directory: il ritiro dello
+slot non va MAI in ostaggio del ledger, F-W4), ledger forgiato (nessun
+percorso di caricamento lo legge: non resuscita e non sporca).
+Secondo giro avversariale sulla BACHECA (stesso giorno): 1 crash REALE trovato
+e chiuso — `leggi_esiti` su ledger inapribile (directory al suo posto)
+buttava giù bacheca() e fantasmi_locali(); ora storia vuota, mai un crash
+(byte non-UTF-8 inclusi). Aggiunto il CLAMP dei testi nel contratto
+(normalizza whitespace + tronca, mai rifiuta): un newline nel nome non forgia
+righe o titoli, una riga da 1 MB rientra a taglia sana, e l'epitaffio del
+fantasma — che entra nel PROMPT del GM — arriva sempre come UNA riga corta.
+Residuo DICHIARATO fuori scope locale: l'escaping HTML dei post è dell'host
+che li renderizza (il contratto porta testo piano), e la falsificazione
+diretta del ledger resta no-DRM finché la classifica non è remota (Fase E).
+Le fasi B/C/D sono FATTE lato motore (2026-08-19, `test_sovra_run.py`):
+- **B bacheca**: il necrologio è una PROIEZIONE del ledger (`motore/
+  necrologio.py`, composizione deterministica dai fatti — nessun secondo
+  artefatto, zero sync); porta host `bacheca(directory)` in `main`. L'AI un
+  domani VESTE nel canale proposta→gate, mai inventa.
+- **C daily**: `seed_del_giorno` → `costruisci_sessione(seed=…)`; la verifica
+  server-side è `esito.seed == seed_del_giorno(data)` — nessun campo in più.
+  Derivazione cablata da test golden: cambiarla romperebbe le classifiche.
+- **D fantasmi**: `motore/fantasmi.py` — input ESPLICITO dell'host
+  (`fantasmi=` in `nuova`/`costruisci_sessione`, mai un default implicito;
+  sorgente locale `fantasmi_locali(directory)` = le sconfitte del ledger),
+  congelati nel World come la stagione e PERSISTENTI col save (tag
+  `fantasmi`); stanza DERIVATA (sha256 fantasma+master seed, mai un secondo
+  stato); unica uscita = riga `[fascicolo/fantasma]` che il GM veste come
+  reperto (lore mai stato); consumo a turno SCRITTO (disciplina dei gemelli)
+  e il `consumato` attraversa il save — il reload non fa tornare la traccia.
+RESTANO fuori dal motore, per i branch/progetti dedicati: la UI della bacheca
+(react-ecosystem) e il server classifica (progetto separato, importa solo
+`contracts`); Fase E (verifica per replay) solo se le classifiche si fanno serie.
+
 ### 2.2 Combattimento
 
 **Due check, e nessuno dei due è un dado da JRPG**: check 1 = il *se* colpisci (gate
@@ -994,6 +1111,12 @@ run vinta (TUI), RNG consumato pre-await, filo post-load divergente, id memoria
   numeri. Il substrato PNG del motore esiste già (§2.1-ter: ruolo, esenzioni, rotta
   dialogo); qui resta la parte GENERATIVA e il pilotaggio GM server-side.
 - **Testo libero (`Altro`)** — classificazione "intento → evento tipizzato" su menu chiuso.
+- **Strato sovra-run, consumo remoto** (il MOTORE è pronto: A/B/C/D fatte, §2.1-sexies) —
+  restano la UI della bacheca sul forum (react-ecosystem, legge `bacheca()`), il
+  server-classifica minimale come progetto SEPARATO fuori dal repo (importa solo
+  `contracts`; invio esiti best-effort dal ledger), e la E (solo se le classifiche
+  diventano serie): verifica anti-cheat per replay — log intenti + rigioco headless
+  seeded, il dividendo del determinismo.
 
 ### 4.4 Il nodo aperto vero: scegliere la UI (ex-nodo C, riaperto di fatto)
 La membrana `contracts` + le porte di `SessioneGioco` (`prossima_narrazione`, `avanza`,

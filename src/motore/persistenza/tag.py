@@ -31,10 +31,12 @@ from ..oggetti import OggettiConiati
 from ..fase import FaseCorrente
 from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
+from ..fantasmi import FantasmiAttivi
 from ..piano import ProfonditaPiano, TempoPiano
 from ..scheda import ActionPoint, Mana, Protagonista, Scheda
 from ..territorio import StatoTerritorio
 from ..seme import SemeRun
+from ..wiki import MarcatoreWiki, PropostePendenti
 from ..statistiche import Primarie
 from ..status import STATUS_PERSISTENTI, nome_status
 
@@ -61,6 +63,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     # la stanza NON si ripopola più con un sosia — ritrova IL suo mob (H-4: il
     # legame passa dal dato `stanza`, mai dall'id esper).
     EntitaMob: "entita_mob",
+    # I fantasmi delle run altrui (sovra-run, Fase D): set congelato all'ingresso
+    # + il flag `consumato` — una traccia narrata non torna al reload.
+    FantasmiAttivi: "fantasmi",
     Corredo: "corredo",
     # Lo Zaino è POSSESSO (fonti di dominio): attraversa il save.
     Zaino: "zaino",
@@ -86,6 +91,12 @@ _TAG_PER_TIPO: dict[type, str] = {
     # Lo stato del TERRITORIO (2026-08-10): posizione nella spina + boss battuti
     # + zone viste. La SPINA non si salva: si rideriva dal seed al load.
     StatoTerritorio: "territorio",
+    # Wiki del Master (W1): il MARCATORE dichiara che la run è nata con una
+    # slice (il contratto vitale del terzo artefatto passa da qui — rev. 3
+    # §3.1); la CODA delle proposte non drenate sopravvive al save. La slice
+    # stessa NON è qui: vive in `<uuid>.wiki.gz`, mai nello stato in chiaro.
+    MarcatoreWiki: "marcatore_wiki",
+    PropostePendenti: "proposte_wiki_pendenti",
 }
 _TIPO_PER_TAG: dict[str, type] = {tag: tipo for tipo, tag in _TAG_PER_TIPO.items()}
 

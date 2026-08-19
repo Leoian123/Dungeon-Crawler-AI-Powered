@@ -1,0 +1,22 @@
+{
+  "slug": "regia-stagione-1",
+  "tipo": "regola",
+  "scope": { "stagione": 1, "piano_da": 1, "piano_a": null, "zona": "" },
+  "segretezza": "admin",
+  "regia": "solo_contesto",
+  "costante": false,
+  "inneschi": [],
+  "revisioni": [
+    {
+      "n": 1,
+      "testo": "APPUNTI DI PRODUZIONE (mai in un prompt): la stagione 1 chiude col riscatto dell'Archivista come gancio della stagione 2. Non anticipare nulla nel canone in-slice prima del playtest del piano 3.",
+      "vincolo": null,
+      "provenienza": "admin",
+      "ts": "2026-08-18T00:00:00"
+    }
+  ],
+  "approvazioni": [
+    { "revisione_n": 1, "autore": "admin", "ts": "2026-08-18T00:00:00" }
+  ],
+  "link": []
+}
