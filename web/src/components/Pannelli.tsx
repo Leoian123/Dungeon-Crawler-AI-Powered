@@ -10,7 +10,9 @@ export function ProgressoGM({ progresso }: { progresso: Progresso | null }) {
   if (!progresso) return null;
   return (
     <div className="flex items-center gap-3 rounded-lg border border-torcia/40 bg-pietra px-4 py-2">
-      <span className="text-sm italic text-torcia">{progresso.etichetta}</span>
+      <span className="shrink-0 font-hud text-xs italic text-torcia">
+        {progresso.etichetta}
+      </span>
       <div className="h-1.5 flex-1 overflow-hidden rounded bg-abisso">
         <div
           className="h-full bg-torcia transition-all duration-300"
@@ -24,8 +26,11 @@ export function ProgressoGM({ progresso }: { progresso: Progresso | null }) {
 export function BannerFase({ fase }: { fase: Fase }) {
   if (fase !== "combattimento") return null;
   return (
-    <div className="rounded-lg border border-sangue/50 bg-sangue/10 px-4 py-2 text-center font-bold tracking-widest text-sangue">
-      ⚔ COMBATTIMENTO — risolvi prima, il GM narra dopo
+    <div className="rounded-lg border-2 border-sangue/60 bg-sangue/10 px-4 py-2 text-center shadow-[0_0_18px_rgba(248,113,113,0.2)]">
+      <span className="titolo-insegna text-sm text-sangue">⚔ Combattimento</span>
+      <span className="ml-3 font-hud text-xs uppercase tracking-widest text-sangue/70">
+        risolvi prima · il GM narra dopo
+      </span>
     </div>
   );
 }
@@ -45,8 +50,8 @@ function BottoneTornaAllHub({ etichetta }: { etichetta: string }) {
 
 export function BannerMorte() {
   return (
-    <div className="rounded-lg border border-sangue bg-sangue/15 px-4 py-3 text-center">
-      <p className="text-lg font-bold text-sangue">💀 Sei morto.</p>
+    <div className="rounded-lg border-2 border-sangue bg-sangue/15 px-4 py-3 text-center shadow-[0_0_24px_rgba(248,113,113,0.25)]">
+      <p className="titolo-insegna text-xl text-sangue">💀 Sei morto.</p>
       <p className="text-sm text-pergamena/70">
         Permadeath: la run è terminata e lo slot verrà ritirato; il thread resta
         in sola lettura finché non torni all'hub.
@@ -59,7 +64,7 @@ export function BannerMorte() {
 export function BannerVittoria() {
   return (
     <div className="rounded-lg border border-muschio bg-muschio/10 px-4 py-3 text-center">
-      <p className="text-lg font-bold text-muschio">🏆 Piano completato!</p>
+      <p className="titolo-insegna text-xl text-muschio">🏆 Piano completato!</p>
       <p className="text-sm text-pergamena/70">
         La discesa è la vittoria della run (MVP a un piano). Il crawler si ritira
         vittorioso: lo slot viene archiviato.
@@ -76,7 +81,7 @@ export function PannelloStato({ stato }: { stato: string[] }) {
       {stato.map((descrittore, i) => (
         <span
           key={i}
-          className="rounded-full border border-pergamena/25 bg-pietra px-2.5 py-0.5 text-xs text-pergamena/80"
+          className="rounded-full border border-pergamena/25 bg-pietra px-2.5 py-0.5 font-hud text-[0.7rem] uppercase tracking-wider text-pergamena/80"
         >
           {descrittore}
         </span>

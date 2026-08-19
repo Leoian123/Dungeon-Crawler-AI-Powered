@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
-/* Tema del forum: dungeon scuro, prosa leggibile, accenti ambra da torcia. */
+/* Tema del forum: il dungeon-show di Borant — buio di sala, ambra di torcia,
+   ciano da insegna al neon per le FINESTRE DI SISTEMA (il registro LitRPG:
+   lo show parla al crawler in riquadri, non in prosa). */
 @theme {
   --color-pergamena: #e8e0cf;
   --color-torcia: #f59e0b;
@@ -10,9 +12,32 @@
   --color-sangue: #f87171;
   /* Il mana: azzurro-arcano, distinto dal verde-vita e dal rosso-ferita. */
   --color-sigillo: #60a5fa;
+  /* La voce dello SHOW (sistema, fuori onda, varchi): neon da insegna. */
+  --color-show: #22d3ee;
+
+  /* I tre registri: insegna (titoli/marquee), HUD (numeri, log, bottoni),
+     prosa (il default serif del body). */
+  --font-insegna: "Bungee", "Arial Black", sans-serif;
+  --font-hud: "IBM Plex Mono", ui-monospace, Consolas, monospace;
 }
 
 body {
   @apply bg-abisso text-pergamena antialiased;
   font-family: Georgia, "Times New Roman", serif;
+}
+
+@layer components {
+  /* Il titolo da insegna: maiuscolo, spaziato, con l'alone della torcia. */
+  .titolo-insegna {
+    @apply font-insegna uppercase;
+    letter-spacing: 0.05em;
+    text-shadow: 0 0 18px rgb(245 158 11 / 0.35);
+  }
+
+  /* L'etichetta di HUD: microtipografia monospazio, tutta maiuscola. */
+  .etichetta-hud {
+    @apply font-hud font-bold uppercase;
+    font-size: 0.65rem;
+    letter-spacing: 0.22em;
+  }
 }

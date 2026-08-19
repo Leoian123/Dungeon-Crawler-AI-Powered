@@ -70,7 +70,7 @@ function Partita({ stato }: { stato: StatoPartita }) {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         {/* Colonna sinistra: il party (sticky su desktop, sopra al thread su mobile). */}
-        <aside className="flex flex-col gap-3 lg:sticky lg:top-4 lg:w-64 lg:shrink-0 xl:w-72">
+        <aside className="flex flex-col gap-3 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:w-72 lg:shrink-0 lg:overflow-y-auto xl:w-80">
           <PannelloParty />
           {/* Indossa/Togli solo in narrazione: in scontro il server rifiuta (409). */}
           <PannelloZaino
@@ -171,18 +171,23 @@ export default function App() {
   const setSezione = useGioco((s) => s.setSezione);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-4 px-4 py-5">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-pergamena/15 pb-3">
-        <h1 className="text-xl font-bold text-torcia">Dungeon Crawler</h1>
+    <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-5">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-torcia/20 pb-3">
+        <div className="flex min-w-0 flex-col">
+          <h1 className="titolo-insegna text-2xl text-torcia">Dungeon Crawler</h1>
+          <span className="etichetta-hud text-pergamena/45">
+            la discesa è lo show · 150.000 ingressi
+          </span>
+        </div>
         <nav className="flex gap-1">
           {TAB.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setSezione(tab.id)}
-              className={`rounded px-3 py-1.5 text-sm transition ${
+              className={`rounded border px-3 py-1.5 font-hud text-xs font-bold uppercase tracking-wider transition ${
                 sezione === tab.id
-                  ? "bg-torcia/15 font-bold text-torcia"
-                  : "text-pergamena/70 hover:bg-pergamena/10"
+                  ? "border-torcia/50 bg-torcia/15 text-torcia"
+                  : "border-transparent text-pergamena/60 hover:bg-pergamena/10"
               }`}
             >
               {tab.etichetta}
