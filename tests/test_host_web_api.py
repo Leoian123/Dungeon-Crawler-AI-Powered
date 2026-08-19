@@ -89,7 +89,10 @@ def test_prima_narrazione_produce_il_post_del_forum(host) -> None:
     [post] = corpo["post"]
     assert post["genere"] == "gm"
     messaggio = post["messaggio"]
-    assert "Slime" in messaggio["prosa"]  # il copione del FakeProvider
+    # Il copione offline deriva dalla STAGIONE congelata: il cast può cambiare
+    # con il contenuto (era «Slime» nell'era demo) — l'oracolo è che il reveal
+    # abbia una prosa vera, non un nome di mob cablato nel test.
+    assert len(messaggio["prosa"]) > 40
     assert messaggio["dove"] and messaggio["come"]  # contestualizzazione obbligata
     assert isinstance(messaggio["tempo"]["tick_correnti"], int)
     etichette = [o["etichetta"].split(" —")[0] for o in corpo["snapshot"]["opzioni"]]
