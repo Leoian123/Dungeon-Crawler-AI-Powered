@@ -18,15 +18,18 @@ completa (G §13.1). Il punto di G è "la forma ora, i numeri dopo".
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from contracts import Blocco, ClasseProva, Durata, Grado
+from contracts import Blocco, ClasseProva, Durata, Frequenza, Grado, TierTerritorio
 
 # I VALORI §11 vivono in `calibrazione.py` (un solo posto, guida §0); qui se ne **rieaspongono**
 # i migrati per non rompere i consumatori storici (`from .catalogo import REGISTRY_ARCHETIPI`…).
 from .calibrazione import (  # noqa: F401  (re-export)
     CARICO_TICK,
+    GRADI_PER_PROFONDITA,
+    PROFONDITA_PER_GRADO,
     DURATA_BLOCCO_DEFAULT,
+    PESO_FREQUENZA,
     PRIMARIE_BASE_CARL,
     PROB_ANOMALIA,
     PROB_IMBOSCATA,
@@ -66,6 +69,34 @@ def rango_grado(grado: Grado) -> int:
     """Il `rango:int` (1–6) del `Grado`. Usato come rango di uno status applicato da
     un'entità composta dall'AI (G §4.3) e per la scelta deterministica del fallback."""
     return RANGO_GRADO[grado]
+
+
+# --- `Grado` → `ClasseProva`: la difficoltà che un'entità *impone* --------------
+# I due enum sono lo stesso ordinamento nominato (bronzo…celestiale) visto da due lati:
+# `Grado` = quanto vale un'entità, `ClasseProva` = quanto è difficile un'impresa. Derivata
+# **per indice**, non elencata: se qualcuno aggiunge un membro a uno solo dei due, la
+# `zip` lo lascia fuori e il test di sincronia lo grida (F-6).
+CLASSE_DA_GRADO: dict[Grado, ClasseProva] = dict(zip(Grado, ClasseProva, strict=True))
+
+
+def classe_da_grado(grado: Grado) -> ClasseProva:
+    """La classe di prova che un'entità di questo `Grado` impone (es. sfuggirle).
+
+    Il motore la deriva; l'AI non la sceglie mai — è il gemello di `rango_grado`."""
+    return CLASSE_DA_GRADO[grado]
+
+
+# --- `TierTerritorio` → `Grado`: la simmetria 6↔6 del territorio (2026-08-10) ---
+# Stessa dottrina di `CLASSE_DA_GRADO`: due enum, lo stesso ordinamento nominato
+# visto da due lati (quartiere=bronzo … piano=celestiale), derivato PER INDICE.
+# L'AI di authoring dichiara il TIER di un boss, mai il grado: il grado lo impone
+# questa mappa (e il validator di `TerritorioRisolto` la rispecchia in contracts).
+GRADO_DA_TIER: dict[TierTerritorio, Grado] = dict(zip(TierTerritorio, Grado, strict=True))
+
+
+def grado_da_tier(tier: TierTerritorio) -> Grado:
+    """Il grado che il tier territoriale impone al suo boss (simmetria 6↔6)."""
+    return GRADO_DA_TIER[tier]
 
 
 # --- Formula-madre: (archetipo, grado, livello) → primarie (FNC §5.5) ----------
@@ -109,9 +140,45 @@ class Budget:
 ARCHETIPO_DEFAULT = "slime"
 
 
+def gradi_per_profondita(livello: int) -> frozenset[Grado]:
+    """La finestra di gradi ammessi a una profondità (§11).
+
+    Sale scendendo: partendo dal bronzo, la finestra si sposta di un grado ogni
+    `PROFONDITA_PER_GRADO` piani e ne contiene `GRADI_PER_PROFONDITA`. Prima il budget
+    senza-piano offriva `{bronzo, argento}` a **qualunque** profondità: un piano 10 era
+    facile quanto il primo, e il `livello` che la formula-madre riceveva non aveva un
+    corrispettivo nel *contenuto* ammesso.
+
+    Con un piano attivo il budget viene dal design (il vincolo hard dell'autore); questa
+    resta l'autorità per il percorso senza piano — harness, banco, save legacy — e come
+    riferimento di lint per chi scrive un piano nuovo."""
+    scala = list(Grado)
+    primo = min((max(1, livello) - 1) // PROFONDITA_PER_GRADO, len(scala) - 1)
+    ultimo = min(primo + GRADI_PER_PROFONDITA, len(scala))
+    return frozenset(scala[primo:ultimo])
+
+
+def gradi_del_tier(tier: TierTerritorio) -> frozenset[Grado]:
+    """La finestra di gradi «correnti» di un tier territoriale (§11) — il gemello
+    di `gradi_per_profondita` per i piani-mondo, dove la profondità resta 1 per
+    tutta la spina ed è il TIER l'orologio della progressione.
+
+    Stessa forma: parte dal grado del tier (`GRADO_DA_TIER`) e ne contiene
+    `GRADI_PER_PROFONDITA` — al primo tier coincide con la finestra della
+    profondità 1 (il quartiere non è più generoso di prima). In CIMA la finestra
+    CLAMPA invece di stringersi: la tana loota {leggendario, celestiale}, non
+    solo celestiale — i suoi riempitivi sono leggendari (il CELESTIALE è il
+    Lich, mai lo spawn) e il bottino deve inseguire ciò che affronti davvero."""
+    scala = list(Grado)
+    primo = min(scala.index(GRADO_DA_TIER[tier]),
+                max(0, len(scala) - GRADI_PER_PROFONDITA))
+    ultimo = min(primo + GRADI_PER_PROFONDITA, len(scala))
+    return frozenset(scala[primo:ultimo])
+
+
 def _budget_normale(livello: int) -> Budget:
     """Budget ordinario per profondità (SEGNAPOSTO Gruppo 2)."""
-    gradi = {Grado.BRONZO, Grado.ARGENTO}
+    gradi = gradi_per_profondita(livello)
     blocchi = {Blocco.VELENO, Blocco.RIGENERAZIONE}
     return Budget(
         livello=livello,
@@ -153,9 +220,19 @@ def prepara_contesto(livello: int, rng: random.Random, *, piano=None) -> Budget:
     contenuto autorato. L'ANOMALIA non è cappata dal design: resta il tiro del
     dungeon coi set interi (anche il delirio è del motore, non dell'autore).
     Senza piano (save legacy, harness, banco): il segnaposto storico, invariato.
+
+    ECCEZIONE del territorio (2026-08-10): su un piano-mondo l'anomalia NON
+    regala il CELESTIALE — quel grado è l'identità del boss di piano, non un
+    jackpot del dado. Sui piani piatti il delirio storico resta intero.
     """
     if rng.random() < PROB_ANOMALIA:
-        return _budget_anomalo(livello)
+        anomalo = _budget_anomalo(livello)
+        if piano is not None and getattr(piano, "territorio", None) is not None:
+            return replace(
+                anomalo,
+                gradi_ammessi=anomalo.gradi_ammessi - {Grado.CELESTIALE},
+            )
+        return anomalo
     if piano is None:
         return _budget_normale(livello)
     return Budget(
@@ -179,6 +256,8 @@ ANCORE_CLASSE: dict[ClasseProva, tuple[str, ...]] = {
     ClasseProva.BRONZO: ("scappare da una blatta mannara",),
     ClasseProva.ARGENTO: ("disinnescare una trappola rumorosa",),
     ClasseProva.ORO: ("convincere una guardia veterana",),
+    ClasseProva.PLATINO: ("rubare a un boss di piano mentre ti guarda",),
+    ClasseProva.LEGGENDARIO: ("zittire una sala che ti vuole morto",),
     ClasseProva.CELESTIALE: ("sedurre un dio",),
 }
 

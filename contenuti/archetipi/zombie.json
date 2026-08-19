@@ -1,0 +1,23 @@
+{
+  "slug": "zombie",
+  "versione": 1,
+  "tags": ["non-morti", "lento", "tank"],
+  "nome": "lo Zombie",
+  "descrizione": "Carne che ha dimenticato di fermarsi. Lento per contratto (la Destrezza più bassa del gioco), ma continua ad arrivare: PV alti, morso che infetta. Il non-morto di massa del primo piano — ogni era della storia umana ne ha lasciato qualcuno in coda.",
+  "profilo": {
+    "destrezza_base": 2,
+    "pv_base": 24,
+    "danno_base": 3,
+    "intelligenza_base": 1,
+    "difesa_base": 1,
+    "saggezza_base": 1,
+    "fortuna_base": 1,
+    "armatura": "veste",
+    "taglia": "media",
+    "arma": "naturale",
+    "res_mischia": -10.0,
+    "res_fuoco": 15.0,
+    "res_veleno": -50.0
+  },
+  "mosse": ["attacco", "morso_velenoso"]
+}

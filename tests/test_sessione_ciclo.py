@@ -18,14 +18,18 @@ from main import (
     elenca_crawler,
     gioca_un_incontro,
 )
-from motore import ActionPoint, protagonista, tick
+from motore import ActionPoint, mappa_corrente, protagonista, tick
 
 
 def test_ciclo_completo_nuova_esci_elenca_carica(run_pulita, tmp_path) -> None:
-    sessione = costruisci_sessione(nome="Donut", seed=1, directory=tmp_path)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(
+        nome="Donut", seed=1, directory=tmp_path, stagione=stagione_sintetica(1)
+    )
     snap = asyncio.run(sessione.prossima_narrazione())
     prosa_originale = snap.prosa
-    assert "Slime" in prosa_originale
+    assert prosa_originale, "il reveal deve produrre prosa dal copione"
     uuid = sessione.uuid
     assert sessione.salva() == "Partita salvata."
     messaggio = sessione.esci()
@@ -62,6 +66,47 @@ def test_ciclo_completo_nuova_esci_elenca_carica(run_pulita, tmp_path) -> None:
     assert [o.etichetta for o in snap2.opzioni]  # la scena è ricomposta
 
 
+def test_copione_allineato_dopo_il_reload(run_pulita, tmp_path) -> None:
+    """Regression (audit 2026-08-07): al reload le stanze già narrate rileggono
+    l'Archivio (zero consumi FIFO), ma il copione offline ripartiva dalla PRIMA
+    stanza del piano — ogni stanza nuova riceveva la prosa shiftata di N (un
+    secondo Slime in stanza 2). Oracolo: la stessa run senza reload."""
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    # Baseline: tre stanze di fila, stessa discesa, nessun reload. Stagione
+    # SINTETICA piatta: il test misura l'allineamento del copione, non il
+    # contenuto pubblicato (che dal 2026-08-10 è territoriale).
+    base = costruisci_sessione(
+        nome="Base", seed=1, directory=tmp_path / "base",
+        stagione=stagione_sintetica(1, n_stanze=3),
+    )
+    attese = [asyncio.run(base.prossima_narrazione()).prosa]
+    for stanza in (1, 2):
+        mappa_corrente()[1].stanza_corrente = stanza  # harness: sposta senza menu
+        attese.append(asyncio.run(base.prossima_narrazione()).prosa)
+    assert len(set(attese)) == 3, "il copione deve dare stanze diverse"
+    base.esci()
+
+    # Run gemella: save/load dopo due stanze, poi la terza.
+    sessione = costruisci_sessione(
+        nome="Reload", seed=1, directory=tmp_path / "gioco",
+        stagione=stagione_sintetica(1, n_stanze=3),
+    )
+    prose = [asyncio.run(sessione.prossima_narrazione()).prosa]
+    mappa_corrente()[1].stanza_corrente = 1
+    prose.append(asyncio.run(sessione.prossima_narrazione()).prosa)
+    assert prose == attese[:2]
+    sessione.salva()
+    uuid = sessione.uuid
+    sessione.esci()
+
+    ripresa = carica_sessione(uuid=uuid, directory=tmp_path / "gioco")
+    assert ripresa is not None
+    mappa_corrente()[1].stanza_corrente = 2
+    prosa3 = asyncio.run(ripresa.prossima_narrazione()).prosa
+    assert prosa3 == attese[2]  # la stanza nuova riceve la SUA voce, non la shiftata
+
+
 def test_scheda_vista_visibilita(run_pulita, tmp_path) -> None:
     sessione = costruisci_sessione(nome="Princess", seed=2, directory=tmp_path)
     scheda = sessione.scheda()
@@ -74,6 +119,45 @@ def test_scheda_vista_visibilita(run_pulita, tmp_path) -> None:
     assert "fortuna" not in scheda.primarie_occulte
     assert scheda.derivate["attacco"] > 0
     assert scheda.livello >= 1
+
+
+def test_la_tui_puo_riprendere_lultimo_save(run_pulita, tmp_path) -> None:
+    """Regression (giro 2026-08-07): il salvataggio si SCRIVEVA ma nessun host lo
+    RICARICAVA — `carica_sessione` aveva zero chiamanti di prodotto e la TUI
+    costruiva sempre una sessione nuova (per giunta in una tempdir usa-e-getta).
+    `_scegli_sessione` è la selezione testabile senza Textual (import lazy)."""
+    from gioco_textual import _scegli_sessione
+
+    prima = _scegli_sessione([], None, directory=tmp_path)
+    _ = asyncio.run(prima.prossima_narrazione())
+    uuid = prima.uuid
+    prima.salva()
+    prima.esci()
+
+    ripresa = _scegli_sessione(["--riprendi"], None, directory=tmp_path)
+    assert ripresa.uuid == uuid, "la ripresa non ha caricato l'ultimo save"
+    ripresa.esci()
+
+    try:
+        _scegli_sessione(["--riprendi", "inesistente"], None, directory=tmp_path)
+        raise AssertionError("un uuid inesistente deve fallire rumorosamente")
+    except SystemExit:
+        pass
+
+
+def test_i_knob_carl_arrivano_al_protagonista(run_pulita, tmp_path, monkeypatch) -> None:
+    """Regression (audit 2026-08-07): il composition root cablava `destrezza=10,
+    hp=30`, così alzare `CARL.costituzione`/`HP_DEFAULT` in console non cambiava
+    nulla sul percorso di gioco reale — un knob esposto e morto."""
+    from contracts import StatId
+    from motore import scheda as _scheda
+
+    monkeypatch.setattr(_scheda, "_HP_DEFAULT", 50)
+    monkeypatch.setitem(_scheda.PRIMARIE_BASE_CARL, StatId.DESTREZZA, 14)
+    sessione = costruisci_sessione(nome="Knob", seed=1, directory=tmp_path)
+    scheda = sessione.scheda()
+    assert scheda.hp == 50, "HP_DEFAULT non arriva più al protagonista"
+    assert scheda.primarie["destrezza"] == 14, "CARL.destrezza non arriva più"
 
 
 def test_terminale_morte_invalida_lo_slot(run_pulita, tmp_path) -> None:
@@ -95,8 +179,8 @@ def _fino_al_combattimento(sessione) -> SnapshotVista:
     snap = asyncio.run(sessione.prossima_narrazione())
     for _ in range(5):
         etichette = {o.etichetta: o.indice for o in snap.opzioni}
-        if "Combatti" in etichette:
-            sessione.coda.accoda(PlayerChoseOption(etichette["Combatti"]))
+        if any(k.startswith("Combatti") for k in etichette):
+            sessione.coda.accoda(PlayerChoseOption(next(v for k, v in etichette.items() if k.startswith("Combatti"))))
             return sessione.avanza()
         vai = next(
             (i for e, i in etichette.items() if e.startswith("Vai")), None

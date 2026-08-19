@@ -15,11 +15,8 @@ from motore import (
     Brucia,
     Combattente,
     Rigenerazione,
-    SistemaBrucia,
-    SistemaRigenerazione,
     SistemaSempreAttivo,
     SistemaSoloCombattimento,
-    SistemaVeleno,
     SpecNemico,
     Status,
     Veleno,
@@ -27,6 +24,7 @@ from motore import (
     entita_attiva,
     protagonista,
     segna_turno_attivo,
+    sistemi_status,
     tick,
 )
 from tests.combat_helpers import avvia_scontro
@@ -49,13 +47,21 @@ def test_G6_status_porta_rango_e_nessuna_fonte() -> None:
 # --- G-5: nessun handler di status in solo-combattimento; un solo proprietario -
 
 def test_G5_status_solo_nel_bucket_sempre_attivo() -> None:
-    for sistema in (SistemaVeleno, SistemaBrucia, SistemaRigenerazione):
-        assert issubclass(sistema, SistemaSempreAttivo)
-        assert not issubclass(sistema, SistemaSoloCombattimento)
-    # Mappa tipo→sistema iniettiva: un solo proprietario per tipo.
-    tipi = [SistemaVeleno.tipo_status, SistemaBrucia.tipo_status, SistemaRigenerazione.tipo_status]
-    assert tipi == [Veleno, Brucia, Rigenerazione]
-    assert len(set(tipi)) == 3
+    """I system di status vivono nel bucket sempre-attivo, e sono UNO per tipo.
+
+    Verificato sui system DERIVATI dalla tabella (`sistemi_status()`), non su classi
+    nominate: gli alias storici `SistemaVeleno`/`SistemaBrucia`/… sono stati ritirati
+    proprio perché cablarli *insieme* alla derivazione faceva ticcare due volte lo
+    stesso status — un bug silenzioso che raddoppiava il decorso."""
+    sistemi = sistemi_status()
+    assert sistemi, "nessun system di status derivato dalla tabella"
+    for sistema in sistemi:
+        assert isinstance(sistema, SistemaSempreAttivo)
+        assert not isinstance(sistema, SistemaSoloCombattimento)
+    # Mappa tipo→sistema INIETTIVA: un solo proprietario per tipo (G-5).
+    tipi = [s.tipo_status for s in sistemi]
+    assert len(set(tipi)) == len(tipi), f"due system per lo stesso status: {tipi}"
+    assert {Veleno, Brucia, Rigenerazione} <= set(tipi)
 
 
 def test_G5_avanzamento_status_solo_in_status_py() -> None:
@@ -104,10 +110,35 @@ def test_G8_un_per_tipo_e_coesistenza(mondo_isolato: str) -> None:
 
     # Tick in parallelo sui due tipi (l'entità è quella attiva).
     segna_turno_attivo(e)
-    SistemaVeleno().run(1)
-    SistemaBrucia().run(1)
+    for sistema in sistemi_status():          # un giro di tutti i tick, come in run
+        sistema.run(1)
     assert esper.component_for_entity(e, Veleno).durata == 2  # 3 → 2
     assert esper.component_for_entity(e, Brucia).durata == 1  # 2 → 1
+
+
+# --- La FINE di uno status si narra come l'inizio ------------------------------
+
+def test_la_fine_di_uno_status_viene_narrata(mondo_isolato: str) -> None:
+    """Regression (giro 2026-08-07): il giocatore leggeva «Sei avvelenato!» e i
+    tick «-1 HP», mai QUANDO il veleno finiva — la scadenza rimuoveva il
+    componente in silenzio."""
+    from contracts import BusEventi, StatusSvanito
+
+    e = esper.create_entity()
+    applica_status(e, Veleno(rango=1, durata=1))
+    segna_turno_attivo(e)
+    bus = BusEventi()
+    visti: list[StatusSvanito] = []
+    bus.registra(StatusSvanito, visti.append)
+    try:
+        for sistema in sistemi_status(bus):
+            sistema.run(1)
+    finally:
+        bus.deregistra(StatusSvanito, visti.append)
+    assert not esper.has_component(e, Veleno)
+    assert visti and visti[-1].status == "veleno", (
+        "lo status è scaduto senza che nessun evento lo raccontasse"
+    )
 
 
 # --- G-24: burn-rate invariante al numero di nemici ---------------------------

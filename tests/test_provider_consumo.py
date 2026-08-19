@@ -30,7 +30,12 @@ class _Risposta:
 
 
 class _MessaggiFinti:
-    """`client.messages.parse` scriptato: un esito per chiamata, in ordine."""
+    """`client.beta.messages.parse` scriptato: un esito per chiamata, in ordine.
+
+    ⚠️ Il finto DEVE ricalcare il percorso VERO dell'SDK (namespace `beta`): la
+    versione precedente stubava `client.messages.parse` — un metodo che sull'SDK
+    reale non esiste — e così questi test restavano verdi mentre il live degradava
+    ogni turno per AttributeError (giro 2026-08-07)."""
 
     def __init__(self, esiti: list) -> None:
         self._esiti = list(esiti)
@@ -42,9 +47,14 @@ class _MessaggiFinti:
         return esito
 
 
-class _ClientFinto:
+class _Beta:
     def __init__(self, esiti: list) -> None:
         self.messages = _MessaggiFinti(esiti)
+
+
+class _ClientFinto:
+    def __init__(self, esiti: list) -> None:
+        self.beta = _Beta(esiti)
 
 
 def _backend(esiti: list, consumo: ConsumoProvider | None = None) -> AnthropicBackend:
@@ -127,3 +137,16 @@ def test_scegli_provider_live_condivide_davvero_il_tally(monkeypatch) -> None:
     forte = composto._per_schema[TurnoNarrazione]
     veloce = composto._predefinito
     assert forte.consumo is veloce.consumo
+    # E il tally viaggia col provider composto: è ciò che l'host legge per il
+    # riassunto a fine sessione (audit 2026-08-07: accumulato ma mai mostrato).
+    assert composto.consumo is forte.consumo
+
+
+def test_riassunto_e_leggibile_e_conta_i_guasti() -> None:
+    c = ConsumoProvider()
+    c.registra_risposta(_Usage(input_tokens=100, output_tokens=20))
+    c.errori_trasporto += 1
+    c.generazioni_fallite += 2
+    riga = c.riassunto()
+    assert "1 chiamate" in riga and "100 tok in" in riga and "20 tok out" in riga
+    assert "1 trasporto" in riga and "2 generazione" in riga

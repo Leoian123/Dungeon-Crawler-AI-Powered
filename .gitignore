@@ -61,3 +61,11 @@ web/.vite/
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/
 docs/
+
+# Raccolto generativo di misura_run (--json / --json-oggetti): output generato,
+# fotografia locale — mai versionato.
+raccolto*.json
+
+# Wiki del Master (W1): il registro delle estrazioni è stato locale
+# (cresce a ogni run/test), mai versionato — le VOCI invece sì.
+wiki/.estrazioni.jsonl

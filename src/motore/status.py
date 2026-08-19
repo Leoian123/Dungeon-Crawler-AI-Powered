@@ -9,7 +9,8 @@ sovrascrive). Riapplicare lo stesso tipo NON affianca una copia: **compete per r
 (`applica_status`). Tipi diversi coesistono e ticcano in parallelo (G-8).
 
 Tick = **un solo proprietario per tipo**, nel bucket **sempre-attivo** (G-5): un
-`SistemaVeleno` possiede tutti i `Veleno`, ecc. Cadenza in combattimento =
+`SistemaStatus(tipo=Veleno)` possiede tutti i `Veleno`, ecc. — e si ottiene SEMPRE da
+`sistemi_status()`, che li deriva dalla tabella. Cadenza in combattimento =
 **per-turno-dell'entità** (G-24): si avanza solo lo status dell'entità attiva
 (`TurnoAttivo`), così il burn-rate è invariante al numero di nemici.
 
@@ -124,30 +125,35 @@ class SpecStatus:
     `blocco`: il membro del vocabolario AI-facing (None = status interno, mai
     emettibile da AI/asset — es. Confusione). `trasmissibile`: capacità OFFENSIVA,
     l'innato la applica col colpo; False = PASSIVA (cura il portatore).
-    `delta_per_rango`: HP mossi per tick d'afflizione (− danno, + cura, 0 = l'effetto
-    sta altrove, come il salto-turno dello Stordito). `con_sistema`: False = nessun
-    tick deterministico (Confusione è AI-risolta, post-MVP). `persistente`: entra
-    nel registry dei tag del save."""
+    `con_sistema`: False = nessun tick deterministico (Confusione è AI-risolta,
+    post-MVP). `persistente`: entra nel registry dei tag del save.
+
+    ⚠️ **Qui non ci sono magnitudini.** `delta_per_rango` e `durata_afflizione` vivono in
+    `calibrazione` come foglie §11 generate dall'enum `Blocco`, e `PROFILO_STATUS` le
+    monta insieme a questa riga. Erano campi di questa dataclass — gli ultimi numeri di
+    bilanciamento fuori dal catalogo: invisibili alla console di calibrazione e non
+    tarabili senza toccare il codice. Questa riga dice *come si comporta* uno status;
+    *quanto* fa male lo dice §11."""
 
     componente: type[Status]
     valenza: Valenza
     risoluzione: Risoluzione
     trasmissibile: bool = True
-    delta_per_rango: int = 0
     blocco: Blocco | None = None
     con_sistema: bool = True
     persistente: bool = True
 
 
+# La tabella porta il **comportamento** (chi trasmette, chi ha un system, chi persiste);
+# le MAGNITUDINI stanno in `calibrazione` (§11) e si leggono al montaggio del profilo.
+# Erano letterali qui: gli ultimi numeri di bilanciamento fuori dal catalogo, invisibili
+# alla console e non tarabili senza toccare il codice.
 SPEC_STATUS: tuple[SpecStatus, ...] = (
-    SpecStatus(Veleno, Valenza.DANNOSO, Risoluzione.MOTORE,
-               delta_per_rango=-1, blocco=Blocco.VELENO),
-    SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE,
-               delta_per_rango=-1, blocco=Blocco.BRUCIA),
+    SpecStatus(Veleno, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.VELENO),
+    SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.BRUCIA),
     SpecStatus(Rigenerazione, Valenza.BENEFICO, Risoluzione.MOTORE,
-               trasmissibile=False, delta_per_rango=+1, blocco=Blocco.RIGENERAZIONE),
-    SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE,
-               blocco=Blocco.STORDITO),  # niente delta: l'effetto è il salto-turno
+               trasmissibile=False, blocco=Blocco.RIGENERAZIONE),
+    SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.STORDITO),
     SpecStatus(Confusione, Valenza.DANNOSO, Risoluzione.AI,
                trasmissibile=False, con_sistema=False, persistente=False),
 )
@@ -164,25 +170,50 @@ def nome_status(tipo: type[Status]) -> str:
 # --- Derivazioni (mai una seconda dichiarazione) --------------------------------
 
 @dataclass(frozen=True)
+class DeltaHp:
+    """Il primitivo di tick «muovi HP» (GR2 §7.3): `per_rango × rango` a ogni
+    tick — negativo ferisce, positivo cura (clampata al massimo). È il primo
+    membro del vocabolario chiuso degli effetti-tick: un primitivo NUOVO
+    (es. drenaggio-mana) è CODICE qui (Corsia 3), mai un dato più ricco."""
+
+    per_rango: int
+
+
+@dataclass(frozen=True)
 class ProfiloStatus:
-    """Vista comoda per i system: comportamento + durata d'afflizione (§11)."""
+    """Vista comoda per i system: comportamento + durata d'afflizione (§11).
+
+    `effetti_tick` è il comportamento del tick COME DATO (GR2 §7.3): il system
+    generico la ITERA — «veleno letale», «rigenerazione celestiale» diventano
+    righe di dati, non sistemi dedicati. `delta_per_rango` resta come vista
+    comoda dei consumatori storici, derivato dallo stesso numero §11."""
 
     trasmissibile: bool
     delta_per_rango: int
     durata_afflizione: int
+    effetti_tick: tuple = ()
 
 
 def _profili_status() -> dict[type[Status], ProfiloStatus]:
-    from .calibrazione import DURATA_AFFLIZIONE, DURATA_BLOCCO_DEFAULT
+    """Monta il profilo: comportamento dalla tabella, **numeri dal catalogo §11**.
 
-    return {
-        s.componente: ProfiloStatus(
+    Uno status senza foglia (`Confusione`, che non ha un `Blocco` AI-facing) ripiega sui
+    default — non è un buco: è uno status a risoluzione AI, senza tick deterministico."""
+    from .calibrazione import DELTA_PER_RANGO, DURATA_AFFLIZIONE, DURATA_BLOCCO_DEFAULT
+
+    profili: dict[type[Status], ProfiloStatus] = {}
+    for s in SPEC_STATUS:
+        delta = DELTA_PER_RANGO.get(nome_status(s.componente), 0)
+        profili[s.componente] = ProfiloStatus(
             s.trasmissibile,
-            s.delta_per_rango,
+            delta,
             DURATA_AFFLIZIONE.get(nome_status(s.componente), DURATA_BLOCCO_DEFAULT),
+            # Il dato riproduce lo storico bit-per-bit (oracolo in
+            # test_status_tick_oracolo): delta 0 = tupla vuota, nessun effetto
+            # (lo Stordito consuma il turno, non gli HP).
+            effetti_tick=(DeltaHp(per_rango=delta),) if delta != 0 else (),
         )
-        for s in SPEC_STATUS
-    }
+    return profili
 
 
 PROFILO_STATUS: dict[type[Status], ProfiloStatus] = _profili_status()
@@ -215,7 +246,7 @@ def afflizione_da(capacita: Status) -> Status:
 
 # --- Applicazione: competizione per rango (G-7) -------------------------------
 
-def applica_status(entita: int, status: Status) -> None:
+def applica_status(entita: int, status: Status) -> bool:
     """Applica `status` competendo con l'eventuale residente dello STESSO tipo (§4.2).
 
     - nessun residente → si applica;
@@ -225,53 +256,42 @@ def applica_status(entita: int, status: Status) -> None:
       timer (non si **diluisce**: il rango resta quello alto), il nuovo è scartato.
 
     Confronto int-vs-int, fissato all'applicazione: deterministico, non tocca il seed.
+
+    Ritorna **True se lo status è NUOVO** (nessun residente prima): è il fatto
+    che decide se annunciarlo — un rinfresco non ristampa «Sei avvelenato!»
+    (riscontro playtest 2026-08-12: doppia riga nella stessa cronaca quando
+    innato trasmesso ed effetto di mossa applicavano lo stesso blocco).
     """
     tipo = type(status)
     residente = esper.try_component(entita, tipo)
     if residente is None:
         esper.add_component(entita, status)
-    elif status.rango > residente.rango:
+        return True
+    if status.rango > residente.rango:
         residente.rango = status.rango
         residente.durata = status.durata
     else:
         residente.durata = max(residente.durata, status.durata)
+    return False
 
 
 # --- Tick: un solo sistema per tipo, sempre-attivo, per-turno-dell'entità ------
 
 def _applica_delta_hp(entita: int, delta: int) -> int | None:
-    """Muove gli HP dove vivono (`Scheda` per il protagonista, `PuntiVita` per i
-    nemici), clampando la CURA al massimo. Ritorna gli HP risultanti (o None).
-    Import locali: evitano cicli col modulo di combattimento."""
-    from .scheda import Scheda
+    """Delega al proprietario UNICO della mutazione HP (`salute.muovi_hp`):
+    qui viveva una delle quattro copie di «dove vivono gli HP», con la sua
+    politica di clamp — ora la politica è in un posto solo."""
+    from .salute import muovi_hp  # pigro: nessun ciclo status↔combattimento
 
-    scheda = esper.try_component(entita, Scheda)
-    if scheda is not None:
-        if delta > 0:
-            from .derivate import max_hp
-
-            scheda.punti_vita = min(scheda.punti_vita + delta, max_hp(entita))
-        else:
-            scheda.punti_vita += delta
-        return scheda.punti_vita
-    from .combattimento import PuntiVita
-
-    pv = esper.try_component(entita, PuntiVita)
-    if pv is not None:
-        pv.attuali = min(pv.attuali + delta, pv.massimi) if delta > 0 else pv.attuali + delta
-        return pv.attuali
-    return None
+    return muovi_hp(entita, delta)
 
 
 def _nome_diegetico(entita: int) -> str:
-    """Nome per gli eventi di vista: il nome del mob, "" per il protagonista."""
-    from .narrazione import EntitaMob  # locale: narrazione importa già questo modulo
-    from .scheda import Protagonista
+    """Nome per gli eventi di vista: delega alla copia UNICA (`mob.nome_diegetico`
+    — era duplicata byte-per-byte con `combattimento._nome_pubblico`)."""
+    from .mob import nome_diegetico
 
-    em = esper.try_component(entita, EntitaMob)
-    if em is not None:
-        return em.nome
-    return "" if esper.has_component(entita, Protagonista) else "il nemico"
+    return nome_diegetico(entita)
 
 
 class SistemaStatus(SistemaSempreAttivo):
@@ -317,23 +337,34 @@ class SistemaStatus(SistemaSempreAttivo):
         comp.durata -= 1
         if comp.durata <= 0:
             esper.remove_component(entita, self.tipo_status)
+            if self.bus is not None:
+                # La FINE si narra come l'inizio: prima il giocatore leggeva
+                # «Sei avvelenato!» e i tick, mai quando il veleno smetteva.
+                from contracts import StatusSvanito
 
-    def applica_effetto(self, entita: int, comp: Status) -> None:
-        """Effetto al tick: `delta_per_rango × rango` HP (0 = nessun effetto)."""
-        if self._profilo.delta_per_rango == 0:
-            return
-        delta = self._profilo.delta_per_rango * comp.rango
-        _applica_delta_hp(entita, delta)
-        if self.bus is not None:
-            from contracts import EffettoStatus
-
-            self.bus.pubblica(
-                EffettoStatus(
+                self.bus.pubblica(StatusSvanito(
                     bersaglio=_nome_diegetico(entita),
                     status=self.tipo_status.__name__.lower(),
-                    delta_hp=delta,
-                )
-            )
+                ))
+
+    def applica_effetto(self, entita: int, comp: Status) -> None:
+        """Il tick ITERA gli effetti-DATO del profilo (GR2 §7.3): il
+        comportamento per-status è una tupla di primitivi chiusi, mai un ramo
+        per-status nel system. Tupla vuota = nessun effetto (Stordito)."""
+        for effetto in self._profilo.effetti_tick:
+            if isinstance(effetto, DeltaHp):
+                delta = effetto.per_rango * comp.rango
+                _applica_delta_hp(entita, delta)
+                if self.bus is not None:
+                    from contracts import EffettoStatus
+
+                    self.bus.pubblica(
+                        EffettoStatus(
+                            bersaglio=_nome_diegetico(entita),
+                            status=self.tipo_status.__name__.lower(),
+                            delta_hp=delta,
+                        )
+                    )
 
 
 def sistemi_status(bus=None) -> list[SistemaStatus]:
@@ -345,25 +376,16 @@ def sistemi_status(bus=None) -> list[SistemaStatus]:
     ]
 
 
-# Alias storici (compatibilità con test e registrazioni esplicite): il tick vero
-# lo fanno le istanze di `sistemi_status`; il comportamento resta in tabella.
-
-class SistemaVeleno(SistemaStatus):
-    tipo_status = Veleno
-
-
-class SistemaBrucia(SistemaStatus):
-    tipo_status = Brucia
-
-
-class SistemaRigenerazione(SistemaStatus):
-    tipo_status = Rigenerazione
-
-
-class SistemaStordito(SistemaStatus):
-    tipo_status = Stordito
-    # Nessun delta HP in tabella: l'effetto (saltare il turno) lo consulta il loop
-    # di combattimento; qui solo il decorso dell'afflizione (durata).
+# ⛔ **Gli alias storici sono stati RITIRATI** (`SistemaVeleno`, `SistemaBrucia`,
+# `SistemaRigenerazione`, `SistemaStordito`). Erano sottoclassi nominate che facevano lo
+# stesso lavoro di `sistemi_status()`, tenute per compatibilità — e convivevano con la
+# derivazione: chi ne registrava una **insieme** al risultato di `sistemi_status()`
+# faceva ticcare **due volte** lo stesso status, dimezzandone la durata in silenzio.
+# Nessun test lo avrebbe visto, perché entrambe le strade "funzionano" da sole.
+#
+# Se ti serve il system di un tipo specifico: `SistemaStatus(bus, tipo=Veleno)`, oppure
+# — quasi sempre la cosa giusta — `sistemi_status(bus)`, che li deriva tutti dalla
+# tabella e non può produrne due per lo stesso status.
 
 
 # NB: `Confusione` (unsafe, AI-risolto) NON ha un sistema-tick deterministico nell'MVP:

@@ -26,12 +26,17 @@ import typing
 
 from ..corredo import Corredo
 from ..design import StagioneAttiva
+from ..equip import ComponenteEquip, Guardaroba, Zaino
+from ..oggetti import OggettiConiati
 from ..fase import FaseCorrente
 from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
+from ..fantasmi import FantasmiAttivi
 from ..piano import ProfonditaPiano, TempoPiano
 from ..scheda import ActionPoint, Mana, Protagonista, Scheda
+from ..territorio import StatoTerritorio
 from ..seme import SemeRun
+from ..wiki import MarcatoreWiki, PropostePendenti
 from ..statistiche import Primarie
 from ..status import STATUS_PERSISTENTI, nome_status
 
@@ -58,7 +63,22 @@ _TAG_PER_TIPO: dict[type, str] = {
     # la stanza NON si ripopola più con un sosia — ritrova IL suo mob (H-4: il
     # legame passa dal dato `stanza`, mai dall'id esper).
     EntitaMob: "entita_mob",
+    # I fantasmi delle run altrui (sovra-run, Fase D): set congelato all'ingresso
+    # + il flag `consumato` — una traccia narrata non torna al reload.
+    FantasmiAttivi: "fantasmi",
     Corredo: "corredo",
+    # Lo Zaino è POSSESSO (fonti di dominio): attraversa il save.
+    Zaino: "zaino",
+    # Il manifest dell'INDOSSO (ADR-1 F5): round-trippa INSIEME alla coppia
+    # filtro-di-provenienza (save) + hook `re_equipaggia` (load) — le voci
+    # derivate non viaggiano mai nel save, rinascono dal manifest.
+    ComponenteEquip: "equip",
+    # La vestizione dei premi (T2b): parole generate e gated — il cimelio
+    # battezzato non torna anonimo al load.
+    Guardaroba: "guardaroba",
+    # Gli oggetti CONIATI in-run (drop generati dall'AI, gated): posseduto
+    # persistente — il cimelio nato in run non svanisce al load.
+    OggettiConiati: "oggetti_coniati",
     Resistenze: "resistenze",
     Repertorio: "repertorio",
     FaseCorrente: "fase_corrente",
@@ -68,6 +88,15 @@ _TAG_PER_TIPO: dict[type, str] = {
     # La stagione attiva (aggregato di contenuto congelato): il design della run
     # viaggia col save — le run non vedono mai le modifiche di libreria.
     StagioneAttiva: "stagione",
+    # Lo stato del TERRITORIO (2026-08-10): posizione nella spina + boss battuti
+    # + zone viste. La SPINA non si salva: si rideriva dal seed al load.
+    StatoTerritorio: "territorio",
+    # Wiki del Master (W1): il MARCATORE dichiara che la run è nata con una
+    # slice (il contratto vitale del terzo artefatto passa da qui — rev. 3
+    # §3.1); la CODA delle proposte non drenate sopravvive al save. La slice
+    # stessa NON è qui: vive in `<uuid>.wiki.gz`, mai nello stato in chiaro.
+    MarcatoreWiki: "marcatore_wiki",
+    PropostePendenti: "proposte_wiki_pendenti",
 }
 _TIPO_PER_TAG: dict[str, type] = {tag: tipo for tipo, tag in _TAG_PER_TIPO.items()}
 
@@ -137,6 +166,18 @@ def _da_jsonable(dato: object, annot: object) -> object:
     if _e_enum(annot):
         return annot(dato)  # type: ignore[operator]
     origine = typing.get_origin(annot)
+    # `X | None` (Optional): si scarta il ramo None e si ricorre sul tipo vero —
+    # serve ai campi `dataclass | None` (es. `PianoAttivo.territorio`), che prima
+    # di questo ramo tornavano dict grezzi in silenzio. PEP 604 incluso.
+    import types
+
+    if origine in (typing.Union, types.UnionType):
+        if dato is None:
+            return None
+        interni = [a for a in typing.get_args(annot) if a is not type(None)]
+        if len(interni) == 1:
+            return _da_jsonable(dato, interni[0])
+        return dato  # Union eterogenea: passthrough (nessun campo così, oggi)
     if origine is dict:
         k_t, v_t = typing.get_args(annot)
         return {_da_jsonable(k, k_t): _da_jsonable(v, v_t) for k, v in dato.items()}

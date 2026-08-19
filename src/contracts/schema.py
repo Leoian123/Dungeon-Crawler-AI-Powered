@@ -27,13 +27,37 @@ Dipendenze: solo stdlib + Pydantic (F-2, §3.1).
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
-# Config condivisa: vietare campi extra chiude la porta a un campo con cui l'AI
-# proverebbe a invocare l'anomalia o ad alzarsi il budget (F-4, §4.3).
-_CHIUSO = ConfigDict(extra="forbid")
+from .proiezione import SlotEquip
+
+def _senza_docstring(schema: dict) -> None:
+    """La docstring resta per chi legge il codice, ma NON viaggia come `description`
+    nel JSON schema inviato al provider a ogni chiamata — erano commenti per
+    sviluppatori (con riferimenti alle spec interne) che pesavano ~40% dei token di
+    input per turno (audit 2026-08-07). Una descrizione PENSATA per l'AI si dichiara
+    con `Field(description=...)`: quelle a livello campo non vengono toccate."""
+    schema.pop("description", None)
+
+
+# Config condivisa dei MODELLI: vietare campi extra chiude la porta a un campo con
+# cui l'AI proverebbe a invocare l'anomalia o ad alzarsi il budget (F-4, §4.3);
+# `json_schema_extra` spoglia la docstring dallo schema esportato.
+_CHIUSO = ConfigDict(extra="forbid", json_schema_extra=_senza_docstring)
+
+
+class SchemaSnello:
+    """Mixin degli ENUM del contratto AI: stesso scopo di `_senza_docstring`, per le
+    classi che non hanno una `model_config` (la docstring dell'enum finirebbe come
+    `description` nella sua voce `$defs`)."""
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        schema = handler(core_schema)
+        schema.pop("description", None)
+        return schema
 
 
 # --- Enum del catalogo: vocabolario chiuso (contenuti in G) -------------------
@@ -50,7 +74,7 @@ Slug = Annotated[str, StringConstraints(pattern=RE_SLUG)]
 ArchetipoId = Slug
 
 
-class Grado(str, Enum):
+class Grado(SchemaSnello, str, Enum):
     """Vocabolario chiuso del **grado** di un'entità (ex `Rarita`, override Gruppo 2 §1.1).
 
     Un solo enum AI-facing: l'AI **sceglie un nome**, mai un numero. La mappa
@@ -67,7 +91,7 @@ class Grado(str, Enum):
     CELESTIALE = "celestiale"
 
 
-class StatId(str, Enum):
+class StatId(SchemaSnello, str, Enum):
     """Vocabolario chiuso delle statistiche primarie (Gruppo 2 §2.2): SOLO nomi.
 
     È vocabolario, non comportamento: i **flag** per stat (visibilità, modificabilità,
@@ -78,13 +102,18 @@ class StatId(str, Enum):
     FORZA = "forza"
     DESTREZZA = "destrezza"
     COSTITUZIONE = "costituzione"
-    INTELLIGENZA = "intelligenza"  # accuratezza magica (Gruppo 2 §5.4); base di acc_eff con Des
+    INTELLIGENZA = "intelligenza"  # accuratezza magica (Gruppo 2 §5.4): base di acc_mag_eff
     DIFESA = "difesa"          # mitigazione piatta, base 0: canale-modificatori dell'armatura (§5.3)
     SAGGEZZA = "saggezza"      # valore-nascosto, solo-privilegiati (canone DCC)
     FORTUNA = "fortuna"        # esistenza-negata (canone DCC)
+    # La stat SOCIALE (decisione utente 2026-08-16): il tiro del parlamentare —
+    # aprire bocca con un OSTILE esige un margine di carisma contro la classe
+    # del suo grado. Tira solo il protagonista (i mob non parlamentano fra
+    # loro): un mob senza base pesca il floor delle primarie e non la usa mai.
+    CARISMA = "carisma"
 
 
-class Blocco(str, Enum):
+class Blocco(SchemaSnello, str, Enum):
     """Le "interfacce" di FNC §5.5: contratti noti. Valori SEGNAPOSTO (contenuti in G).
 
     Il binding `Blocco → classe componente ECS` vive nel **registry del motore**
@@ -97,7 +126,7 @@ class Blocco(str, Enum):
     BRUCIA = "brucia"  # acceso nell'audit 2026-08: il sistema esisteva, il nome no
 
 
-class TipoDanno(str, Enum):
+class TipoDanno(SchemaSnello, str, Enum):
     """Tipo di danno di un attacco — enum chiuso AI-facing (Gruppo 2 tipi §2).
 
     Stessa famiglia di `Grado`/`Durata`: l'AI lo **dichiara**, il gate-catalogo lo
@@ -115,7 +144,22 @@ class TipoDanno(str, Enum):
     VELENO = "veleno"
 
 
-class TipoAzione(str, Enum):
+class StileAttacco(SchemaSnello, str, Enum):
+    """Lo STILE di un attacco: quale stat guida l'accuratezza del check 1.
+
+    Enum chiuso, stessa famiglia di `TipoDanno` (l'AI/asset lo **dichiara**, il
+    motore lo **mappa** a una derivata: `FISICO → acc_fis_eff` su Destrezza,
+    `MAGICO → acc_mag_eff` su Intelligenza — selettore-dato lato motore, mai un
+    ramo per-stile). Ortogonale a `TipoDanno`: lo stile dice COME miri, il tipo
+    dice quali resistenze incroci (un dardo arcano è MAGICO e FUOCO). Default
+    `FISICO` = il comportamento marziale storico.
+    """
+
+    FISICO = "fisico"
+    MAGICO = "magico"
+
+
+class TipoAzione(SchemaSnello, str, Enum):
     """Spazio d'azione chiuso → mappa su un'azione nota del motore (IC §2.3).
 
     `SCENDI` e `MUOVI` sono azioni **di scena**: compaiono nel menu SOLO quando la
@@ -132,26 +176,145 @@ class TipoAzione(str, Enum):
     # (stanza senza nemici e nessuno status che lo impedisca), mai l'AI dal testo.
     # Costa tempo — e il tempo, scorrendo, può portare un'imboscata.
     RIPOSA = "riposa"
+    # `ATTRAVERSA` (territorio, 2026-08): il passaggio alla zona successiva della
+    # spina. Di scena come SCENDI: compare SOLO quando è vero (stanza-passaggio
+    # e boss di zona sconfitto) — l'AI può nominarlo, mai concederlo.
+    ATTRAVERSA = "attraversa"
+    # `PASSA` (J §6, acceso 2026-08-12): la valvola del passa-turno — UN tick
+    # secco, gli status tickano, il dado tira. Di scena quando è vera
+    # (`puo_passare_turno`: narrazione ∧ nessuno unsafe — i DANNOSI non la
+    # bloccano: serve proprio a far scorrere il veleno al sicuro).
+    PASSA = "passa"
+    # `PARLAMENTA` (asse social, 2026-08-16): aprire bocca invece di aprire lo
+    # scontro. Di scena come le altre: la compone il motore quando è VERA —
+    # un PNG INTERPELLABILE in stanza (categoria che rompe il divieto del
+    # menu), o un OSTILE mai tentato (il gate è un margine di CARISMA contro
+    # la classe del suo grado; il tentativo è UNO per mob).
+    PARLAMENTA = "parlamenta"
     ALTRO = "altro"
 
 
-class ClasseProva(str, Enum):
+class ClasseProva(SchemaSnello, str, Enum):
     """Difficoltà di una prova di abilità: una **classe nominata**, non un numero
-    (G §7.2). L'AI **seleziona** la classe inquadrando la prova, PRIMA del tiro, e
-    non può mutarla dopo; il motore mappa `classe → soglia` (seeded) e risolve.
+    (G §7.2). L'AI **seleziona** la classe inquadrando la prova, PRIMA della
+    risoluzione, e non può mutarla dopo; il motore mappa `classe → soglia` e
+    **confronta a margine** (G §7.1: nessun tiro).
 
     "celestiale" è un nome come "leggendario": vocabolario chiuso nel contratto. La
     tabella `classe → soglia` (la formula) e le **ancore** testuali vivono nel
     catalogo del MOTORE (G §7.4), MAI qui. Valori SEGNAPOSTO (contenuti in G).
     """
 
+    # Specchio ESATTO di `Grado`, stesso ordine: la difficoltà di una prova e il grado di
+    # un'entità sono la stessa scala nominata (mappa `CLASSE_DA_GRADO`, lato motore). Un
+    # membro qui senza la sua foglia §11 è un `KeyError` all'import di `calibrazione`.
     BRONZO = "bronzo"
     ARGENTO = "argento"
     ORO = "oro"
+    PLATINO = "platino"
+    LEGGENDARIO = "leggendario"
     CELESTIALE = "celestiale"
 
 
-class Durata(str, Enum):
+class Taglia(SchemaSnello, str, Enum):
+    """Quanto è grande un'entità (o un'arma): vocabolario CHIUSO, mai un numero.
+
+    Due consumatori lato motore, entrambi §11: `M_TAGLIA` (più piccolo = schivi di più,
+    check 1) e la *relazione* fra taglia dell'arma e taglia del portatore (`COEFF_ACC`).
+    L'AI sceglie il nome; i coefficienti restano del motore.
+
+    **Invariante di sincronia #7:** ogni `.value` qui deve esistere come chiave in
+    `M_TAGLIA` — un membro senza binding è un valore che il gate accetta e il motore non
+    sa pesare."""
+
+    COLOSSALE = "colossale"
+    ENORME = "enorme"
+    GROSSA = "grossa"
+    MEDIA = "media"
+    PICCOLA = "piccola"
+    INFIMA = "infima"
+
+
+class CategoriaArmatura(SchemaSnello, str, Enum):
+    """Quanto è ingombrante un pezzo d'armatura: vocabolario CHIUSO (ADR-1 D5).
+
+    È la leva **spaccata sui due check** che rende leggibile il trade-off tank/dodger:
+    la categoria abbassa `coeff_eva` (check 1 — con la piastra addosso schivi meno) e in
+    parallelo il pezzo somma a `DIFESA` (check 2 — incassi meno). Una funzione per check,
+    nessuna delle due sa dell'altra.
+
+    Sincronia #7: ogni `.value` è una chiave di `M_ARMATURA`."""
+
+    VESTE = "veste"
+    LEGGERA = "leggera"
+    MEDIA = "media"
+    PESANTE = "pesante"
+
+
+class FasciaCosto(SchemaSnello, str, Enum):
+    """Il costo in mana di una mossa, NOMINATO: il numero è la foglia §11
+    `MOSSA_FASCIA.costo.<fascia>` — mai nell'asset."""
+
+    GRATUITA = "gratuita"
+    ECONOMICA = "economica"
+    STANDARD = "standard"
+    COSTOSA = "costosa"
+
+
+class FasciaRicarica(SchemaSnello, str, Enum):
+    """I turni di ricarica, NOMINATI (foglia §11 `MOSSA_FASCIA.ricarica.*`)."""
+
+    NESSUNA = "nessuna"
+    BREVE = "breve"
+    LUNGA = "lunga"
+
+
+class FasciaPotenza(SchemaSnello, str, Enum):
+    """Il moltiplicatore del danno, NOMINATO (foglia §11 `MOSSA_FASCIA.potenza.*`):
+    entra UNA volta nel check 2, dentro l'unico arrotondamento (PMF-6.4)."""
+
+    LIEVE = "lieve"
+    STANDARD = "standard"
+    PESANTE = "pesante"
+
+
+class FasciaRischio(SchemaSnello, str, Enum):
+    """La banda min/max di un danno d'azzardo, NOMINATA (foglia §11
+    `MOSSA_FASCIA.rischio.*`)."""
+
+    CONTENUTO = "contenuto"
+    SPINTO = "spinto"
+
+
+class Fascia(SchemaSnello, str, Enum):
+    """Il POTERE nominato di un modificatore da oggetto: l'autore (umano o AI)
+    sceglie la FASCIA, il motore deriva il numero (§11: fascia × rango del
+    grado). Vocabolario chiuso — la linea rossa «l'AI non emette numeri» qui è
+    strutturale: nello schema non esiste un campo dove metterli."""
+
+    LIEVE = "lieve"
+    MARCATA = "marcata"
+    POTENTE = "potente"
+
+
+class SedeAccessorio(SchemaSnello, str, Enum):
+    """Dove si porta un accessorio: **tag di flavour**, non uno slot esclusivo (ADR-1 D6).
+
+    Deliberatamente NON meccanico e NON limitante: gli accessori sono un multiset aperto
+    (più anelli, più orecchini), il loro potere sta nei modificatori che portano, non nel
+    posto. Estendibile senza conseguenze sul risolutore — è vocabolario, non regola."""
+
+    ORECCHIE = "orecchie"
+    NASO = "naso"
+    BOCCA = "bocca"
+    DITA = "dita"
+    COLLO = "collo"
+    POLSI = "polsi"
+    CAVIGLIE = "caviglie"
+    BACINO = "bacino"
+
+
+class Durata(SchemaSnello, str, Enum):
     """Vocabolario del tempo (J §3.1) — enum chiuso con **ordine totale**.
 
     NON è un numero (F-14): è una categoria, come `Grado`. L'ordine totale è
@@ -193,6 +356,89 @@ class Durata(str, Enum):
         return self.ordine >= other.ordine
 
 
+class TierTerritorio(SchemaSnello, str, Enum):
+    """La gerarchia TERRITORIALE di un piano-mondo, dal basso: l'ordine di
+    dichiarazione È la scala (come `Grado` — e la simmetria è deliberata: 6 tier,
+    6 gradi, il grado di un boss è il grado del suo tier, per indice). La mappa
+    tier→grado riesposta al motore vive nel catalogo (`GRADO_DA_TIER`), con
+    lucchetto di sincronia; qui c'è solo la FORMA (vocabolario chiuso + ordine).
+    """
+
+    QUARTIERE = "quartiere"    # ↔ bronzo
+    DISTRETTO = "distretto"    # ↔ argento
+    CITTA = "citta"            # ↔ oro
+    PROVINCIA = "provincia"    # ↔ platino
+    PAESE = "paese"            # ↔ leggendario
+    PIANO = "piano"            # ↔ celestiale (il boss di piano, e SOLO lui)
+
+    @property
+    def ordine(self) -> int:
+        """Posizione nell'ordine totale (0 = quartiere)."""
+        return list(type(self).__members__).index(self.name)
+
+    @property
+    def grado(self) -> "Grado":
+        """Il grado del tier, PER INDICE (la simmetria 6↔6 resa forma): è la
+        stessa derivazione di `GRADO_DA_TIER` nel catalogo (sincronia F-6)."""
+        return list(Grado)[self.ordine]
+
+
+class TipoStanza(SchemaSnello, str, Enum):
+    """Il TIPO di una stanza della mappa: vocabolario chiuso, «Borderlands della
+    mappa» — le categorie sono queste, la composizione la fa il MOTORE (seeded,
+    a vincoli), l'AI le *narra* e mai le concede (stessa disciplina di
+    SCENDI/ATTRAVERSA). È dato del `Piano`, persistito con la mappa; una stanza
+    senza tipo dichiarato è NORMALE (i save storici migrano gratis).
+
+    Tre tipi sono meccanici (BOSS, CORRIDOIO, SAFE_ROOM — la meccanica arriva
+    per fasi); tre sono CONTRATTI DORMIENTI posati prima delle feature (BAGNO →
+    sponsor system; ZONA_PERSONALE → economia; GILDA_* → sistema skill): il
+    valore esiste, la meccanica è dichiaratamente spenta finché il sistema
+    proprietario non nasce.
+    """
+
+    NORMALE = "normale"                # bottino, mob o strane interazioni
+    BOSS = "boss"                      # il custode del varco/piano
+    CORRIDOIO = "corridoio"            # transizione; mob possibili
+    BAGNO = "bagno"                    # l'unica sala privata (niente sponsor/almanacco)
+    SAFE_ROOM = "safe_room"            # cibo, ricompense, il mega schermo degli episodi
+    ZONA_PERSONALE = "zona_personale"  # acquistabile dal 4° piano (mod di abitazione)
+    GILDA_TUTORIAL = "gilda_tutorial"  # la prima prova: la guida PNG e la lore
+    GILDA_SKILL = "gilda_skill"        # RARISSIMA: 1h ogni 12 → +1 livello skill
+
+
+class Frequenza(SchemaSnello, str, Enum):
+    """Quanto spesso una voce di spawn compare — CATEGORIA, mai un peso (F-14).
+
+    L'AI e l'authoring dichiarano la classe; il peso numerico è una foglia §11
+    del motore (`PESO_FREQUENZA` in calibrazione), mai nel contratto."""
+
+    COMUNE = "comune"
+    INSOLITO = "insolito"
+    RARO = "raro"
+
+
+class ClasseBeneficio(SchemaSnello, str, Enum):
+    """Il VANTAGGIO che un'azione libera reclama — enum chiuso, mai testo (F-14).
+
+    È il perno del gate anti-arbitraggio: il giocatore può manipolare la prosa
+    quanto vuole, ma un beneficio si ottiene SOLO dichiarandone la classe, e ogni
+    classe ha un pavimento di costo di proprietà del motore (§11). L'AI *classifica*
+    la richiesta; il conto lo applica il motore. Un'AI ingannata al ribasso non
+    regala niente: il pavimento vince in silenzio (mai un retry).
+
+    `NESSUNO` = azione di puro colore (il default: chi non reclama non paga).
+    `SVOLTA` = la pretesa di un avanzamento permanente ("maxo la skill"): fuori
+    scala per calibrazione — il Sistema presenta la tariffa vera e nega il resto.
+    """
+
+    NESSUNO = "nessuno"            # colore: nessun vantaggio reclamato
+    RECUPERO = "recupero"          # riposo, medicarsi, riprendere fiato
+    LAVORO = "lavoro"              # lavoro manuale: scuoiare, raccogliere, costruire
+    ADDESTRAMENTO = "addestramento"  # una sessione di pratica (non la maestria)
+    SVOLTA = "svolta"              # pretesa di avanzamento permanente/maestria
+
+
 # --- Modelli dello schema -----------------------------------------------------
 
 class EntitaGenerata(BaseModel):
@@ -209,6 +455,12 @@ class EntitaGenerata(BaseModel):
     blocchi: list[Blocco]
     nome: str          # libero (flavor)
     descrizione: str   # libero (flavor)
+    # Identità cinematografica (Sit.2, 2026-08): SOLO testo, zero conseguenza
+    # meccanica — il dettaglio visivo che resta negli occhi e il tic che rende
+    # il mob riconoscibile. Default "" = retro-compatibile (archivi e provider
+    # storici non li dichiarano).
+    aspetto: str = ""  # libero (flavor): il dettaglio visivo memorabile
+    tratto: str = ""   # libero (flavor): l'abitudine/verso che lo distingue
     # RECLUTAMENTO strutturato (D5): lo slug di un mob del CAST del piano corrente.
     # È un NOME da un set chiuso per-run (mai un numero): il gate lo verifica al 4°
     # strato — fuori cast → rifiuto (fallback F-13). None = mob "coniato" dall'AI
@@ -216,19 +468,12 @@ class EntitaGenerata(BaseModel):
     riferimento: Slug | None = None
 
 
-class Opzione(BaseModel):
-    """Un'opzione del menu: spazio d'azione chiuso (`tipo`) + etichetta libera."""
-
-    model_config = _CHIUSO
-
-    tipo: TipoAzione   # categoriale, chiuso
-    etichetta: str     # flavor, libero
-
-
 class TurnoNarrazione(BaseModel):
     """Il "candidato" della chiamata di narrazione (PLK §2): UNA chiamata `genera`.
 
-    `{ prosa, entità, opzioni, durata }` — senza `livello` (profondità del motore).
+    `{ prosa, entità, durata }` — senza `livello` (profondità del motore) e senza
+    menu: le azioni possibili le compone la mappa (autorità spaziale), mai l'AI —
+    un campo `opzioni` qui era output pagato a ogni chiamata e mai letto.
     `durata` è una categoria chiusa (F-14): sta QUI, non su `Flavor`.
     """
 
@@ -236,8 +481,11 @@ class TurnoNarrazione(BaseModel):
 
     prosa: str
     entita: EntitaGenerata
-    opzioni: list[Opzione]
     durata: Durata     # categoria del tempo; il motore la mappa a carico-tick via gate
+    # Il vantaggio reclamato dall'azione del giocatore (default = niente): l'AI
+    # CLASSIFICA, il motore applica il pavimento di costo (§11) — gate asimmetrico,
+    # mai retry. Default per retro-compatibilità (archivi e provider storici).
+    beneficio: ClasseBeneficio = ClasseBeneficio.NESSUNO
 
 
 class Flavor(BaseModel):
@@ -254,7 +502,7 @@ class Flavor(BaseModel):
 
 # --- Pipeline GM: schemi degli stadi NON-GATING (G §9.2: fan-out sotto il socket) --
 
-class IntenzioneScena(str, Enum):
+class IntenzioneScena(SchemaSnello, str, Enum):
     """Che tipo di scena l'ideazione propone. Enum chiuso, valori SEGNAPOSTO."""
 
     SCONTRO = "scontro"
@@ -263,7 +511,7 @@ class IntenzioneScena(str, Enum):
     TRANSIZIONE = "transizione"
 
 
-class TonoScena(str, Enum):
+class TonoScena(SchemaSnello, str, Enum):
     """Tono narrativo proposto dall'ideazione. Enum chiuso, valori SEGNAPOSTO."""
 
     IRONICO = "ironico"
@@ -298,3 +546,325 @@ class InquadramentoProva(BaseModel):
 
     classe: ClasseProva
     stat: StatId
+
+
+# --- Scene narrative (S1, 2026-08-11): i BLOCCHI che l'AI orchestra -------------
+#
+# La grammatica di Baldur's Gate ridotta all'osso: il dialogo scorre a blocchi,
+# l'AI decide QUALE blocco viene dopo, il motore decide i valori di verità
+# (il tiro dello snodo, la legalità della chiusura). Il flusso finale emerge
+# dal prodotto dei due: composizione × prove = scena organica, mai decisa da
+# nessuno dei due autori da solo. Stessa famiglia di mob (enum→numeri del
+# motore) e loot (componenti→assemblatore): qui i blocchi → i tiri.
+
+class BloccoScena(SchemaSnello, str, Enum):
+    """Il blocco che l'AI posiziona a ogni battito della scena. Enum chiuso."""
+
+    BATTUTA = "battuta"   # prosa in personaggio: il dialogo scorre
+    SNODO = "snodo"       # il momento-check: l'AI inquadra, il MOTORE tira
+    CHIUDI = "chiudi"     # proposta di chiusura (la legalità la decide il motore)
+
+
+class EsitoScena(SchemaSnello, str, Enum):
+    """Come una scena finisce. VINTA/PERSA esigono una posta; CONCLUSA è la
+    fine neutra (colloquio senza posta, o abbandono)."""
+
+    VINTA = "vinta"
+    PERSA = "persa"
+    CONCLUSA = "conclusa"
+
+
+class BattutaScena(BaseModel):
+    """UN battito della scena narrativa: blocco + prosa (+ i campi del blocco).
+
+    L'AI compone, il motore arbitra: su SNODO servono `classe`+`stat` (enum
+    chiusi: l'inquadramento — il TIRO resta del motore, a margine); su CHIUDI
+    serve `esito` (che il motore accetta solo se LEGALE: `vinta` esige uno
+    snodo superato — mai una vittoria a parole). I campi del blocco sbagliato
+    sono VIETATI: lo schema resta piccolo e inequivoco."""
+
+    model_config = _CHIUSO
+
+    blocco: BloccoScena
+    prosa: str = Field(min_length=1)
+    classe: ClasseProva | None = None   # solo SNODO
+    stat: StatId | None = None          # solo SNODO
+    esito: EsitoScena | None = None     # solo CHIUDI
+
+    @model_validator(mode="after")
+    def _campi_del_blocco(self) -> "BattutaScena":
+        if self.blocco is BloccoScena.SNODO:
+            if self.classe is None or self.stat is None:
+                raise ValueError("snodo: servono `classe` e `stat`")
+            if self.esito is not None:
+                raise ValueError("snodo: `esito` non è tuo (lo tira il motore)")
+        elif self.blocco is BloccoScena.CHIUDI:
+            if self.esito is None:
+                raise ValueError("chiudi: serve `esito`")
+            if self.classe is not None or self.stat is not None:
+                raise ValueError("chiudi: niente prova nella chiusura")
+        else:  # BATTUTA: solo prosa
+            if any(x is not None for x in (self.classe, self.stat, self.esito)):
+                raise ValueError("battuta: solo prosa — niente prove né esiti")
+        return self
+
+
+# --- Authoring AI della stagione (2026-08-10): schemi del «genera stagione» -----
+#
+# Chiamate di AUTHORING, non di gioco: l'AI genera il roster dei boss e le
+# tabelle di un piano-mondo, il motore li valida coi lint esistenti e li congela
+# come asset. ZERO numeri anche qui: il boss dichiara il TIER, mai il grado
+# (lo deriva il motore, simmetria 6↔6); i profili restano della calibrazione.
+
+class BossGenerato(BaseModel):
+    """UN boss proposto dall'AI di authoring: identità narrativa + selezioni da
+    vocabolari chiusi. Il grado NON c'è: lo impone il tier."""
+
+    model_config = _CHIUSO
+
+    slug: Slug
+    archetipo: ArchetipoId          # gate: dentro il budget del piano
+    tier: TierTerritorio            # il grado lo deriva il motore (GRADO_DA_TIER)
+    nome: str
+    descrizione: str
+    aspetto: str = ""
+    tratto: str = ""
+    prosa_stanza: str               # la sua scena (il copione offline)
+    mosse: list[str] = Field(default_factory=list)   # gate: mosse note
+    blocchi: list[Blocco] = Field(default_factory=list)  # gate: dentro il budget
+
+
+class LottoBossGenerati(BaseModel):
+    """Un lotto di boss (≤5 per chiamata: lotti piccoli degradano bene — un item
+    respinto non butta la chiamata intera)."""
+
+    model_config = _CHIUSO
+
+    boss: list[BossGenerato] = Field(min_length=1, max_length=5)
+
+
+class TabellaProceduraleGen(BaseModel):
+    """Il materiale per i boss dei tier procedurali (distretto/quartiere):
+    nomi × gimmick × archetipi — l'istanza la fa il motore, seeded."""
+
+    model_config = _CHIUSO
+
+    tier: TierTerritorio
+    nomi: list[str] = Field(min_length=4, max_length=16)
+    gimmick: list[str] = Field(min_length=4, max_length=16)
+    archetipi: list[ArchetipoId] = Field(min_length=1)
+
+
+class VoceSpawnGenerata(BaseModel):
+    model_config = _CHIUSO
+
+    mob: Slug                       # gate: un MobAsset esistente
+    frequenza: Frequenza = Frequenza.COMUNE  # categoria, mai un peso
+
+
+class TabellaSpawnGenerata(BaseModel):
+    """Una tabella di spawn proposta: voci = mob ESISTENTI + frequenza categoriale."""
+
+    model_config = _CHIUSO
+
+    tier: TierTerritorio
+    voci: list[VoceSpawnGenerata] = Field(min_length=1, max_length=12)
+
+
+class RuoloMob(str, Enum):
+    """Il RUOLO di un'entità-mob nel mondo: ostile (bersaglio, il default
+    storico) o PNG (personaggio non giocante: esente dal despawn di zona, mai
+    trattato da nemico della stanza). NON AI-facing: lo scrive il motore alla
+    materializzazione, mai il modello."""
+
+    OSTILE = "ostile"
+    PNG = "png"
+
+
+class CategoriaPng(str, Enum):
+    """La CATEGORIA di un PNG: chi può rompere il divieto del menu.
+
+    La regola (decisione utente 2026-08-16): i PNG sono pilotati dal GM
+    server-side, MAI da un menu del giocatore (verbale 2026-08-10) — SALVO le
+    categorie qui sotto, che il giocatore può interpellare direttamente.
+    `ORDINARIO` è il default (il PNG GM-pilotato di sempre); `NARRATORE` è la
+    voce dello show: parla al giocatore SENZA possibilità di replica — mai
+    interpellabile, mai un dialogo. Vocabolario chiuso ma DICHIARATAMENTE
+    estendibile: «png di un certo tipo che decideremo poi» — un membro nuovo
+    è una riga qui + la scelta se entra in `INTERPELLABILI` (motore).
+    NON AI-facing: è dato d'authoring, mai un output del modello."""
+
+    ORDINARIO = "ordinario"          # GM-pilotato: il divieto vale pieno
+    MAESTRO_GILDA = "maestro_gilda"  # interpellabile: la prima utenza delle gilde
+    MANAGER = "manager"              # interpellabile: lo sponsor/procuratore del crawler
+    NARRATORE = "narratore"          # one-way: parla lui, il giocatore non replica
+
+
+class EffettoDati(BaseModel):
+    """UN effetto di una mossa, come DATO categoriale (GR2 §7, Corsia 2): il
+    primitivo è una PAROLA del vocabolario chiuso del motore (`danno`,
+    `applica_status`, `danno_variabile` — un primitivo NUOVO è codice, Corsia 3,
+    mai un dato più ricco); i parametri sono enum e FASCE, mai numeri.
+    Condiviso da `MossaAsset` (libreria) e `MossaAutorata` (AI-facing)."""
+
+    model_config = _CHIUSO
+
+    primitivo: Literal["danno", "applica_status", "danno_variabile"]
+    tipo_danno: TipoDanno | None = None       # danno / danno_variabile
+    blocco: Blocco | None = None              # applica_status
+    potenza: FasciaPotenza | None = None      # danno (default: standard)
+    rischio: FasciaRischio | None = None      # danno_variabile (default: contenuto)
+    stile: StileAttacco | None = None         # danno / danno_variabile (default: fisico)
+
+
+class MossaAutorata(BaseModel):
+    """UNA mossa proposta dall'AI di authoring: composizione di primitivi chiusi
+    + fasce, NESSUN numero per costruzione. Il gate di composizione (PMF-6.4)
+    è il validator di `MossaAsset`, applicato alla conversione."""
+
+    model_config = _CHIUSO
+
+    slug: Slug
+    etichetta: str
+    effetti: list[EffettoDati] = Field(min_length=1, max_length=2)
+    costo: FasciaCosto = FasciaCosto.GRATUITA
+    ricarica: FasciaRicarica = FasciaRicarica.NESSUNA
+    azzardo: bool = False
+
+
+class LottoMosseAutorate(BaseModel):
+    """Un lotto di mosse (≤6 per chiamata)."""
+
+    model_config = _CHIUSO
+
+    mosse: list[MossaAutorata] = Field(min_length=1, max_length=6)
+
+
+class StatusProposto(BaseModel):
+    """UNO status PROPOSTO dall'AI di authoring (variante D-4, «proposta»):
+    la spec completa e strutturata che l'UMANO promuove coi «3 tocchi»
+    (membro `Blocco` + classe componente + riga `SPEC_STATUS` — con
+    `effetti_tick` e le foglie §11 generate dall'enum, il comportamento è già
+    dato). NON si applica mai da solo: l'output del generatore è un file di
+    PROPOSTA, mai la libreria — uno status resta un'estensione di vocabolario
+    (Corsia 1), e il vocabolario lo apre il motore."""
+
+    model_config = _CHIUSO
+
+    nome: Slug
+    descrizione: str
+    valenza: Literal["benefico", "dannoso", "neutro"]
+    trasmissibile: bool
+    tick: Literal["ferisce", "cura", "nessuno"]      # → DeltaHp (segno) o nulla
+    fascia_intensita: FasciaPotenza = FasciaPotenza.STANDARD
+    fascia_durata: FasciaRicarica = FasciaRicarica.BREVE
+
+
+class LottoStatusProposti(BaseModel):
+    """Un lotto di proposte di status (≤4: il vocabolario si allarga piano)."""
+
+    model_config = _CHIUSO
+
+    status: list[StatusProposto] = Field(min_length=1, max_length=4)
+
+
+class PezzoUnico(BaseModel):
+    """Il pezzo UNICO del drop (il "legendario" di BL3, in piccolo): l'AI
+    SCEGLIE i componenti PER NOME dalle tabelle della fabbrica — base,
+    famiglia, fino a 2 affissi — e firma la targhetta (nome/descrizione).
+    L'assemblaggio, il grado e i numeri restano del motore: questo schema è
+    volutamente MINUSCOLO — nomi di parte, mai un oggetto intero."""
+
+    model_config = _CHIUSO
+
+    base: str
+    famiglia: str
+    affissi: list[str] = Field(default_factory=list, max_length=2)
+    nome: str                 # la targhetta del pezzo unico
+    descrizione: str
+
+
+class ModificatoreAutorato(BaseModel):
+    """Una voce di potere su un oggetto autorato: stat + FASCIA. Niente numeri."""
+
+    model_config = _CHIUSO
+
+    stat: StatId
+    fascia: Fascia
+
+
+class OggettoAutorato(BaseModel):
+    """UN oggetto proposto dall'AI di authoring: identità narrativa + selezioni
+    da vocabolari chiusi e FASCE nominate. NESSUN campo numerico PER COSTRUZIONE
+    (F-3 strutturale): mitigazione/danno/valori li deriva il motore da
+    fascia × grado × categoria alla traduzione in `OggettoAsset`."""
+
+    model_config = _CHIUSO
+
+    slug: Slug
+    nome: str
+    descrizione: str = ""
+    tipo: Literal["armatura", "arma", "accessorio"]
+    grado: Grado
+    slot: SlotEquip | None = None         # armatura: obbligatorio
+    categoria: CategoriaArmatura | None = None
+    taglia: Taglia = Taglia.MEDIA
+    sede: SedeAccessorio | None = None    # accessorio: obbligatorio
+    mosse: list[str] = Field(default_factory=list)   # gate: mosse note (solo accessori)
+    modificatori: list[ModificatoreAutorato] = Field(default_factory=list, max_length=3)
+
+
+class LottoOggettiAutorati(BaseModel):
+    """Un lotto di oggetti (≤6 per chiamata: lotti piccoli degradano bene)."""
+
+    model_config = _CHIUSO
+
+    oggetti: list[OggettoAutorato] = Field(min_length=1, max_length=6)
+
+
+class OggettoGenerato(BaseModel):
+    """La VESTIZIONE di un drop GIÀ deciso dal motore (contratto premi, Sit.3):
+    l'AI battezza nome/descrizione/aspetto sul `base` fissato. Il gate rifiuta
+    un candidato che cambia `base`, altera il `grado` o sposta lo `slot` —
+    il verdetto dell'AI è una vestizione, mai una leva (dottrina
+    `gate_beneficio`). Fallback: il nome di catalogo."""
+
+    model_config = _CHIUSO
+
+    base: Slug                       # gate: LA fonte del drop, immutabile
+    grado: Grado                     # gate: il grado del drop, immutabile
+    slot: SlotEquip | None = None    # gate: lo slot della base (ridondanza anti-tamper)
+    nome: str
+    descrizione: str
+    aspetto: str = ""
+
+
+class SkillGenerata(BaseModel):
+    """Il RIBATTEZZO narrativo di una mossa concessa da un premio (Sit.4): la
+    mossa VERA resta la voce di catalogo (costi e numeri dal §11, mai da qui).
+    `tipo_danno`/`blocco` sono selezioni dichiarative: nell'MVP non mutano la
+    meccanica della base — un valore incoerente degrada al solo nome."""
+
+    model_config = _CHIUSO
+
+    mossa_base: str = Field(min_length=1)   # gate: una chiave del catalogo mosse
+    nome: str
+    descrizione: str = ""
+    tipo_danno: TipoDanno | None = None
+    blocco: Blocco | None = None
+
+
+class NemicoSperimentale(BaseModel):
+    """Il candidato del BANCO DI PROVA (confronto fra modelli): il **core** di
+    `EntitaGenerata` (stessi enum chiusi, da cui il motore deriva le stat REALI)
+    + i campi **sperimentali** `drop`/`azioni`, non ancora validati dal motore."""
+
+    model_config = _CHIUSO
+
+    archetipo: ArchetipoId
+    grado: Grado
+    blocchi: list[Blocco]
+    nome: str
+    descrizione: str          # stile DCC (ironico/dark-comico)
+    drop: list[str]           # SPERIMENTALE: bottino possibile
+    azioni: list[str]         # SPERIMENTALE: mosse di combattimento (→ futuro catalogo Effetto)

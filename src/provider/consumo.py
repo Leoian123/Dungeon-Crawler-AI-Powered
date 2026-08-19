@@ -13,7 +13,11 @@ numeri §11: il dato qui, la politica fuori).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+# Cause che contano come GENERAZIONE fallita (la richiesta è arrivata al modello e
+# si è pagata): tutto il resto è trasporto/configurazione.
+_CAUSE_GENERAZIONE = frozenset({"refusal", "max_tokens", "forma_output"})
 
 
 @dataclass
@@ -25,12 +29,45 @@ class ConsumoProvider:
     aggregatore a parte."""
 
     chiamate: int = 0             # risposte ricevute (candidato, refusal o troncatura)
-    errori_trasporto: int = 0     # eccezioni rete/timeout/5xx: nessun usage disponibile
-    generazioni_fallite: int = 0  # refusal/max_tokens: la risposta c'è, il candidato no
+    errori_trasporto: int = 0     # eccezioni rete/timeout/5xx/bug: nessun candidato
+    generazioni_fallite: int = 0  # refusal/troncatura/output malformato: pagata, vuota
     input_tokens: int = 0
     output_tokens: int = 0
     cache_scritti: int = 0        # cache_creation_input_tokens (scrittura del prefisso)
     cache_letti: int = 0          # cache_read_input_tokens (hit: pagati a tariffa ridotta)
+    # La tassonomia dei guasti: quale causa, quante volte, e l'ultima vista. Prima
+    # tutto collassava su un None indistinto e "trasporto" copriva anche i bug di
+    # codice (giro 2026-08-07: un AttributeError inghiottito ha mascherato per
+    # sempre il fatto che il metodo dell'SDK non esisteva).
+    cause: dict[str, int] = field(default_factory=dict)
+    ultima_causa: str = ""
+
+    def riassunto(self) -> str:
+        """Una riga leggibile per l'host: spesa e guasti della sessione. Esiste
+        perché il tally veniva accumulato e MAI mostrato (audit 2026-08-07): quando
+        il GM live degradava al turno neutro, nessuno poteva dire perché."""
+        dettaglio = ""
+        if self.cause:
+            voci = ", ".join(f"{k}×{v}" for k, v in sorted(self.cause.items()))
+            dettaglio = f" [{voci}]"
+        return (
+            f"consumo LLM: {self.chiamate} chiamate, "
+            f"{self.input_tokens} tok in / {self.output_tokens} tok out "
+            f"(cache: {self.cache_letti} letti, {self.cache_scritti} scritti); "
+            f"guasti: {self.errori_trasporto} trasporto, "
+            f"{self.generazioni_fallite} generazione{dettaglio}"
+        )
+
+    def registra_guasto(self, causa: str) -> None:
+        """Un fallimento con la sua causa: incrementa il contatore giusto e tiene
+        la tassonomia. `causa` è una parola chiave stabile (es. "rete", "timeout",
+        "http_401", "refusal", "max_tokens", "forma_output", "inatteso:TypeError")."""
+        self.ultima_causa = causa
+        self.cause[causa] = self.cause.get(causa, 0) + 1
+        if causa in _CAUSE_GENERAZIONE:
+            self.generazioni_fallite += 1
+        else:
+            self.errori_trasporto += 1
 
     def registra_risposta(self, usage: object) -> None:
         """Accumula l'`usage` di una risposta API. Campi assenti o `None` valgono 0:

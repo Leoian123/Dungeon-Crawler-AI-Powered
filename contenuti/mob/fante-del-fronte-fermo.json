@@ -1,0 +1,13 @@
+{
+  "slug": "fante-del-fronte-fermo",
+  "versione": 1,
+  "tags": ["nascondino", "non-morti", "riempitivo", "grande-guerra"],
+  "nome": "Fante del Fronte Fermo",
+  "archetipo": "zombie",
+  "grado": "bronzo",
+  "blocchi": ["veleno"],
+  "descrizione": "Per lui la guerra non è mai finita: è solo diventata più lenta. Elmetto a scodella, maschera antigas fusa alla faccia, e una trincea portatile scavata nel pavimento di ogni stanza in cui entra.",
+  "prosa_stanza": "La stanza è tagliata in due da una trincea che ieri non c'era. Dal parapetto spunta un elmetto a scodella, poi il resto del Fante del Fronte Fermo, con la maschera antigas che sibila a ogni respiro che non gli serve più. Fa un cenno con la baionetta: di là non si passa senza discuterne.",
+  "durata": "turno",
+  "mosse": ["attacco", "morso_velenoso"]
+}

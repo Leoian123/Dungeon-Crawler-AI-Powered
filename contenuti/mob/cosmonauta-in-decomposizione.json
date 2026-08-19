@@ -1,0 +1,13 @@
+{
+  "slug": "cosmonauta-in-decomposizione",
+  "versione": 1,
+  "tags": ["nascondino", "non-morti", "riempitivo", "corsa-allo-spazio"],
+  "nome": "Cosmonauta in Decomposizione",
+  "archetipo": "zombie",
+  "grado": "argento",
+  "blocchi": ["veleno"],
+  "descrizione": "Lanciato, perso, ritrovato dal dungeon. La tuta pressurizzata tiene dentro cose che dovrebbero restare dentro; dal casco appannato, ogni tanto, saluta con orgoglio verso un cielo che qui non c'è.",
+  "prosa_stanza": "Un bip regolare, da vecchia radio. Il Cosmonauta in Decomposizione fluttua ad ogni passo come se la gravità fosse un'opinione, la tuta gonfia nei posti sbagliati. Sul casco, una crepa a stella. Ti vede, porta due dita guantate alla visiera in un saluto impeccabile, e poi smette di essere educato.",
+  "durata": "turno",
+  "mosse": ["attacco", "morso_velenoso"]
+}

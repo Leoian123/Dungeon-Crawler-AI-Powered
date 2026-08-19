@@ -40,7 +40,7 @@ from .phased import SistemaSempreAttivo
 from .piano import TempoPiano, tempo_piano_corrente
 from .scheda import protagonista
 from .seme import master_seed
-from .turno import entita_attiva, segna_turno_attivo
+from .turno import azzera_turno_attivo, entita_attiva, segna_turno_attivo
 
 
 class TempoNonAvanzabile(Exception):
@@ -112,10 +112,15 @@ class EsitoDado:
     imboscata: bool
 
 
-def tira_dado_evento(rng: random.Random) -> EsitoDado:
+def tira_dado_evento(rng: random.Random, fattore: float = 1.0) -> EsitoDado:
     """Tira il dado-evento. È un **tiro del motore**: decide il *fatto*; l'AI semmai ne
-    veste il verdetto dopo (§8). Mai una chiamata LLM, mai non-seeded (J-10)."""
-    return EsitoDado(imboscata=rng.random() < PROB_IMBOSCATA)
+    veste il verdetto dopo (§8). Mai una chiamata LLM, mai non-seeded (J-10).
+
+    `fattore` è il contesto SPAZIALE del tiro (`fattore_imboscata_stanza`, T2):
+    0 nei luoghi quieti (safe room/bagno), >1 nei corridoi. La pescata avviene
+    COMUNQUE (una per tick): lo stream per-tick non cambia forma col tipo di
+    stanza — replay-safe anche attraversando luoghi quieti."""
+    return EsitoDado(imboscata=rng.random() < PROB_IMBOSCATA * fattore)
 
 
 def _rng_dado(tick: int) -> random.Random:
@@ -131,10 +136,14 @@ def _rng_dado(tick: int) -> random.Random:
 @dataclass(frozen=True)
 class RisultatoTick:
     """Esito di un tick di scorrimento. `morte`: la morte ha troncato il tick (niente
-    dado). `imboscata`: il dado ha innescato un cambio di fase a confine."""
+    dado). `imboscata`: il dado ha innescato un cambio di fase a confine.
+    `incontro`: l'entità-incontro composta dall'agguato (`None` senza imboscata) —
+    il chiamante che ha una prosa da mostrare può cucirci sopra il segnaposto
+    (round 3: prosa di stanza sopra la barra di un nemico diverso)."""
 
     morte: bool
     imboscata: bool
+    incontro: int | None = None
 
 
 def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> RisultatoTick:
@@ -152,22 +161,37 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
     #      il loro unico proprietario dentro `process()` (J-5).
     segna_turno_attivo(pent)
     esper.process()
+    # Il marcatore si AZZERA a fine tick (playtest 2026-08-12): lasciato appeso,
+    # ogni `process()` successivo — es. il tick che serve un movimento —
+    # riscontava tempo e status PER SBAGLIO, e solo se nel frattempo non c'era
+    # stato uno scontro (il teardown azzerava lui). L'economia del tempo è
+    # esplicita: paga chi chiama `spendi_tempo`/`passa_turno`, mai un residuo.
+    azzera_turno_attivo()
 
     # 3. La morte TRONCA il tick: niente dado, niente imboscata su un cadavere (§9, J-11).
     _pent, _marker, scheda = protagonista()
     if not scheda.vivo:
         return RisultatoTick(morte=True, imboscata=False)
 
-    # 4. Dado-evento (seeded a questo tick): token-zero salvo evento (§8).
-    esito = tira_dado_evento(_rng_dado(tempo_piano_corrente()))
+    # 4. Dado-evento (seeded a questo tick): token-zero salvo evento (§8). Il
+    #    contesto modula la probabilità su due assi: la STANZA (quiete=0,
+    #    corridoio ×molt — T2) e le MINACCE del chunk (∝ nemici presenti:
+    #    ripulire la zona = guadagnarsi il riposo, playtest 2026-08-12).
+    #    Import locale: il tempo non importa la mappa in testa.
+    from .mappa import fattore_imboscata_stanza, fattore_minacce
+
+    esito = tira_dado_evento(
+        _rng_dado(tempo_piano_corrente()),
+        fattore_imboscata_stanza() * fattore_minacce(),
+    )
 
     # 5. Effetto a confine di tick — solo su protagonista vivo (J-12). L'imboscata emette
     #    `EncounterStarted` (l'unica via di transizione, FNC §4); la *composizione* dello
     #    scontro è a monte (callback del chiamante, G §5.1), J ne emette solo il confine.
     if esito.imboscata and componi_imboscata is not None:
         enc = componi_imboscata()
-        bus.pubblica(EncounterStarted(entita=enc))
-        return RisultatoTick(morte=False, imboscata=True)
+        bus.pubblica(EncounterStarted(entita=enc, imboscata=True))
+        return RisultatoTick(morte=False, imboscata=True, incontro=enc)
     return RisultatoTick(morte=False, imboscata=False)
 
 
@@ -191,10 +215,12 @@ def passa_turno(bus, *, componi_imboscata: Callable[[], int] | None = None) -> R
 
 @dataclass(frozen=True)
 class RisultatoFastForward:
-    """Esito di un downtime: quanti tick eseguiti e da cosa è stato interrotto."""
+    """Esito di un downtime: quanti tick eseguiti e da cosa è stato interrotto.
+    `incontro`: l'entità-incontro dell'agguato che ha interrotto (`None` altrove)."""
 
     tick_eseguiti: int
     interrotto_da: str | None  # "morte" | "imboscata" | None (completato)
+    incontro: int | None = None
 
 
 def fast_forward(
@@ -218,5 +244,7 @@ def fast_forward(
         if ris.morte:
             return RisultatoFastForward(tick_eseguiti=eseguiti, interrotto_da="morte")
         if ris.imboscata:
-            return RisultatoFastForward(tick_eseguiti=eseguiti, interrotto_da="imboscata")
+            return RisultatoFastForward(
+                tick_eseguiti=eseguiti, interrotto_da="imboscata", incontro=ris.incontro
+            )
     return RisultatoFastForward(tick_eseguiti=eseguiti, interrotto_da=None)

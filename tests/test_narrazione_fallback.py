@@ -14,12 +14,10 @@ from contracts import (
     Grado,
     SchedaProiezione,
     StatId,
-    TipoAzione,
     TurnoNarrazione,
 )
 from motore import (
     EntitaMob,
-    MENU_FISSO,
     PROSA_NEUTRA,
     Primarie,
     RETRY_NARRAZIONE,
@@ -58,12 +56,13 @@ def test_F8_rifiuto_di_gate_collassa_sullo_stesso_fallback() -> None:
 
 
 def _verifica_fallback_atomico(res, bud) -> None:
-    # Testo neutro + archetipo di default DESIGNATO nel budget + menu fisso, INSIEME.
+    # Testo neutro + archetipo di default DESIGNATO nel budget, INSIEME. Il menu
+    # non fa parte del contratto AI: lo compone la mappa (campo `opzioni` rimosso).
     t: TurnoNarrazione = res.turno
     assert t.prosa == PROSA_NEUTRA
     assert t.entita.archetipo == bud.archetipo_default
     assert t.entita.grado in bud.gradi_ammessi
-    assert [o.tipo for o in t.opzioni] == [o.tipo for o in MENU_FISSO]
+    assert not hasattr(t, "opzioni")
 
 
 def test_F8_archetipo_default_designato_deterministico() -> None:

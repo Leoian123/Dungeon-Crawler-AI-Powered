@@ -61,11 +61,19 @@ def serializza_stato(
     su disco qui: pura traduzione dati→formato (H §4.3)."""
     marker, livello = _trova_protagonista()
 
+    from ..equip import ComponenteEquip, filtrato_per_save
+
     entita: list[EntitaSerializzata] = []
     for ent in sorted(esper.get_entities()):
+        # ADR-1 F5: se l'entità porta il manifest equip, nel save viaggiano i
+        # canali FILTRATI dalle voci derivate (la sorgente durevole è il
+        # manifest; al load `re_equipaggia` le ri-immette — mai voci doppie).
+        manifest = esper.try_component(ent, ComponenteEquip)
         componenti: list[ComponenteSerializzato] = []
         for comp in esper.components_for_entity(ent):
             if e_persistente(type(comp)):
+                if manifest is not None:
+                    comp = filtrato_per_save(comp, manifest)
                 tag, dati = serializza_componente(comp)
                 componenti.append(ComponenteSerializzato(tag=tag, dati=dati))
         if componenti:
@@ -103,6 +111,12 @@ def applica_stato(stato: Stato) -> None:
             deserializza_componente(c.tag, c.dati) for c in ent_ser.componenti
         ]
         esper.create_entity(*componenti)
+    # ADR-1 F5, l'altra metà della coppia col filtro del save: le voci derivate
+    # dall'equip rinascono DAL manifest (re-grant on load), poi `clampa_hp` (D2).
+    from ..equip import ComponenteEquip, re_equipaggia
+
+    for ent, _manifest in esper.get_component(ComponenteEquip):
+        re_equipaggia(ent)
     _ripara_protagonista()
     if stato.corpo.esplorazione:
         from ..mappa import mappa_da_dict  # import locale: H resta leggero all'import
@@ -114,10 +128,24 @@ def _ripara_protagonista() -> None:
     """Riparazione LASCA dei save scritti prima che un componente posseduto del
     protagonista entrasse nel registry (H-12: degrado, non crash). Oggi: gli
     `ActionPoint` — un save legacy ne è privo e il sistema-turno li pretende
-    (`while ap > 0`, G §2.1); si reintegra il default di calibrazione."""
-    from ..calibrazione import AP_MAX_MVP
+    (`while ap > 0`, G §2.1); si reintegra il default di calibrazione.
+
+    E le PRIMARIE nate dopo il save (caccia-2, 2026-08-16): un vettore legacy
+    senza `carisma` faceva pescare a `stat_eff` il floor 1 — il crawler
+    ricaricato falliva OGNI parlamento (soglia bronzo 6) bruciando il tentativo
+    unico per mob. Si reintegrano le SOLE chiavi mancanti da
+    `PRIMARIE_BASE_CARL` (`setdefault`: la destrezza/costituzione
+    personalizzate del save sopravvivono; `DIFESA` non è nel profilo-base e
+    resta al suo legittimo «assente = 0»). Nessun bump di `SCHEMA_VERSION`:
+    è il caso da riparazione lasca, non da migrazione."""
+    from ..calibrazione import AP_MAX_MVP, PRIMARIE_BASE_CARL
     from ..scheda import ActionPoint
+    from ..statistiche import Primarie
 
     for ent, _marker in esper.get_component(Protagonista):
         if not esper.has_component(ent, ActionPoint):
             esper.add_component(ent, ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP))
+        prim = esper.try_component(ent, Primarie)
+        if prim is not None:
+            for stat, base in PRIMARIE_BASE_CARL.items():
+                prim.valori.setdefault(stat, base)

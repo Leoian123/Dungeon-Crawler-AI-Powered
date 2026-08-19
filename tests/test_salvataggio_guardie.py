@@ -22,7 +22,7 @@ from main import SalvataggioInCombattimento, carica_sessione, costruisci_session
 def test_salva_ed_esci_vietati_in_combattimento(run_pulita, tmp_path) -> None:
     sessione = costruisci_sessione(nome="X", seed=1, directory=tmp_path)
     snap = asyncio.run(sessione.prossima_narrazione())
-    indice = next(o.indice for o in snap.opzioni if o.etichetta == "Combatti")
+    indice = next(o.indice for o in snap.opzioni if o.etichetta.startswith("Combatti"))
     sessione.coda.accoda(PlayerChoseOption(indice))
     snap = sessione.avanza()
     assert snap.fase == "combattimento"

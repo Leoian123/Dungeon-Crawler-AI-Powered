@@ -31,9 +31,11 @@ class EncounterStarted(EventoDominio):
 
     La `TurnoNarrazione` che lo emette è clampata a `durata == TURNO` dal gate del
     motore (F §2, C3): F vincola il dato, il gate lo impone — non questo evento.
-    """
+    `imboscata=True` = l'incontro l'ha innescato il dado-evento del tempo (J §8),
+    non una scelta del giocatore: la cronaca e l'apertura lo dicono."""
 
     entita: Entita
+    imboscata: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,10 @@ class ColpoInferto(EventoDominio):
     hp_rimasti: int
     hp_max: int
     mossa: str = "attacco"
+    # La FACCIA d'azzardo pescata ("" = colpo ordinario): l'etichetta diegetica
+    # dell'esito («Jackpot del Sistema», «La casa vince») — la cronaca la dice,
+    # la roulette deve SEMBRARE una roulette (playtest 2026-08-12).
+    azzardo: str = ""
 
 
 @dataclass(frozen=True)
@@ -87,10 +93,67 @@ class EffettoStatus(EventoDominio):
 @dataclass(frozen=True)
 class TurnoSaltato(EventoDominio):
     """Un combattente ha perso il turno (stordito) o l'ha speso senza esito
-    (fuga fallita). `nome` "" = protagonista."""
+    (fuga negata: margine impossibile). `nome` "" = protagonista."""
 
     nome: str
-    causa: str  # "stordito" | "fuga_fallita"
+    causa: str  # "stordito" | "fuga_negata"
+
+
+@dataclass(frozen=True)
+class StatusSvanito(EventoDominio):
+    """Un'afflizione è SCADUTA: la fine di veleno/brucia/rigenerazione va detta.
+
+    Prima il giocatore leggeva l'inizio («Sei avvelenato!») e i tick («-1 HP»),
+    mai la fine — con la rigenerazione valeva l'inverso. `bersaglio` "" =
+    protagonista."""
+
+    bersaglio: str
+    status: str
+
+
+@dataclass(frozen=True)
+class CrolloDungeon(EventoDominio):
+    """L'escalation del dungeon morde TUTTI i combattenti (G §5.6): danno
+    inevitabile e crescente con il protrarsi dello scontro. Prima era muto:
+    HP che calavano senza una riga di cronaca."""
+
+    danno: int
+
+
+@dataclass(frozen=True)
+class DisimpegnoScena(EventoDominio):
+    """Disimpegno riuscito in fase di NARRAZIONE (FNC §4): RITIRATA universale
+    (2026-08-12) — tu arretri nella stanza adiacente, il nemico resta alla sua.
+    Il disimpegno fallito non ha un evento proprio: sfocia in `EncounterStarted`.
+
+    `ritirata_in` = la stanza in cui arretri (-1 = ignota, retro-compat): la
+    cronaca DEVE dire dove sei finito — prima la ritirata era muta e te ne
+    accorgevi dal numero di stanza (riscontro playtest)."""
+
+    nemico: str = ""
+    ritirata_in: int = -1
+
+
+@dataclass(frozen=True)
+class TransizioneZona(EventoDominio):
+    """Il crawler ha varcato il passaggio verso un'altra ZONA del territorio
+    (2026-08). L'avanzamento è già disposto dal motore (`SistemaAttraversamento`):
+    l'evento è il fatto compiuto, per cronaca e showrunner. `zona` è la chiave
+    stabile della zona d'arrivo, `tier` il suo livello nella gerarchia."""
+
+    zona: str
+    tier: str
+
+
+@dataclass(frozen=True)
+class OggettoTrovato(EventoDominio):
+    """Bottino a fine scontro vinto: il canale del loot parla in cronaca.
+
+    `fonte` è l'id di dominio durevole (quello di Zaino/equip); `nome` è il
+    diegetico da mostrare. La TABELLA dei drop è contenuto; questo è il canale."""
+
+    nome: str
+    fonte: str
 
 
 @dataclass(frozen=True)

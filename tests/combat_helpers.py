@@ -43,7 +43,7 @@ def avvia_scontro(
         # Ordine dichiarato dentro il bucket (priorità = registrazione): rinforzi (confine di
         # turno) PRIMA del sistema-turno (G-9); l'escalation `SistemaCrollo` DOPO, così legge
         # il `turni_scontro` appena avanzato dal turno (Gruppo 2 §8, GR2-15).
-        solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(bus), SistemaCrollo()],
+        solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(bus), SistemaCrollo(bus)],
         # I tick di status sono derivati dalla tabella unica (SPEC_STATUS), come
         # nel guscio vero: l'arnia di test non elenca più i sistemi a mano.
         sempre_attivi=[*sistemi_status(), SistemaDeathCheck(bus)],

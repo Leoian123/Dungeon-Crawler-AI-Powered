@@ -1,0 +1,22 @@
+{
+  "slug": "archivista-canone",
+  "tipo": "personaggio",
+  "scope": { "stagione": 1, "piano_da": 1, "piano_a": 3, "zona": "" },
+  "segretezza": "in_slice",
+  "regia": "citabile",
+  "costante": false,
+  "inneschi": ["archivista", "schedari", "archivio", "catalogo", "L'Archivista del Sesto"],
+  "revisioni": [
+    {
+      "n": 1,
+      "testo": "L'Archivista del Sesto cataloga i caduti per conto di NESSUNO: la Borant non lo paga, il Sistema non lo riconosce, lui timbra lo stesso. Considera ogni crawler vivo una pratica aperta e ogni morto una pratica evasa. Non mente mai sui numeri di protocollo; mente sempre sul perché li tiene.",
+      "vincolo": null,
+      "provenienza": "admin",
+      "ts": "2026-08-18T00:00:00"
+    }
+  ],
+  "approvazioni": [
+    { "revisione_n": 1, "autore": "admin", "ts": "2026-08-18T00:00:00" }
+  ],
+  "link": []
+}

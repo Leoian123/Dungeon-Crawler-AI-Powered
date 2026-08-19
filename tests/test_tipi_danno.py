@@ -50,11 +50,21 @@ def test_DT1_danno_tipo_campo_default_generico() -> None:
     campi = {f.name for f in dataclasses.fields(Danno)}
     assert "tipo" in campi
     assert Danno(quantita_da=QuantitaDa.ATK_EFF).tipo is TipoDanno.GENERICO
-    # Nessun sottotipo di Danno (DannoFuoco…): Danno è una foglia del catalogo Effetto.
-    classi = {n.name for f in _MOTORE.glob("*.py")
-              for n in ast.walk(ast.parse(f.read_text(encoding="utf-8")))
-              if isinstance(n, ast.ClassDef)}
-    assert not {c for c in classi if c.startswith("Danno") and c != "Danno"}
+    # Nessun SOTTOTIPO di Danno (DannoFuoco…): Danno è una foglia del catalogo Effetto,
+    # e il tipo è una variabile membro — non un override (Type Object, DT-1).
+    #
+    # Il controllo guarda le BASI, non il prefisso del nome: `DannoVariabile` (azzardo
+    # opt-in) si chiama così nei documenti ma discende da `EffettoAzzardo`, non da
+    # `Danno` — non è "il danno, ma per fuoco", è un primitivo diverso. Vietarlo per il
+    # nome avrebbe costretto a ribattezzare un concetto per compiacere una regex.
+    sottotipi = {
+        n.name
+        for f in _MOTORE.glob("*.py")
+        for n in ast.walk(ast.parse(f.read_text(encoding="utf-8")))
+        if isinstance(n, ast.ClassDef)
+        and any(isinstance(b, ast.Name) and b.id == "Danno" for b in n.bases)
+    }
+    assert not sottotipi, f"sottotipi di Danno: {sottotipi}"
 
 
 # --- DT-1/DT-2: il risolutore NON si dirama sul VALORE del tipo (solo il filtro) -

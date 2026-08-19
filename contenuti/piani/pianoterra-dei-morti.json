@@ -1,0 +1,113 @@
+{
+  "slug": "pianoterra-dei-morti",
+  "versione": 1,
+  "tags": ["nascondino", "non-morti", "piano-1", "piano-mondo"],
+  "titolo": "Il Pianoterra dei Morti",
+  "tema": "Il primo piano del World Dungeon: un continente sotterraneo ricavato dalla materia schiacciata della Terra, popolato dai non-morti di ogni era umana e di ogni film che i morti abbiano mai guardato. Il Lich Cinefilo conta fino a dieci dalla sua tana: tutto il piano è la sua partita a nascondino, e i crawler sono quelli che si nascondono.",
+  "stile": [
+    "I non-morti IRONIZZANO le ere storiche e i cult su zombie e non-morti: ogni mostro è un'epoca o una citazione andata a male, mai un morto generico.",
+    "Il nascondino è la regola del piano: chi si muove fa rumore, chi fa rumore viene trovato, e da qualche parte qualcuno sta sempre contando.",
+    "Il territorio è VASTO (miliardi di reclusi, 150.000 ingressi): la telecronaca dello show ricorda spesso quanti altri crawler stanno giocando questa stessa partita altrove."
+  ],
+  "lore": "Regola della Borant per il livello 1: il boss di piano ha scelto personalmente la modalità 'nascondino'. Trovare la scala non richiede di batterlo — richiede di non farsi trovare da lui. I boss territoriali (quartiere, distretto, città, provincia, paese) custodiscono i varchi: quelli sì, vanno battuti.",
+  "budget": {
+    "gradi": ["bronzo", "argento", "oro", "platino", "leggendario", "celestiale"],
+    "blocchi": ["veleno", "rigenerazione", "brucia"],
+    "archetipi": ["zombie", "scheletro", "lich"]
+  },
+  "cast": [
+    "legionario-scaduto",
+    "fante-del-fronte-fermo",
+    "scheletro-del-saloon",
+    "ballerino-del-video-proibito",
+    "cosmonauta-in-decomposizione",
+    "usciere-del-multisala"
+  ],
+  "stanze": null,
+  "territorio": {
+    "conteggi": {
+      "paese": 2,
+      "provincia": 10,
+      "citta": 40,
+      "distretto": 5,
+      "quartiere": 4
+    },
+    "boss": {
+      "piano": ["il-lich-cinefilo"],
+      "paese": ["leon-della-casa-del-male", "evil-ash"],
+      "provincia": ["la-regina-scaduta"],
+      "citta": ["dj-rigor-mortis"]
+    },
+    "procedurali": [
+      {
+        "tier": "distretto",
+        "nomi": [
+          "Il Doge Annegato",
+          "La Flapper Spettrale",
+          "Il Samurai Senza Padrone",
+          "Il Faraone di Quartiere",
+          "Il Vichingo Ammuffito",
+          "La Contessa Porfiria",
+          "Il Gladiatore Bis",
+          "Lo Sceriffo Ricaricato"
+        ],
+        "gimmick": [
+          "Pretende un tributo che nessuna valuta corrente può pagare.",
+          "Balla un charleston che spezza le caviglie a chi lo guarda troppo.",
+          "Cerca un padrone degno e nel dubbio sfida chiunque respiri.",
+          "Ha trasformato tre isolati in necropoli condominiale, con regolamento.",
+          "Puzza di idromele andato a male e di saghe raccontate male.",
+          "Riceve solo su appuntamento; l'appuntamento è un'imboscata.",
+          "Chiede il pollice del pubblico prima di ogni colpo.",
+          "Spara a mezzogiorno in punto, in un posto senza mezzogiorno."
+        ],
+        "archetipi": ["zombie", "scheletro"]
+      },
+      {
+        "tier": "quartiere",
+        "nomi": [
+          "Il Postino Insistente",
+          "La Cuoca della Mensa Eterna",
+          "Il Nonno del 1899",
+          "Il Metallaro Imbalsamato",
+          "La Cheerleader Crepata",
+          "Il Tassista del Turno Perenne",
+          "Il Bagnino Fuori Stagione",
+          "Il Bidello delle Superiori Sepolte"
+        ],
+        "gimmick": [
+          "Consegna lettere a destinatari morti da decenni, e pretende la firma.",
+          "Serve un menù del giorno fermo a un giorno molto, molto lontano.",
+          "Racconta com'era il quartiere prima. Prima di TUTTO.",
+          "Fa headbanging con vertebre non sue.",
+          "Fa la piramide da sola, pezzo per pezzo.",
+          "Il tassametro corre dal 1974 e qualcuno deve pagare.",
+          "Fischia a chi corre a bordo di una piscina vuota da sempre.",
+          "Ha le chiavi di ogni porta e nessuna voglia di aprirle."
+        ],
+        "archetipi": ["zombie", "scheletro"]
+      }
+    ],
+    "spawn": [
+      {
+        "tier": "quartiere",
+        "voci": [
+          { "mob": "legionario-scaduto", "frequenza": "comune" },
+          { "mob": "fante-del-fronte-fermo", "frequenza": "comune" },
+          { "mob": "scheletro-del-saloon", "frequenza": "comune" },
+          { "mob": "ballerino-del-video-proibito", "frequenza": "raro" }
+        ]
+      },
+      {
+        "tier": "citta",
+        "voci": [
+          { "mob": "ballerino-del-video-proibito", "frequenza": "comune" },
+          { "mob": "cosmonauta-in-decomposizione", "frequenza": "insolito" },
+          { "mob": "usciere-del-multisala", "frequenza": "insolito" },
+          { "mob": "scheletro-del-saloon", "frequenza": "comune" }
+        ]
+      }
+    ],
+    "stanze_per_zona": 4
+  }
+}

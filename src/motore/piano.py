@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 import esper
 
-from contracts import DiscesaPiano, PlayerDiscende
+from contracts import DiscesaPiano, PlayerDiscende, TipoStanza
 
 from .intenti_coda import consuma_messaggi
 from .phased import SistemaSoloNarrazione
@@ -130,11 +130,16 @@ class Piano:
 
     `discese` è un *insieme di id-stanza*, piazzato dal gate di contenuto — NON dedotto
     dalla parola "scala" (G §8.3).
+
+    `tipi` è il TIPO di ogni stanza (`TipoStanza`, vocabolario chiuso): stampato dal
+    generatore (seeded, a vincoli — mai dall'AI), persistito con la mappa. Una stanza
+    assente dal dict è NORMALE — così i save scritti prima dei tipi migrano gratis.
     """
 
     partenza: int
     adiacenze: dict[int, list[int]]
     discese: set[int] = field(default_factory=set)
+    tipi: dict[int, "TipoStanza"] = field(default_factory=dict)
 
 
 def raggiungibili(piano: Piano) -> set[int]:
@@ -177,4 +182,5 @@ def valida_piano(piano: Piano, *, ripara: bool = True) -> Piano | None:
         partenza=piano.partenza,
         adiacenze=piano.adiacenze,
         discese=set(piano.discese) | {stanza},
+        tipi=dict(piano.tipi),
     )

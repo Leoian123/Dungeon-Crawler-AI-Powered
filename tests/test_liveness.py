@@ -10,7 +10,7 @@ import random
 import esper
 import pytest
 
-from contracts import CombatResolved, MortePersonaggio
+from contracts import CombatResolved, Grado, MortePersonaggio
 from motore.calibrazione import R_SOGLIA_CROLLO
 from motore import (
     DANNO_BASE,
@@ -164,3 +164,201 @@ def test_GL2_qualunque_topologia_diventa_completabile(seed: int) -> None:
     assert riparato is not None
     assert piano_completabile(riparato), f"topologia seed={seed} non completabile dopo il gate"
     assert any(d in raggiungibili(riparato) for d in riparato.discese)
+
+
+# --- G-L2 sul CONTENUTO: ogni piano della stagione, non solo topologie sintetiche ---
+#
+# I test qui sopra dimostrano che il *gate* ripara qualunque topologia. Restava
+# scoperto il passo successivo: che ogni piano **realmente pubblicato** produca una
+# mappa completabile alla scala che il suo cast impone. Con una stagione a un piano
+# solo la distinzione era accademica; con due (o più) non lo è più.
+
+@pytest.mark.parametrize("seed", [3, 11, 42])
+def test_GL2_ogni_piano_della_stagione_e_completabile(mondo_isolato, seed: int) -> None:
+    """G-L2 sul contenuto pubblicato — RIDEFINITA per i piani-mondo (2026-08-10),
+    tre clausole:
+
+    1. **spina ATTRAVERSABILE** (strutturale, per N seed): ogni zona della spina
+       genera una mappa in cui la stanza del passaggio è raggiungibile, e ogni
+       zona HA il suo boss (nominato o istanziato dalle tabelle);
+    2. i boss sono del GRADO del loro tier (già per costruzione al freeze) — la
+       battibilità in banda TTK a parità di corredo del grado è materia di
+       `test_ttk`/G-L1 (G-L2 verifica il DESIGN, non la vincibilità nuda, che
+       resta il ciclo di sostentamento §4.1);
+    3. **clausola del NASCONDINO**: nella tana esiste un cammino partenza→scala
+       che EVITA la stanza del Lich — combatterlo è opt-in, mai un pedaggio.
+
+    I piani PIATTI (senza territorio) restano sul check storico di topologia."""
+    from main import _stagione_a_attiva, risolvi_stagione
+    from motore import (
+        avvia_territorio,
+        boss_della_zona,
+        crea_profondita,
+        crea_seme,
+        crea_stagione,
+        crea_tempo_piano,
+        genera_topologia,
+        grado_da_tier,
+        mappa_corrente,
+        rigenera_mappa_zona,
+        spina_del_piano,
+        stanza_boss_di,
+        stanza_passaggio_di,
+    )
+
+    stagione = risolvi_stagione("stagione-1")
+    piatti = [p for p in stagione.piani if p.territorio is None]
+    for livello, piano in enumerate(piatti, start=1):
+        topologia = genera_topologia(random.Random(f"seed:{livello}"), piano.n_stanze)
+        assert piano_completabile(topologia), f"{piano.slug}: nessuna scala raggiungibile"
+
+    if all(p.territorio is None for p in stagione.piani):
+        return  # stagione interamente piatta: il check storico basta
+
+    crea_profondita()
+    crea_seme(seed)
+    crea_tempo_piano()
+    crea_stagione(_stagione_a_attiva(stagione))
+    assert avvia_territorio(1), "il piano 1 pubblicato dichiara un territorio"
+    spina = spina_del_piano(1)
+    assert len(spina) == 6
+    for zona in spina:
+        rigenera_mappa_zona(1, zona)
+        _e, mappa = mappa_corrente()
+        boss = boss_della_zona(1, zona)
+        assert boss is not None, f"{zona.chiave}: zona senza custode"
+        assert boss.grado is grado_da_tier(zona.tier), (
+            f"{zona.chiave}: boss {boss.slug} fuori tier"
+        )
+        # La stanza del passaggio (o della scala, nella tana) è raggiungibile.
+        bersaglio = stanza_passaggio_di(zona, mappa.piano)
+        assert bersaglio in raggiungibili(mappa.piano), (
+            f"{zona.chiave}: passaggio irraggiungibile"
+        )
+    # Clausola del nascondino: nella tana, partenza→scala EVITANDO il Lich.
+    tana = spina[-1]
+    rigenera_mappa_zona(1, tana)
+    _e, mappa = mappa_corrente()
+    n = len(mappa.piano.adiacenze)
+    assert mappa.piano.discese == {n - 1}
+    stanza_lich = stanza_boss_di(tana, mappa.piano)
+    da_visitare, visti = [mappa.piano.partenza], {mappa.piano.partenza}
+    while da_visitare:
+        stanza = da_visitare.pop()
+        for uscita in mappa.piano.adiacenze[stanza]:
+            if uscita == stanza_lich or uscita in visti:
+                continue
+            visti.add(uscita)
+            da_visitare.append(uscita)
+    assert (n - 1) in visti, (
+        "la scala del piano DEVE essere raggiungibile senza combattere il Lich "
+        "(la tagline è meccanica: ti nascondi e lo aggiri)"
+    )
+
+
+def test_GL2_la_mappa_rigenerata_alla_discesa_e_completabile(mondo_isolato: str) -> None:
+    """Scendere produce una mappa NUOVA, e anche quella deve avere un'uscita.
+
+    Senza rigenerazione il piano 2 riuserebbe la topologia del piano 1 — comprese le
+    stanze già visitate e la scala già usata — e "scendere" sarebbe un contatore che
+    sale su una mappa ferma."""
+    from motore import crea_mappa, crea_seme, mappa_corrente, rigenera_mappa
+
+    crea_seme(7)
+    crea_mappa(random.Random(7), 5)
+    _ent, prima = mappa_corrente()
+
+    rigenera_mappa(2, 4)
+    trovata = mappa_corrente()
+    assert trovata is not None
+    _ent2, dopo = trovata
+    assert len(esper.get_component(type(dopo))) == 1, "due mappe = due verità spaziali"
+    assert piano_completabile(dopo.piano)
+    assert dopo.stanza_corrente == dopo.piano.partenza, "si arriva in cima al piano nuovo"
+    assert not dopo.visitate, "il piano nuovo non può nascere già esplorato"
+    assert len(dopo.piano.adiacenze) == 4 and len(prima.piano.adiacenze) == 5
+
+
+# --- G-L1 sulla MATRICE COMPLETA: ogni archetipo × ogni grado, anche impari ---------
+#
+# ⚠️ La distinzione che rende questo test possibile: **G-L1 è «ogni scontro termina»,
+# non «il protagonista vince ogni scontro»**. Un mob celestiale che uccide un
+# protagonista nudo *è* una terminazione — è permadeath, il terminale di run previsto
+# (G-11). Confonderle porterebbe a tarare il gioco perché Carl vinca sempre, che è un
+# gioco diverso.
+#
+# Perciò i due lucchetti sono separati e misurano cose diverse:
+#   - **qui** (universale, debole): lo scontro CHIUDE, comunque vada, per ogni
+#     combinazione — è il gate di release;
+#   - **`test_ttk.py`** (per-profilo, forte): chiude nella banda 2-8 colpi *a parità di
+#     corredo atteso*, ed è il lucchetto del feel.
+
+@pytest.mark.parametrize("archetipo", ["slime", "scheletro", "goblin", "felino",
+                                       "zombie", "lich"])
+@pytest.mark.parametrize("grado", list(Grado))
+def test_GL1_ogni_archetipo_per_ogni_grado_termina(
+    run_pulita, tmp_path, archetipo: str, grado: Grado
+) -> None:
+    """Protagonista NUDO contro l'intera matrice: nessuno scontro resta aperto.
+
+    Nudo di proposito — è il caso peggiore, quello in cui il giocatore non ha il
+    corredo che il grado richiederebbe. Se anche lì si chiude (vincendo, fuggendo o
+    morendo), G-L1 vale ovunque. Gli archetipi si risolvono per la strada di
+    libreria (`archetipi_sintetici`), non dalla stagione pubblicata: la matrice
+    copre TUTTO il vocabolario del repo, qualunque stagione sia in cartellone."""
+    import asyncio
+
+    from contracts import BudgetDesign, CombatResolved, MobAsset, MortePersonaggio
+    from contracts import PianoRisolto, PlayerChoseOption, StagioneRisolta
+    from main import costruisci_sessione
+    from tests.contenuti_sintetici import archetipi_sintetici
+
+    mob = MobAsset(slug="bersaglio", nome="Bersaglio", archetipo=archetipo, grado=grado,
+                   prosa_stanza="Una sagoma ti squadra.")
+    piano = PianoRisolto(
+        slug="p", versione=1, titolo="GL1", tema="liveness",
+        budget=BudgetDesign(gradi=[grado], blocchi=[], archetipi=[archetipo]), cast=[mob],
+    )
+    stagione = StagioneRisolta(
+        slug="s-gl1", versione=1, numero=1, titolo="GL1", mondo="X",
+        piani=[piano], archetipi=archetipi_sintetici((archetipo,)),
+    )
+    sessione = costruisci_sessione(nome="Nudo", seed=5, directory=tmp_path, stagione=stagione)
+
+    terminali: list[object] = []
+    for tipo in (CombatResolved, MortePersonaggio):
+        sessione.bus.registra(tipo, terminali.append)
+    try:
+        snap = asyncio.run(sessione.prossima_narrazione())
+        snap, _ = _clicca(sessione, snap, "Combatti")
+        turni = 0
+        while snap.fase == "combattimento" and turni < 200:
+            snap, agito = _clicca(sessione, snap, "Attacca")
+            if not agito:
+                # Il menu non offre più di attaccare: il protagonista è morto (o lo
+                # scontro si è chiuso). Non è uno stallo — è un terminale, ed è ciò che
+                # G-L1 chiede. Continuare a "cliccare" a vuoto conterebbe turni finti.
+                break
+            turni += 1
+        assert turni < 200, (
+            f"{archetipo}/{grado.value}: scontro ancora aperto dopo 200 turni — G-L1 "
+            "violato (nessun terminale, né vittoria né morte)"
+        )
+        assert terminali, f"{archetipo}/{grado.value}: chiuso senza pubblicare un terminale"
+    finally:
+        for tipo in (CombatResolved, MortePersonaggio):
+            sessione.bus.deregistra(tipo, terminali.append)
+
+
+def _clicca(sessione, snap, etichetta: str):
+    from contracts import PlayerChoseOption
+
+    voce = next(
+        (o.indice for o in snap.opzioni
+         if o.etichetta == etichetta or o.etichetta.startswith(etichetta + " —")),
+        None,
+    )
+    if voce is None:                     # il protagonista è morto: il menu è cambiato
+        return snap, False
+    sessione.coda.accoda(PlayerChoseOption(voce))
+    return sessione.avanza(), True

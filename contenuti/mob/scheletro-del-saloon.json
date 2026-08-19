@@ -1,0 +1,13 @@
+{
+  "slug": "scheletro-del-saloon",
+  "versione": 1,
+  "tags": ["nascondino", "non-morti", "riempitivo", "far-west"],
+  "nome": "Scheletro del Saloon",
+  "archetipo": "scheletro",
+  "grado": "bronzo",
+  "blocchi": [],
+  "descrizione": "Morto in un duello che giura di aver vinto. Cappello a tesa larga, cinturone vuoto, e il vizio di sfidare a mezzogiorno chiunque entri — a qualunque ora sia.",
+  "prosa_stanza": "Le porte a battente cigolano da sole. Al bancone, uno Scheletro del Saloon fa girare un bicchiere vuoto con due dita d'osso e lo posa con un TOC secco. «Mezzogiorno», dice, anche se qui sotto non è mai stato mezzogiorno. La mano gli scatta a un cinturone dove non c'è niente da estrarre. Attacca lo stesso.",
+  "durata": "turno",
+  "mosse": ["attacco"]
+}

@@ -1,0 +1,23 @@
+{
+  "slug": "lich",
+  "versione": 1,
+  "tags": ["non-morti", "caster", "elite"],
+  "nome": "il Lich",
+  "descrizione": "Un morto che ha fatto carriera. Fragile di corpo, letale di mente: Intelligenza altissima (accuratezza magica), un filo di difesa da filatteri, e il vizio di considerare i vivi un pubblico. L'archetipo dei non-morti di comando.",
+  "profilo": {
+    "destrezza_base": 6,
+    "pv_base": 16,
+    "danno_base": 3,
+    "intelligenza_base": 9,
+    "difesa_base": 2,
+    "saggezza_base": 3,
+    "fortuna_base": 2,
+    "armatura": "veste",
+    "taglia": "media",
+    "arma": "naturale",
+    "res_mischia": 0.0,
+    "res_fuoco": -25.0,
+    "res_veleno": -100.0
+  },
+  "mosse": ["attacco", "dardo_arcano", "sputo_infuocato"]
+}

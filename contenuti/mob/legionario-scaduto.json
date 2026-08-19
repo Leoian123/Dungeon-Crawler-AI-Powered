@@ -1,0 +1,13 @@
+{
+  "slug": "legionario-scaduto",
+  "versione": 1,
+  "tags": ["nascondino", "non-morti", "riempitivo", "roma-antica"],
+  "nome": "Legionario Scaduto",
+  "archetipo": "zombie",
+  "grado": "bronzo",
+  "blocchi": [],
+  "descrizione": "Duemila anni di ferma e nessuno gli ha mai firmato il congedo. Marcia sul posto, saluta insegne che non esistono più, morde chi rompe i ranghi.",
+  "prosa_stanza": "Un rumore di sandali fuori tempo: un Legionario Scaduto marcia in tondo al centro della stanza, lo scudo ridotto a un cerchione di ruggine. Si ferma, ti squadra come un ufficiale squadra una recluta, e ringhia qualcosa in un latino da caserma. La paga, evidentemente, non è mai arrivata.",
+  "durata": "turno",
+  "mosse": ["attacco"]
+}

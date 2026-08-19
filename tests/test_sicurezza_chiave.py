@@ -30,7 +30,9 @@ def _sorgenti() -> list[Path]:
     file += _ROOT.glob("*.bat")
     file += _ROOT.glob("*.md")
     file.append(_ROOT / ".env.example")
-    return [f for f in file if f.is_file()]
+    vivi = [f for f in file if f.is_file()]
+    assert vivi, "nessun sorgente da scandire: lo scan passerebbe per vacuità"
+    return vivi
 
 
 def test_nessuna_chiave_nel_repo() -> None:

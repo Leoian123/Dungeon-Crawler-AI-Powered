@@ -31,25 +31,23 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import esper
-from pydantic import BaseModel, ConfigDict
 
 from contracts import (
-    ArchetipoId,
     Blocco,
     Durata,
     EntitaGenerata,
     Grado,
-    Opzione,
+    NemicoSperimentale,
     SchedaProiezione,
-    TipoAzione,
     TurnoNarrazione,
 )
 from motore import (
-    REGISTRY_ARCHETIPI,
-    REGISTRY_BLOCCHI,
+    MasterEngine,
     mosse_note,
+    motivi_fuori_budget,
     Primarie,
-    acc_eff,
+    acc_fis_eff,
+    acc_mag_eff,
     atk_eff,
     costruisci_prompt,
     def_eff,
@@ -63,22 +61,9 @@ from motore import (
 from provider import AnthropicBackend, FakeProvider, MODELLO_DEFAULT
 
 
-# --- Schema sperimentale: superset di EntitaGenerata (+ drop, azioni) ----------
-
-class NemicoSperimentale(BaseModel):
-    """Ciò che chiediamo al modello: il **core** (gli stessi enum chiusi di `EntitaGenerata`,
-    da cui il motore deriva le stat REALI) + i campi **sperimentali** `drop`/`azioni`."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    archetipo: ArchetipoId
-    grado: Grado
-    blocchi: list[Blocco]
-    nome: str
-    descrizione: str          # stile DCC (ironico/dark-comico)
-    drop: list[str]           # SPERIMENTALE: bottino possibile
-    azioni: list[str]         # SPERIMENTALE: mosse di combattimento (→ futuro catalogo Effetto)
-
+# Lo schema sperimentale `NemicoSperimentale` vive in `contracts.schema` (come i
+# fratelli di authoring) ed è registrato nella rotta `banco.nemico`: anche il
+# banco passa dal Master-Engine — nessuna chiamata AI bypassa il canale unico.
 
 # Contesto giocatore minimo per il prompt (come `main.py`): qui non serve un protagonista vivo.
 _PROIEZIONE = SchedaProiezione(descrittori=("integro",))
@@ -102,20 +87,16 @@ def costruisci_prompt_nemico(budget, contesto: str) -> str:
 # --- Gate reale + diagnosi del motivo (per il confronto fra modelli) -----------
 
 def _diagnosi_gate(eg: EntitaGenerata, budget) -> str | None:
-    """Mirror dei 3 strati di `valida_turno` per produrre un **motivo** leggibile. `None` =
-    passerebbe. L'autorità resta `valida_turno`; questo serve solo al messaggio."""
-    if eg.archetipo not in REGISTRY_ARCHETIPI:
-        return f"archetipo '{eg.archetipo}' non nel catalogo"
-    for b in eg.blocchi:
-        if b not in REGISTRY_BLOCCHI:
-            return f"blocco '{b.value}' non nel catalogo"
-    if eg.grado not in budget.gradi_ammessi:
-        ammessi = ", ".join(sorted(g.value for g in budget.gradi_ammessi))
-        return f"grado '{eg.grado.value}' fuori budget (ammessi: {ammessi})"
-    if not set(eg.blocchi) <= budget.blocchi_ammessi:
-        ammessi = ", ".join(sorted(b.value for b in budget.blocchi_ammessi))
-        return f"blocchi fuori budget (ammessi: {ammessi})"
-    return None
+    """Il MOTIVO leggibile di un rifiuto, dalle stesse regole condivise dei gate
+    (`motivi_fuori_budget` — niente mirror manuale che possa divergere). `None` =
+    passerebbe. L'autorità resta `valida_turno`."""
+    motivi = motivi_fuori_budget(
+        eg.archetipo, eg.grado, eg.blocchi,
+        archetipi_ammessi=budget.archetipi_ammessi,
+        gradi_ammessi=budget.gradi_ammessi,
+        blocchi_ammessi=budget.blocchi_ammessi,
+    )
+    return "; ".join(motivi) if motivi else None
 
 
 def _stat_materializzando(eg: EntitaGenerata, livello: int) -> dict:
@@ -131,7 +112,8 @@ def _stat_materializzando(eg: EntitaGenerata, livello: int) -> dict:
             "atk_eff": atk_eff(ent),
             "def_eff_centesimi": def_eff(ent),
             "eva_eff": round(eva_eff(ent), 4),
-            "acc_eff": round(acc_eff(ent), 4),
+            "acc_fis_eff": round(acc_fis_eff(ent), 4),
+            "acc_mag_eff": round(acc_mag_eff(ent), 4),
         }
     finally:
         esper.delete_entity(ent, immediate=True)  # ripulisci: la materializzazione non lascia residui
@@ -156,10 +138,7 @@ def gate_e_stat(cand: NemicoSperimentale, budget, livello: int) -> tuple[bool, s
         archetipo=cand.archetipo, grado=cand.grado, blocchi=cand.blocchi,
         nome=cand.nome, descrizione=cand.descrizione,
     )
-    turno = TurnoNarrazione(
-        prosa="(banco di prova)", entita=eg,
-        opzioni=[Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti")], durata=Durata.TURNO,
-    )
+    turno = TurnoNarrazione(prosa="(banco di prova)", entita=eg, durata=Durata.TURNO)
     validato = valida_turno(turno, budget)        # autorità del gate (schema·catalogo·budget)
     motivo = _diagnosi_gate(eg, budget)
     if validato is None:
@@ -167,11 +146,12 @@ def gate_e_stat(cand: NemicoSperimentale, budget, livello: int) -> tuple[bool, s
     return True, None, _stat_materializzando(eg, livello)
 
 
-async def confronta(providers: dict, prompt: str, budget, livello: int) -> list[Esito]:
+async def confronta(engines: dict, prompt: str, budget, livello: int) -> list[Esito]:
     """Genera in **parallelo** su tutti i modelli (I/O di rete), poi gate+materializzazione
-    **seriali** (esper è stato globale)."""
-    nomi = list(providers)
-    candidati = await asyncio.gather(*(providers[n].genera(prompt, NemicoSperimentale) for n in nomi))
+    **seriali** (esper è stato globale). Ogni modello è un `MasterEngine` sulla
+    rotta `banco.nemico`: stesso canale (e stesso tally) del resto del progetto."""
+    nomi = list(engines)
+    candidati = await asyncio.gather(*(engines[n].genera("banco.nemico", prompt) for n in nomi))
     esiti: list[Esito] = []
     for nome, cand in zip(nomi, candidati):
         if cand is None:
@@ -216,7 +196,7 @@ def stampa_confronto(esiti: list[Esito], budget, livello: int, contesto: str, st
             _riga(f"    primarie: {prim}", stampa)
             _riga(f"    max_hp={e.stat['max_hp']}  atk_eff={e.stat['atk_eff']}  "
                   f"def_eff={e.stat['def_eff_centesimi']}cent  eva_eff={e.stat['eva_eff']}  "
-                  f"acc_eff={e.stat['acc_eff']}", stampa)
+                  f"acc_fis={e.stat['acc_fis_eff']}  acc_mag={e.stat['acc_mag_eff']}", stampa)
             _riga(f"    blocchi: {', '.join(b.value for b in c.blocchi) or '—'}", stampa)
         _riga("  [SPERIMENTALE — non ancora validato dal motore]", stampa)
         _riga(f"    drop:   {c.drop}", stampa)
@@ -256,14 +236,20 @@ def nemico_scriptato() -> NemicoSperimentale:
 
 # --- CLI ----------------------------------------------------------------------
 
-def _costruisci_providers(args) -> dict:
+def _costruisci_engines(args) -> tuple[dict, dict]:
+    """UN `MasterEngine` per modello (`avvolgi` è l'uso legittimo: il confronto È
+    un modello su tutte le corsie). Ritorna `(engines, consumi)` — il consumo per
+    modello si stampa a fine run (prima si perdeva)."""
     if args.fake:
-        return {"(fake)": FakeProvider([nemico_scriptato().model_dump()])}
+        fake = FakeProvider([nemico_scriptato().model_dump()])
+        return {"(fake)": MasterEngine.avvolgi(fake)}, {}
     modelli = args.modelli or [MODELLO_DEFAULT]
-    return {
-        m: AnthropicBackend(modello=m, max_tokens=args.max_tokens, timeout=args.timeout)
-        for m in modelli
-    }
+    engines, consumi = {}, {}
+    for m in modelli:
+        backend = AnthropicBackend(modello=m, max_tokens=args.max_tokens, timeout=args.timeout)
+        engines[m] = MasterEngine.avvolgi(backend)
+        consumi[m] = backend.consumo
+    return engines, consumi
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -289,10 +275,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     budget = prepara_contesto(args.livello, random.Random(args.seed))
     prompt = costruisci_prompt_nemico(budget, contesto)
-    providers = _costruisci_providers(args)
+    engines, consumi = _costruisci_engines(args)
 
-    esiti = asyncio.run(confronta(providers, prompt, budget, args.livello))
+    esiti = asyncio.run(confronta(engines, prompt, budget, args.livello))
     stampa_confronto(esiti, budget, args.livello, contesto)
+    for nome, consumo in consumi.items():
+        print(f"[consumo] {nome}: {consumo.riassunto()}")
     return 0
 
 

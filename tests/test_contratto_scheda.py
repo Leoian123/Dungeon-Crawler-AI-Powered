@@ -24,6 +24,8 @@ from contracts import (
     ProgressioneVista,
     SchedaVista,
     SkillVista,
+    SLOT_ARMATURA,
+    SLOT_IMPUGNATI,
     SlotEquip,
 )
 from motore import CATALOGO_MOSSE, Mana, Repertorio, cooldown_residuo, protagonista
@@ -56,10 +58,29 @@ def test_i_dto_sono_immutabili_e_chiusi() -> None:
 
 def test_gli_slot_equip_sono_un_vocabolario_chiuso() -> None:
     """Come ogni cosa con conseguenza meccanica (F-4): gli slot si dichiarano ORA,
-    così gli oggetti futuri entreranno in caselle già esistenti."""
-    assert {s.value for s in SlotEquip} == {"arma", "armatura"}
+    così gli oggetti futuri entreranno in caselle già esistenti.
+
+    Il vocabolario è passato da 2 membri (`arma`/`armatura` = le due *leve di geometria*)
+    ai 9 slot fisici dell'armatura + il mount impugnato (ADR-1 D5), perché ora gli
+    oggetti esistono davvero e si indossano in un posto. **Un solo enum di slot**: la
+    famiglia armatura è il sottoinsieme `SLOT_ARMATURA`, non un secondo enum che
+    divergerebbe da questo."""
+    assert {s.value for s in SlotEquip} == {
+        "arma",
+        "testa", "busto", "braccio_dx", "braccio_sx",
+        "mano_dx", "mano_sx", "gambe", "piede_dx", "piede_sx",
+    }
     with pytest.raises(ValidationError):
         EquipVista(slot="cappello")  # type: ignore[arg-type]
+
+
+def test_le_due_famiglie_di_slot_partizionano_il_vocabolario() -> None:
+    """`SLOT_ARMATURA` e `SLOT_IMPUGNATI` sono una partizione, non due liste scritte a
+    mano che si sovrappongono: la media pesata di `m_armatura` itera la prima e un
+    mount impugnato finito lì dentro falserebbe il denominatore (ADR-1 D5)."""
+    assert set(SLOT_ARMATURA) | set(SLOT_IMPUGNATI) == set(SlotEquip)
+    assert not (set(SLOT_ARMATURA) & set(SLOT_IMPUGNATI))
+    assert len(SLOT_ARMATURA) == 9, "il denominatore della media pesata è fisso a 9"
 
 
 def test_la_scheda_regge_senza_i_campi_nuovi() -> None:

@@ -82,7 +82,9 @@ def test_intento_esplorazione_attende_la_sua_fase(mondo_isolato) -> None:
 # --- Il port: non scarta più gli intenti di dominio ----------------------------
 
 def test_avanza_serve_anche_gli_intenti_di_esplorazione(run_pulita) -> None:
-    sessione = costruisci_sessione(seed=3)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(seed=3, stagione=stagione_sintetica(2))
     eventi: list[DiscesaPiano] = []
     sessione.bus.registra(DiscesaPiano, eventi.append)
     try:
@@ -97,7 +99,9 @@ def test_avanza_serve_anche_gli_intenti_di_esplorazione(run_pulita) -> None:
 
 
 def test_avanza_in_combattimento_fa_attendere_l_esplorazione(run_pulita) -> None:
-    sessione = costruisci_sessione(seed=3)
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    sessione = costruisci_sessione(seed=3, stagione=stagione_sintetica(2))
     eventi: list[DiscesaPiano] = []
     sessione.bus.registra(DiscesaPiano, eventi.append)
     try:
