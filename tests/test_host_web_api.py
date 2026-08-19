@@ -462,3 +462,39 @@ def test_la_chiusura_dello_scontro_produce_subito_il_resoconto(host) -> None:
     assert gm[-1]["messaggio"]["prosa"].strip(), (
         "il resoconto ha prosa anche offline (fallback deterministico dai fatti)"
     )
+
+
+# --- Lo script di lancio «doppio click e giochi» (2026-08-20) -------------------
+
+def test_la_spa_compilata_viene_servita_dall_host(tmp_path) -> None:
+    """`monta_spa`: con la build in web/dist l'host serve la SPA alla radice
+    (una origine sola, niente proxy) e le rotte /api/* — registrate prima —
+    vincono sempre sul mount statico."""
+    from host_web import StatoHost, crea_app
+    from host_web.__main__ import monta_spa
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text(
+        "<title>DCC</title><div id=root></div>", encoding="utf-8"
+    )
+    stato = StatoHost(directory=tmp_path)
+    app = crea_app(stato)
+    assert monta_spa(app, dist) is True
+    with TestClient(app) as client:
+        assert "DCC" in client.get("/").text, "la radice serve index.html"
+        r = client.get("/api/crawlers")
+        assert r.status_code == 200 and "crawlers" in r.json(), (
+            "le API vincono sul mount statico"
+        )
+    stato.chiudi()
+
+
+def test_senza_build_l_host_resta_api_only(tmp_path) -> None:
+    from host_web import StatoHost, crea_app
+    from host_web.__main__ import monta_spa
+
+    stato = StatoHost(directory=tmp_path)
+    app = crea_app(stato)
+    assert monta_spa(app, tmp_path / "dist-inesistente") is False
+    stato.chiudi()
