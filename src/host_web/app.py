@@ -643,13 +643,24 @@ def crea_app(stato: StatoHost) -> FastAPI:
                 422, "opzione_invalida",
                 f"L'indice {ric.indice} non è nel menu corrente.",
             )
+        fase_prima = corrente.fase
         async with stato.lock:
             # host→motore: intento tipizzato in coda, poi IL turno del motore (C-7).
             sessione.coda.accoda(PlayerChoseOption(ric.indice))
             snap = sessione.avanza()
             righe = stato.cronaca.preleva() if stato.cronaca else []
             messaggio = None
-            if not stato.morto and not snap.opzioni and snap.fase == "narrazione":
+            # Lo scontro si è APPENA chiuso (vittoria o fuga, non morte): il
+            # turno del RESOCONTO è dovuto SUBITO, anche a menu pieno — è il
+            # ramo dedicato di `esegui_turno_gm` (dai fatti, fallback
+            # deterministico offline). Prima la vittoria non veniva narrata
+            # finché il giocatore non chiedeva altro (playtest 2026-08-19).
+            scontro_chiuso = (
+                fase_prima == "combattimento" and snap.fase == "narrazione"
+            )
+            if not stato.morto and snap.fase == "narrazione" and (
+                not snap.opzioni or scontro_chiuso
+            ):
                 # Menu vuoto ⇒ in attesa: si chiede subito il turno di narrazione
                 # (il client segue il progresso via SSE, non orchestra il doppio passo).
                 snap = await sessione.prossima_narrazione()

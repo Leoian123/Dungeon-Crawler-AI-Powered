@@ -84,9 +84,16 @@ def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
     )
 
 
-def conia_procedurale(rng: random.Random, grado: str) -> OggettoAttivo | None:
+def conia_procedurale(
+    rng: random.Random, grado: str, *, escludi_famiglia: str = ""
+) -> OggettoAttivo | None:
     """UN oggetto dalla fabbrica, per il grado deciso dal motore. `None` senza
-    fabbrica attiva. Deterministico: stesso stream RNG → stesso oggetto."""
+    fabbrica attiva. Deterministico: stesso stream RNG → stesso oggetto.
+
+    `escludi_famiglia` (playtest 2026-08-19: tre «della Maschera» di fila): la
+    manifattura dell'ULTIMO conio non si ripete se la fabbrica ne ha altre —
+    SHIFT deterministico all'indice successivo, nessun draw in più: il resto
+    dello stream (affissi, suffisso) resta byte-identico allo storico."""
     from .catalogo import RANGO_GRADO
     from contracts import Grado
 
@@ -94,7 +101,11 @@ def conia_procedurale(rng: random.Random, grado: str) -> OggettoAttivo | None:
     if fabbrica is None:
         return None
     base = fabbrica.basi[rng.randrange(len(fabbrica.basi))]
-    famiglia = fabbrica.famiglie[rng.randrange(len(fabbrica.famiglie))]
+    indice = rng.randrange(len(fabbrica.famiglie))
+    famiglia = fabbrica.famiglie[indice]
+    if (escludi_famiglia and famiglia.nome == escludi_famiglia
+            and len(fabbrica.famiglie) > 1):
+        famiglia = fabbrica.famiglie[(indice + 1) % len(fabbrica.famiglie)]
 
     rango = RANGO_GRADO[Grado(grado)]
     affissi = []

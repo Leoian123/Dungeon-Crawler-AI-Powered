@@ -153,3 +153,39 @@ def test_rotta_authoring_fabbrica_e_conversione() -> None:
     attiva = _fabbrica_a_attiva(risolta.fabbrica)
     assert attiva.basi and isinstance(attiva.basi[0].tipo, str)
     assert any(a.res_contro for a in attiva.affissi)
+
+
+# --- Playtest 2026-08-19: tre «della Maschera» di fila --------------------------
+
+def test_il_conio_non_ripete_la_famiglia(run_pulita) -> None:
+    """`escludi_famiglia`: la manifattura dell'ultimo conio non si ripete se
+    la fabbrica ne ha altre — SHIFT d'indice, zero draw extra: il resto dello
+    stream (affissi, suffisso) resta byte-identico allo storico."""
+    import random as _random
+
+    from main import costruisci_sessione
+    from motore import conia_procedurale, fabbrica_attiva
+
+    sessione = costruisci_sessione(seed=1)
+    fabbrica = fabbrica_attiva()
+    assert fabbrica is not None and len(fabbrica.famiglie) > 1
+
+    def famiglia_di(oggetto) -> str:
+        return next(
+            f.nome for f in fabbrica.famiglie if oggetto.nome.endswith(f.nome)
+        )
+
+    a = conia_procedurale(_random.Random(7), "argento")
+    fam_a = famiglia_di(a)
+    b = conia_procedurale(_random.Random(7), "argento", escludi_famiglia=fam_a)
+    assert famiglia_di(b) != fam_a, "la famiglia esclusa non deve ripetersi"
+    assert b.slug[-4:] == a.slug[-4:], (
+        "lo shift non consuma draw: il suffisso seeded resta identico"
+    )
+    c = conia_procedurale(
+        _random.Random(7), "argento", escludi_famiglia="manifattura inesistente"
+    )
+    assert (c.slug, c.nome) == (a.slug, a.nome), (
+        "senza collisione il conio resta byte-identico allo storico"
+    )
+    sessione.esci()

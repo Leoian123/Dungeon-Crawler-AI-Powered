@@ -430,3 +430,35 @@ def test_il_dungeon_infestato_monta_i_fantasmi(host, tmp_path) -> None:
     )
     assert r.status_code == 201
     assert fantasmi_correnti() is None, "senza flag: run storica identica"
+
+
+# --- Playtest 2026-08-19: la vittoria non veniva mai narrata a menu pieno -------
+
+def test_la_chiusura_dello_scontro_produce_subito_il_resoconto(host) -> None:
+    """Il ramo resoconto di `esegui_turno_gm` esisteva (dai FATTI, fallback
+    deterministico offline) ma l'host web non lo chiedeva mai se il menu di
+    scena non era vuoto: vinci e la vittoria resta non narrata. Ora la
+    transizione combattimento→narrazione chiede SUBITO il turno GM."""
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = _narra(client, apertura["versione"])
+    indice = _indice_opzione(corpo["snapshot"], "Combatti")
+    corpo = client.post(
+        "/api/partita/opzioni", json={"indice": indice, "versione": corpo["versione"]}
+    ).json()
+    guardia = 0
+    ultimo = corpo
+    while corpo["fase"] == "combattimento" and not corpo["morto"] and guardia < 60:
+        indice = _indice_opzione(corpo["snapshot"], "Attacca")
+        ultimo = client.post(
+            "/api/partita/opzioni", json={"indice": indice, "versione": corpo["versione"]}
+        ).json()
+        corpo = ultimo
+        guardia += 1
+    assert corpo["fase"] == "narrazione" and not corpo["morto"]
+    assert corpo["snapshot"]["opzioni"], "il menu di scena è PIENO: era il caso rotto"
+    gm = [p for p in ultimo["post"] if p["genere"] == "gm"]
+    assert gm, "la chiusura dello scontro deve produrre il turno GM del resoconto"
+    assert gm[-1]["messaggio"]["prosa"].strip(), (
+        "il resoconto ha prosa anche offline (fallback deterministico dai fatti)"
+    )

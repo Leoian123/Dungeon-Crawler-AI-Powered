@@ -585,3 +585,51 @@ def test_imboscata_senza_deja_vu(mondo_isolato, monkeypatch) -> None:
     assert em is not None and em.nome == b.nome, (
         "il déjà-vu: doveva ripescare, non riproporre il morto"
     )
+
+
+# --- Playtest 2026-08-19 (web): il déjà-vu delle stanze adiacenti ---------------
+
+def test_stanze_adiacenti_non_ripetono_il_mob(run_pulita, tmp_path) -> None:
+    """Due Fanti identici (stesso mob, stessa prosa) in stanze adiacenti:
+    `mob_di_stanza` ri-pesca con esclusione quando la pescata coincide con
+    quella GREZZA della stanza precedente. Una ripetizione consecutiva resta
+    lecita SOLO se la tabella non offre alternative (voce unica)."""
+    import random as _random
+
+    from main import costruisci_sessione
+    from motore import master_seed, mob_di_stanza, pesca_spawn, zona_corrente
+
+    for seed in (1, 3, 2156223982):  # l'ultimo è il daily del playtest
+        sessione = costruisci_sessione(seed=seed, directory=tmp_path / str(seed))
+        zona = zona_corrente()
+        assert zona is not None, "la stagione-1 ha il territorio"
+        stanze = sorted(mappa_corrente()[1].piano.adiacenze)
+        for precedente, stanza in zip(stanze, stanze[1:]):
+            a = mob_di_stanza(1, zona, precedente)
+            b = mob_di_stanza(1, zona, stanza)
+            if a is None or b is None or a.slug != b.slug:
+                continue
+            rng = _random.Random(
+                f"{master_seed()}:copione:1:{zona.chiave}:{stanza}"
+            )
+            pesca_spawn(rng)  # consuma la pescata grezza, come fa la funzione
+            assert pesca_spawn(rng, escludi=frozenset({b.nome})) is None, (
+                f"seed {seed}: {b.slug} ripetuto in {precedente}->{stanza} "
+                "con alternative disponibili in tabella"
+            )
+        sessione.esci()
+
+
+def test_mob_di_stanza_e_path_independent(run_pulita) -> None:
+    """La derivazione dipende SOLO da (seed, zona, numero di stanza): due
+    letture della stessa stanza danno lo stesso mob — replay, rientro e
+    riletture non divergono mai dall'ordine di visita."""
+    from main import costruisci_sessione
+    from motore import mob_di_stanza, zona_corrente
+
+    sessione = costruisci_sessione(seed=3)
+    zona = zona_corrente()
+    prima = [getattr(mob_di_stanza(1, zona, s), "slug", None) for s in range(6)]
+    seconda = [getattr(mob_di_stanza(1, zona, s), "slug", None) for s in reversed(range(6))]
+    assert prima == list(reversed(seconda))
+    sessione.esci()

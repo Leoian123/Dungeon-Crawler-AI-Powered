@@ -1930,13 +1930,34 @@ class SessioneGioco:
         L'oggetto entra nei coniati persistenti e nello zaino; `_ultimo_drop`
         resta armato — la vestizione AI può ancora dare la targhetta al pezzo,
         ma il pezzo esiste comunque (mai un drop appeso a una chiamata)."""
-        from motore import assicura_coniati, conia_procedurale
+        from motore import conia_procedurale
 
-        attivo = conia_procedurale(self.rng, grado)
+        attivo = conia_procedurale(
+            self.rng, grado, escludi_famiglia=self._ultima_famiglia_coniata()
+        )
         if attivo is None:
             self._deposita_da_pool(grado)
             return
         self._deposita_coniato(attivo, grado)
+
+    def _ultima_famiglia_coniata(self) -> str:
+        """La MANIFATTURA dell'ultimo conio della run ("" se non c'è): derivata
+        dal posseduto persistente (`OggettiConiati`), zero stato nuovo — il
+        nome procedurale finisce sempre con la famiglia («… della Maschera»),
+        quindi il match è sul suffisso; il pezzo unico ha targhetta libera e
+        semplicemente non matcha (nessuna esclusione: onesto)."""
+        from motore import assicura_coniati, fabbrica_attiva
+
+        fabbrica = fabbrica_attiva()
+        if fabbrica is None:
+            return ""
+        voci = assicura_coniati(protagonista()[0]).voci
+        if not voci:
+            return ""
+        ultimo = voci[-1].nome
+        return next(
+            (f.nome for f in fabbrica.famiglie if ultimo.endswith(f.nome)), ""
+        )
 
     def _deposita_coniato(self, attivo, grado: str) -> None:
         """Il deposito condiviso di un oggetto CONIATO (fabbrica, pezzo unico
@@ -3063,12 +3084,9 @@ class ProviderCopione(FakeProvider):
         precompilate: la stessa lettura vale dopo un load o in qualunque ordine
         di visita (la rilettura resta compito dell'Archivio). `None` = piano
         piatto: si usa il copione keyed storico."""
-        import random as _random
-
         from motore import (
             boss_della_zona,
-            master_seed,
-            pesca_spawn,
+            mob_di_stanza,
             stanza_boss_di,
             zona_corrente,
         )
@@ -3086,10 +3104,9 @@ class ProviderCopione(FakeProvider):
         if stanza == stanza_boss_di(zona, mappa.piano):
             mob = boss_della_zona(livello, zona)
         else:
-            rng = _random.Random(
-                f"{master_seed()}:copione:{livello}:{zona.chiave}:{stanza}"
-            )
-            mob = pesca_spawn(rng)
+            # La derivazione UNICA (anti déjà-vu incluso, `mob_di_stanza`):
+            # il copione offline resta convergente con fascicolo live e rientro.
+            mob = mob_di_stanza(livello, zona, stanza)
         if mob is None:
             return None  # tabella vuota: fallback onesto del gate
         return TurnoNarrazione(
