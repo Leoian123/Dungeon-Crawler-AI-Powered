@@ -116,6 +116,29 @@ class RichiestaAzione(BaseModel):
     versione: int
 
 
+class RichiestaBattuta(BaseModel):
+    """Una battuta nella scena sociale aperta. Testo VUOTO = il giocatore
+    tronca la conversazione (stessa semantica della TUI)."""
+
+    model_config = ConfigDict(extra="forbid")
+    testo: str
+    versione: int
+
+
+async def _drena_prosa(sessione) -> list:
+    """Svuota la coda dei battiti fuori banda del motore (`prossima_prosa`):
+    trailer d'apertura, vestizione del premio, epitaffio. La porta è unica e
+    l'host la DRENA e basta — quando un battito è dovuto lo decide il motore
+    (la TUI fa lo stesso; senza questo drenaggio il forum perdeva metà della
+    narrazione)."""
+    prose = []
+    while True:
+        battito = await sessione.prossima_prosa()
+        if battito is None:
+            return prose
+        prose.append(battito)
+
+
 class RichiestaCalibrazioneValore(BaseModel):
     """Il valore GREZZO di un override: coerce e validazione (int/float/scelta)
     vivono nel catalogo (`calibrazione._coerce`), mai qui."""
@@ -508,8 +531,9 @@ def crea_app(stato: StatoHost) -> FastAPI:
         async with stato.lock:
             snap = await sessione.prossima_narrazione()
             righe = stato.cronaca.preleva() if stato.cronaca else []
+            prose = await _drena_prosa(sessione)
             nuovi = stato.registra_turno(
-                snap, righe=righe, messaggio=sessione.ultimo_messaggio
+                snap, righe=righe, messaggio=sessione.ultimo_messaggio, prose=prose
             )
         return _risposta_turno(nuovi)
 
@@ -535,7 +559,10 @@ def crea_app(stato: StatoHost) -> FastAPI:
                 snap = await sessione.prossima_narrazione()
                 righe += stato.cronaca.preleva() if stato.cronaca else []
                 messaggio = sessione.ultimo_messaggio
-            nuovi = stato.registra_turno(snap, righe=righe, messaggio=messaggio)
+            prose = await _drena_prosa(sessione)
+            nuovi = stato.registra_turno(
+                snap, righe=righe, messaggio=messaggio, prose=prose
+            )
         return _risposta_turno(nuovi)
 
     @app.post("/api/partita/azione/anteprima")
@@ -567,8 +594,42 @@ def crea_app(stato: StatoHost) -> FastAPI:
             riepilogo = sessione.riepiloga_azione(ric.testo)
             snap = await sessione.esegui_azione(riepilogo)
             righe = stato.cronaca.preleva() if stato.cronaca else []
+            prose = await _drena_prosa(sessione)
             nuovi = stato.registra_turno(
-                snap, righe=righe, messaggio=sessione.ultimo_messaggio
+                snap, righe=righe, messaggio=sessione.ultimo_messaggio, prose=prose
+            )
+        return _risposta_turno(nuovi)
+
+    @app.post("/api/partita/scena/battuta")
+    async def battuta_scena(ric: RichiestaBattuta) -> dict:
+        """UNA battuta nella scena sociale aperta (S1): il testo va alla PORTA
+        DI SCENA (`battuta_parlamento`), mai al turno GM — la stessa
+        separazione della TUI in modo-scena. Vuoto = tronca la conversazione
+        (`abbandona_parlamento`). L'esito della scena rientra dal fascicolo
+        del turno GM successivo, non da qui."""
+        sessione = _sessione()
+        _guardie_di_gioco(ric.versione)
+        corrente = stato.snapshot
+        if corrente is None or not corrente.scena_aperta:
+            raise ErroreApi(
+                409, "scena_assente",
+                "Nessuna scena aperta: la battuta non ha interlocutore "
+                "(apri il dialogo con l'opzione Parlamenta).",
+            )
+        async with stato.lock:
+            testo = ric.testo.strip()
+            scambio: list[str] = []
+            if not testo:
+                sessione.abbandona_parlamento()
+                scambio.append("Il crawler tronca la conversazione.")
+            else:
+                risposta = await sessione.battuta_parlamento(testo)
+                scambio.extend((f"«{testo}»", risposta))
+            snap = sessione.avanza()
+            righe = stato.cronaca.preleva() if stato.cronaca else []
+            prose = await _drena_prosa(sessione)
+            nuovi = stato.registra_turno(
+                snap, righe=righe, messaggio=None, prose=prose, scena=scambio
             )
         return _risposta_turno(nuovi)
 

@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from "react";
 import type { PostThread } from "../api/tipi";
-import { PostEvento, PostGM } from "./PostGM";
+import { PostEvento, PostGM, PostProsa, PostScena } from "./PostGM";
 
 export function ThreadForum({ post }: { post: PostThread[] }) {
   const fondo = useRef<HTMLDivElement>(null);
@@ -22,6 +22,10 @@ export function ThreadForum({ post }: { post: PostThread[] }) {
       {post.map((p) =>
         p.genere === "gm" && p.messaggio ? (
           <PostGM key={p.id} id={p.id} messaggio={p.messaggio} />
+        ) : p.genere === "prosa" ? (
+          <PostProsa key={p.id} righe={p.righe} tipo={p.tipo_prosa} />
+        ) : p.genere === "scena" ? (
+          <PostScena key={p.id} righe={p.righe} />
         ) : (
           <PostEvento key={p.id} righe={p.righe} />
         ),

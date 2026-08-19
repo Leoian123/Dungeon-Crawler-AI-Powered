@@ -16,6 +16,7 @@ import type { StatoPartita } from "./api/tipi";
 import { useGioco, type Sezione } from "./store/gioco";
 import { BarraOpzioni } from "./components/BarraOpzioni";
 import { ComposerAzione } from "./components/ComposerAzione";
+import { ComposerScena } from "./components/ComposerScena";
 import { ForumShell } from "./components/ForumShell";
 import { GameMaster } from "./components/GameMaster";
 import { HubCrawler } from "./components/HubCrawler";
@@ -96,9 +97,14 @@ function Partita({ stato }: { stato: StatoPartita }) {
                   versione={stato.versione}
                   bloccata={bloccata}
                 />
-                {stato.fase === "narrazione" && (
-                  <ComposerAzione versione={stato.versione} bloccato={bloccata} />
-                )}
+                {stato.fase === "narrazione" &&
+                  (stato.snapshot.scena_aperta ? (
+                    // Scena sociale aperta: l'input è la BATTUTA (porta di
+                    // scena), non l'azione libera (turno GM) — mai entrambe.
+                    <ComposerScena versione={stato.versione} bloccato={bloccata} />
+                  ) : (
+                    <ComposerAzione versione={stato.versione} bloccato={bloccata} />
+                  ))}
               </>
             ) : (
               <button

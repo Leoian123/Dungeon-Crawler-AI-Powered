@@ -50,14 +50,21 @@ class PostThread(BaseModel):
 
     `genere="gm"`: un turno del GM (`MessaggioGM`: prosa + dove/come + tempo + prova).
     `genere="evento"`: righe di cronaca del bus (scontro iniziato, esito, discesa…).
+    `genere="prosa"`: un battito FUORI BANDA drenato da `prossima_prosa` (trailer
+    d'apertura, vestizione del premio, epitaffio): `righe=(testo,)`, `tipo_prosa`
+    per il registro tipografico — prima l'host web non lo drenava e metà della
+    narrazione (premi, epitaffi) non arrivava mai al forum.
+    `genere="scena"`: uno scambio della scena sociale (battuta del crawler +
+    risposta del canale scena).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: int
-    genere: str  # "gm" | "evento"
+    genere: str  # "gm" | "evento" | "prosa" | "scena"
     messaggio: MessaggioGM | None = None
     righe: tuple[str, ...] = ()
+    tipo_prosa: str = ""  # TipoProsa.value, solo per genere="prosa"
 
 
 class StatoHost:
@@ -156,13 +163,34 @@ class StatoHost:
         *,
         righe: list[str],
         messaggio: MessaggioGM | None,
+        prose: list | None = None,
+        scena: list[str] | None = None,
     ) -> list[PostThread]:
         """Chiude un ingresso nel motore: nuovi post, snapshot rimpiazzato in blocco,
-        versione incrementata, segnale `post` agli abbonati SSE."""
+        versione incrementata, segnale `post` agli abbonati SSE.
+
+        Ordine dei post: cronaca del bus → scambio di scena → battiti fuori
+        banda (`prose`: `ProsaFuoriBanda` drenate) → turno GM. Rispecchia la
+        sequenza percepita in TUI (l'evento accade, la scena parla, il battito
+        veste, il GM riprende)."""
         nuovi: list[PostThread] = []
         if righe:
             nuovi.append(
                 PostThread(id=len(self.thread), genere="evento", righe=tuple(righe))
+            )
+        if scena:
+            nuovi.append(
+                PostThread(
+                    id=len(self.thread) + len(nuovi), genere="scena",
+                    righe=tuple(scena),
+                )
+            )
+        for battito in prose or []:
+            nuovi.append(
+                PostThread(
+                    id=len(self.thread) + len(nuovi), genere="prosa",
+                    righe=(battito.testo,), tipo_prosa=battito.tipo.value,
+                )
             )
         if messaggio is not None:
             nuovi.append(

@@ -66,3 +66,50 @@ export function PostEvento({ righe }: { righe: string[] }) {
     </div>
   );
 }
+
+// I battiti FUORI BANDA (trailer d'apertura, targhetta del premio, epitaffio):
+// prosa che non accompagna uno snapshot — registro tipografico proprio, non
+// la riga di cronaca né il post del GM.
+const ETICHETTE_PROSA: Record<string, string> = {
+  apertura: "Trailer",
+  premio: "Premio",
+  epitaffio: "Epitaffio",
+};
+
+export function PostProsa({ righe, tipo }: { righe: string[]; tipo?: string }) {
+  const etichetta = ETICHETTE_PROSA[tipo ?? ""] ?? "Fuori onda";
+  return (
+    <article className="rounded-lg border border-torcia/25 bg-torcia/5 px-4 py-3">
+      <span className="text-xs font-bold uppercase tracking-widest text-torcia/80">
+        {etichetta}
+      </span>
+      {righe.map((riga, i) => (
+        <p key={i} className="mt-1 whitespace-pre-wrap italic leading-relaxed">
+          {riga}
+        </p>
+      ))}
+    </article>
+  );
+}
+
+/** Uno scambio del parlamentare: la battuta del crawler («…») + la risposta
+ *  del canale scena. Dialogo, non cronaca. */
+export function PostScena({ righe }: { righe: string[] }) {
+  return (
+    <article className="rounded-lg border border-muschio/30 bg-muschio/5 px-4 py-3">
+      <span className="text-xs font-bold uppercase tracking-widest text-muschio/90">
+        Scena
+      </span>
+      {righe.map((riga, i) => (
+        <p
+          key={i}
+          className={`mt-1 whitespace-pre-wrap leading-relaxed ${
+            riga.startsWith("«") ? "font-bold text-pergamena" : "italic"
+          }`}
+        >
+          {riga}
+        </p>
+      ))}
+    </article>
+  );
+}

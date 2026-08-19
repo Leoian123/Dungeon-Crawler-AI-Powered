@@ -73,6 +73,11 @@ export const api = {
     ),
   eseguiAzione: (testo: string, versione: number) =>
     richiesta<RispostaTurno>("/api/partita/azione", post({ testo, versione })),
+  battutaScena: (testo: string, versione: number) =>
+    richiesta<RispostaTurno>(
+      "/api/partita/scena/battuta",
+      post({ testo, versione }),
+    ),
   salva: (versione: number) =>
     richiesta<{ messaggio: string }>("/api/partita/salva", post({ versione })),
   // Libreria dei contenuti (GM mode). Gli asset viaggiano come oggetti grezzi:

@@ -206,3 +206,103 @@ def test_salva(host) -> None:
     r = client.post("/api/partita/salva", json={"versione": corpo["versione"]})
     assert r.status_code == 200
     assert "salvata" in r.json()["messaggio"].lower()
+
+
+# --- Scena sociale (parlamentare) e prosa fuori banda (collegamenti 2026-08-19) --
+# Le due porte che la TUI usava e l'host web NO: `battuta_parlamento` (+
+# `abbandona_parlamento`) e `prossima_prosa`. Questi test sono il lucchetto sul
+# collegamento: la feature esiste nella UI web, non solo nel motore.
+
+def test_battuta_senza_scena_409(host) -> None:
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = _narra(client, apertura["versione"])
+    r = client.post(
+        "/api/partita/scena/battuta",
+        json={"testo": "C'è nessuno?", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 409
+    assert r.json()["codice"] == "scena_assente"
+
+
+def _carisma_alto() -> None:
+    """Il gate del parlamento reso deterministico (stesso trucco dei test del
+    motore): carisma sopra ogni soglia, mutazione diretta del World attivo."""
+    import esper
+    from contracts import StatId
+    from motore.scheda import protagonista
+    from motore.statistiche import Primarie
+
+    pent, _m, _s = protagonista()
+    esper.component_for_entity(pent, Primarie).valori[StatId.CARISMA] = 40
+
+
+def test_parlamentare_dal_browser_batte_e_tronca(host) -> None:
+    """Il filo intero della scena via API: Parlamenta → scena aperta → battuta
+    (post «scena» con lo scambio, scena ancora aperta) → vuoto = tronca."""
+    client, _stato = host
+    apertura = _crea(client)  # seed=1: il primo mob è parlamentabile
+    corpo = _narra(client, apertura["versione"])
+    _carisma_alto()
+    indice = _indice_opzione(corpo["snapshot"], "Parlamenta")
+    corpo = client.post(
+        "/api/partita/opzioni",
+        json={"indice": indice, "versione": corpo["versione"]},
+    ).json()
+    assert corpo["snapshot"]["scena_aperta"] is True, "il gate superato apre la scena"
+
+    r = client.post(
+        "/api/partita/scena/battuta",
+        json={"testo": "Chi comanda qui?", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 200
+    corpo = r.json()
+    scena = [p for p in corpo["post"] if p["genere"] == "scena"]
+    assert len(scena) == 1
+    assert scena[0]["righe"][0] == "«Chi comanda qui?»"
+    assert len(scena[0]["righe"]) == 2 and scena[0]["righe"][1], (
+        "la risposta del canale scena non è mai vuota (degrado deterministico)"
+    )
+    assert corpo["snapshot"]["scena_aperta"] is True, "una battuta non chiude la scena"
+
+    r = client.post(
+        "/api/partita/scena/battuta",
+        json={"testo": "", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 200
+    corpo = r.json()
+    assert corpo["snapshot"]["scena_aperta"] is False, "battuta vuota = tronca"
+    scena = [p for p in corpo["post"] if p["genere"] == "scena"]
+    assert scena and "tronca" in scena[0]["righe"][0]
+
+
+def test_la_prosa_fuori_banda_arriva_al_forum(host, monkeypatch) -> None:
+    """Il DRENAGGIO è dell'host, la generazione è del motore: qui si prova il
+    trasporto. Offline il battito degrada e DECADE per disegno (la riga di
+    cronaca è già uscita), quindi la porta si stubba con un trailer già
+    generato: deve diventare un post «prosa» con il suo registro tipografico.
+    Prima l'host web non chiamava mai `prossima_prosa` e trailer/premi/
+    epitaffi non arrivavano al forum."""
+    from contracts import ProsaFuoriBanda, TipoProsa
+
+    client, stato = host
+    apertura = _crea(client)
+    corpo = _narra(client, apertura["versione"])
+    battiti = [ProsaFuoriBanda(tipo=TipoProsa.APERTURA, testo="Luci. Sipario.")]
+
+    async def _finto():
+        return battiti.pop(0) if battiti else None
+
+    monkeypatch.setattr(stato.sessione, "prossima_prosa", _finto)
+    indice = _indice_opzione(corpo["snapshot"], "Combatti")
+    corpo = client.post(
+        "/api/partita/opzioni",
+        json={"indice": indice, "versione": corpo["versione"]},
+    ).json()
+    prose = [p for p in corpo["post"] if p["genere"] == "prosa"]
+    assert len(prose) == 1
+    assert prose[0]["tipo_prosa"] == "apertura"
+    assert prose[0]["righe"] == ["Luci. Sipario."]
+    # E il thread lo conserva: il reload pagina non perde il battito.
+    thread = client.get("/api/partita/thread").json()
+    assert any(p["genere"] == "prosa" for p in thread["post"])

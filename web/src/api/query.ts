@@ -277,6 +277,14 @@ export function useEseguiAzione() {
   );
 }
 
+/** Una battuta della scena sociale (vuota = tronca la conversazione). */
+export function useBattutaScena() {
+  return useMutazioneTurno(
+    ({ testo, versione }: { testo: string; versione: number }) =>
+      api.battutaScena(testo, versione),
+  );
+}
+
 export function useAnteprimaAzione() {
   const setAvviso = useGioco((s) => s.setAvviso);
   return useMutation({

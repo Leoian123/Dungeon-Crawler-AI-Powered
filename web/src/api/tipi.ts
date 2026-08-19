@@ -28,6 +28,10 @@ export interface SnapshotVista {
   terminale: Terminale | null;
   /** Il piano in cui ci si trova ORA (sale a ogni discesa). */
   profondita: number;
+  /** Scena sociale APERTA (parlamentare riuscito): l'input raccoglie BATTUTE
+   *  (porta di scena), non azioni libere. Scegliere un'opzione del menu la
+   *  abbandona nel motore. */
+  scena_aperta: boolean;
 }
 
 export interface TempoVista {
@@ -68,9 +72,13 @@ export interface RiepilogoAzione {
 
 export interface PostThread {
   id: number;
-  genere: "gm" | "evento";
+  /** "gm" turno del GM · "evento" cronaca del bus · "prosa" battito fuori
+   *  banda (trailer/premio/epitaffio) · "scena" scambio del parlamentare. */
+  genere: "gm" | "evento" | "prosa" | "scena";
   messaggio: MessaggioGM | null;
   righe: string[];
+  /** Solo per genere="prosa": "apertura" | "premio" | "epitaffio". */
+  tipo_prosa?: string;
 }
 
 export interface StatoPartita {
