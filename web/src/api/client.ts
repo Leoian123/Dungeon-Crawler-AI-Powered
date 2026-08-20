@@ -9,6 +9,7 @@ import type {
   AssetVista,
   CorpoErrore,
   RiepilogoAzione,
+  PropostaWikiVista,
   RispostaBacheca,
   RispostaCrawlers,
   RispostaThread,
@@ -19,6 +20,7 @@ import type {
   TipoAsset,
   VistaCalibrazione,
   VoceAggiornata,
+  VoceWikiVista,
 } from "./tipi";
 
 export class ApiError extends Error {
@@ -86,6 +88,19 @@ export const api = {
   togli: (fonte: string, versione: number) =>
     richiesta<RispostaTurno>("/api/partita/togli", post({ fonte, versione })),
   bacheca: () => richiesta<RispostaBacheca>("/api/bacheca"),
+  wikiVoci: () => richiesta<{ voci: VoceWikiVista[] }>("/api/wiki/voci"),
+  wikiProposte: () =>
+    richiesta<{ proposte: PropostaWikiVista[] }>("/api/wiki/proposte"),
+  wikiPromuovi: (id: string, uuid_run: string) =>
+    richiesta<{ voce: VoceWikiVista }>(
+      "/api/wiki/proposte/promuovi",
+      post({ id, uuid_run }),
+    ),
+  wikiScarta: (id: string, uuid_run: string) =>
+    richiesta<{ scartata: string }>(
+      "/api/wiki/proposte/scarta",
+      post({ id, uuid_run }),
+    ),
   salva: (versione: number) =>
     richiesta<{ messaggio: string }>("/api/partita/salva", post({ versione })),
   // Libreria dei contenuti (GM mode). Gli asset viaggiano come oggetti grezzi:

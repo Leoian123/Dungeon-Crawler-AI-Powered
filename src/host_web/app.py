@@ -43,8 +43,12 @@ from main import (
     elimina_crawler,
     etichetta_oggetto,
     fantasmi_locali,
+    promuovi_proposta_wiki,
+    proposte_wiki,
     risolvi_stagione,
     salva_asset_locale,
+    scarta_proposta_wiki,
+    voci_wiki,
     vocabolario,
 )
 
@@ -124,6 +128,14 @@ class RichiestaAzione(BaseModel):
     model_config = ConfigDict(extra="forbid")
     testo: str
     versione: int
+
+
+class RichiestaProposta(BaseModel):
+    """L'atto dell'admin su UNA proposta d'outbox (promuovi o scarta)."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1)
+    uuid_run: str = Field(min_length=1)
 
 
 class RichiestaEquip(BaseModel):
@@ -413,6 +425,52 @@ def crea_app(stato: StatoHost) -> FastAPI:
             return calibratore_web.anteprima(ric.archetipo, ric.grado, ric.livello)
         except ValueError as errore:
             raise ErroreApi(422, "anteprima_non_valida", str(errore))
+
+    # --- Wiki del Master (cruscotto W2 minimo): l'outbox delle run → il canone.
+    # Nessuna guardia di sessione: come l'authoring, il cruscotto è sovra-run.
+    # «L'AI propone, l'admin dispone»: qui vive l'atto dell'admin.
+
+    @app.get("/api/wiki/voci")
+    async def wiki_voci() -> dict:
+        return {
+            "voci": [
+                v.model_dump(mode="json") for v in voci_wiki(stato.wiki_dir)
+            ]
+        }
+
+    @app.get("/api/wiki/proposte")
+    async def wiki_proposte() -> dict:
+        """Le proposte in coda da TUTTI gli outbox (lettura pura: niente si
+        consuma finché l'admin non decide)."""
+        return {"proposte": proposte_wiki(stato.directory)}
+
+    @app.post("/api/wiki/proposte/promuovi")
+    async def wiki_promuovi(ric: RichiestaProposta) -> dict:
+        try:
+            voce = promuovi_proposta_wiki(
+                ric.id, ric.uuid_run,
+                directory=stato.directory, wiki_dir=stato.wiki_dir,
+            )
+        except ValueError as errore:
+            # La proposta è TORNATA in coda (best-effort della porta).
+            raise ErroreApi(422, "proposta_non_valida", str(errore))
+        if voce is None:
+            raise ErroreApi(
+                404, "proposta_assente",
+                f"nessuna proposta {ric.id!r} nell'outbox di {ric.uuid_run!r}",
+            )
+        return {"voce": voce.model_dump(mode="json")}
+
+    @app.post("/api/wiki/proposte/scarta")
+    async def wiki_scarta(ric: RichiestaProposta) -> dict:
+        if not scarta_proposta_wiki(
+            ric.id, ric.uuid_run, directory=stato.directory
+        ):
+            raise ErroreApi(
+                404, "proposta_assente",
+                f"nessuna proposta {ric.id!r} nell'outbox di {ric.uuid_run!r}",
+            )
+        return {"scartata": ric.id}
 
     @app.get("/api/bacheca")
     async def bacheca_crawler() -> dict:

@@ -187,6 +187,38 @@ export interface RispostaBacheca {
   necrologi: NecrologioCrawler[];
 }
 
+// --- Wiki del Master (cruscotto W2): l'outbox delle run → il canone ------------
+
+export interface RevisioneVoceWiki {
+  n: number;
+  testo: string;
+  provenienza: string;
+  ts: string;
+}
+
+export interface VoceWikiVista {
+  slug: string;
+  tipo: string;
+  regia: string;
+  segretezza: string;
+  costante: boolean;
+  inneschi: string[];
+  revisioni: RevisioneVoceWiki[];
+  approvazioni: { revisione_n: number; autore: string; ts: string }[];
+}
+
+/** Una proposta in coda nell'outbox di una run (id deterministico: firma del
+ *  fatto). `taint` = la regia più restrittiva vista in run. */
+export interface PropostaWikiVista {
+  id: string;
+  tipo: string;
+  titolo: string;
+  testo: string;
+  taint: string;
+  uuid_run: string;
+  ts: string;
+}
+
 export type GmScelta = "fake" | "live";
 
 export type ApriPartita =

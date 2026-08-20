@@ -306,6 +306,42 @@ export function useBacheca() {
   return useQuery({ queryKey: ["bacheca"], queryFn: api.bacheca });
 }
 
+// --- Cruscotto Wiki (W2): l'AI propone, l'admin dispone -------------------------
+
+export function useWikiVoci() {
+  return useQuery({ queryKey: ["wiki-voci"], queryFn: api.wikiVoci });
+}
+
+export function useWikiProposte() {
+  return useQuery({ queryKey: ["wiki-proposte"], queryFn: api.wikiProposte });
+}
+
+function useAttoWiki<V>(mutationFn: (variabili: V) => Promise<unknown>) {
+  const qc = useQueryClient();
+  const setAvviso = useGioco((s) => s.setAvviso);
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["wiki-proposte"] });
+      void qc.invalidateQueries({ queryKey: ["wiki-voci"] });
+    },
+    onError: (errore) =>
+      setAvviso(errore instanceof Error ? errore.message : String(errore)),
+  });
+}
+
+export function useWikiPromuovi() {
+  return useAttoWiki(({ id, uuid_run }: { id: string; uuid_run: string }) =>
+    api.wikiPromuovi(id, uuid_run),
+  );
+}
+
+export function useWikiScarta() {
+  return useAttoWiki(({ id, uuid_run }: { id: string; uuid_run: string }) =>
+    api.wikiScarta(id, uuid_run),
+  );
+}
+
 /** Una battuta della scena sociale (vuota = tronca la conversazione). */
 export function useBattutaScena() {
   return useMutazioneTurno(

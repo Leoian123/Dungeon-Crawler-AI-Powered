@@ -2,9 +2,28 @@
 // segnale di latenza), banner di fase/morte, descrittori di stato, avvisi.
 
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { Fase, Progresso } from "../api/tipi";
 import { useChiudi } from "../api/query";
 import { useGioco } from "../store/gioco";
+
+/** Il cerchio morte→necrologio (sovra-run B): l'esito è già nel ledger quando
+ *  il banner compare — il link porta alla bacheca con la query fresca. */
+function LinkBacheca({ etichetta }: { etichetta: string }) {
+  const qc = useQueryClient();
+  const setSezione = useGioco((s) => s.setSezione);
+  return (
+    <button
+      onClick={() => {
+        void qc.invalidateQueries({ queryKey: ["bacheca"] });
+        setSezione("forum");
+      }}
+      className="mt-2 ml-2 rounded border border-pergamena/40 px-4 py-1.5 font-hud text-xs font-bold uppercase tracking-wider text-pergamena/80 transition hover:bg-pergamena/10"
+    >
+      {etichetta}
+    </button>
+  );
+}
 
 export function ProgressoGM({ progresso }: { progresso: Progresso | null }) {
   if (!progresso) return null;
@@ -54,9 +73,11 @@ export function BannerMorte() {
       <p className="titolo-insegna text-xl text-sangue">💀 Sei morto.</p>
       <p className="text-sm text-pergamena/70">
         Permadeath: la run è terminata e lo slot verrà ritirato; il thread resta
-        in sola lettura finché non torni all'hub.
+        in sola lettura finché non torni all'hub. Il tuo necrologio è già in
+        bacheca — lo show non dimentica nessuno.
       </p>
       <BottoneTornaAllHub etichetta="Torna all'hub" />
+      <LinkBacheca etichetta="Leggi il tuo necrologio" />
     </div>
   );
 }
@@ -67,9 +88,10 @@ export function BannerVittoria() {
       <p className="titolo-insegna text-xl text-muschio">🏆 Piano completato!</p>
       <p className="text-sm text-pergamena/70">
         La discesa è la vittoria della run (MVP a un piano). Il crawler si ritira
-        vittorioso: lo slot viene archiviato.
+        vittorioso: lo slot viene archiviato — e l'ascesa fa bacheca.
       </p>
       <BottoneTornaAllHub etichetta="Concludi e torna all'hub" />
+      <LinkBacheca etichetta="Leggi la bacheca" />
     </div>
   );
 }

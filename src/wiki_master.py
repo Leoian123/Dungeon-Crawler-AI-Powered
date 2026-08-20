@@ -25,6 +25,7 @@ from pathlib import Path
 
 from contracts import (
     ApprovazioneVoce,
+    PropostaWiki,
     ProvenienzaVoce,
     RevisioneVoce,
     SegretezzaVoce,
@@ -148,6 +149,50 @@ def approva(
     )})
     salva_voce(nuova, directory=directory)
     return nuova
+
+
+def _slugifica(titolo: str) -> str:
+    import re
+
+    pulito = re.sub(r"[^a-z0-9]+", "-", titolo.lower()).strip("-")
+    return pulito[:48] or "voce-promossa"
+
+
+def promuovi_proposta(
+    proposta: dict, *, autore: str = "admin", directory: Path | None = None
+) -> VoceWiki:
+    """La PROMOZIONE di una proposta d'outbox nel master (cruscotto W2): il
+    motore ha proposto, l'admin dispone — il click È l'atto esplicito, quindi
+    la revisione nasce già approvata. Slug derivato dal titolo; se la voce
+    esiste, la proposta diventa la revisione n+1 (append-only, mai update).
+    Provenienza SISTEMA (fatti di run); regia = il taint della proposta —
+    declassarla resta un secondo atto esplicito, mai un default."""
+    dto = PropostaWiki.model_validate(proposta)
+    slug = _slugifica(dto.titolo)
+    voce = carica_voce(slug, directory=directory)
+    if voce is None:
+        voce = VoceWiki(
+            slug=slug,
+            tipo=dto.tipo,
+            regia=dto.taint,
+            revisioni=(
+                RevisioneVoce(
+                    n=1, testo=dto.testo,
+                    provenienza=ProvenienzaVoce.SISTEMA, ts=_ora(),
+                ),
+            ),
+            approvazioni=(
+                ApprovazioneVoce(revisione_n=1, autore=autore, ts=_ora()),
+            ),
+        )
+        salva_voce(voce, directory=directory)
+        return voce
+    voce = aggiungi_revisione(
+        slug, dto.testo, provenienza=ProvenienzaVoce.SISTEMA, directory=directory
+    )
+    return approva(
+        slug, voce.revisioni[-1].n, autore=autore, directory=directory
+    )
 
 
 def _ora() -> str:

@@ -498,3 +498,82 @@ def test_senza_build_l_host_resta_api_only(tmp_path) -> None:
     app = crea_app(stato)
     assert monta_spa(app, tmp_path / "dist-inesistente") is False
     stato.chiudi()
+
+
+# --- Cruscotto Wiki (W2 minimo, 2026-08-20): l'outbox delle run → il canone ----
+# «L'AI propone, l'admin dispone»: le porte esistevano tutte (leggi_proposte
+# «per il cruscotto», approva nel master) — qui si prova il COLLEGAMENTO.
+
+@pytest.fixture
+def host_wiki(run_pulita, tmp_path):
+    stato = StatoHost(directory=tmp_path, wiki_dir=tmp_path / "wiki")
+    with TestClient(crea_app(stato)) as client:
+        yield client, tmp_path
+    stato.chiudi()
+
+
+def _proposta_in_outbox(directory, id_="fatto-001", titolo="Il Patto del Fante"):
+    from motore.persistenza.outbox import scrivi_proposte
+
+    scrivi_proposte(directory, "abcd1234", [{
+        "id": id_, "tipo": "evento", "titolo": titolo,
+        "testo": "Il Fante del Fronte Fermo ha stretto un patto col crawler.",
+        "taint": "citabile",
+    }])
+
+
+def test_il_cruscotto_vede_le_proposte_in_coda(host_wiki) -> None:
+    client, tmp = host_wiki
+    assert client.get("/api/wiki/proposte").json() == {"proposte": []}
+    _proposta_in_outbox(tmp)
+    proposte = client.get("/api/wiki/proposte").json()["proposte"]
+    assert len(proposte) == 1
+    assert proposte[0]["uuid_run"] == "abcd1234"
+    assert proposte[0]["titolo"] == "Il Patto del Fante"
+
+
+def test_promuovi_sposta_la_proposta_nel_canone(host_wiki) -> None:
+    """Il filo intero: proposta in coda → click dell'admin → voce nel master
+    (provenienza SISTEMA, già approvata: il click È l'atto esplicito) → coda
+    vuota. Stesso titolo di nuovo → revisione n+1 append-only, mai un doppione."""
+    client, tmp = host_wiki
+    _proposta_in_outbox(tmp)
+    r = client.post(
+        "/api/wiki/proposte/promuovi",
+        json={"id": "fatto-001", "uuid_run": "abcd1234"},
+    )
+    assert r.status_code == 200
+    voce = r.json()["voce"]
+    assert voce["slug"] == "il-patto-del-fante"
+    assert voce["revisioni"][0]["provenienza"] == "sistema"
+    assert voce["approvazioni"], "il click dell'admin approva la revisione"
+    assert client.get("/api/wiki/proposte").json()["proposte"] == []
+    assert [v["slug"] for v in client.get("/api/wiki/voci").json()["voci"]] == [
+        "il-patto-del-fante"
+    ]
+
+    _proposta_in_outbox(tmp, id_="fatto-002")
+    r = client.post(
+        "/api/wiki/proposte/promuovi",
+        json={"id": "fatto-002", "uuid_run": "abcd1234"},
+    )
+    assert r.status_code == 200
+    assert len(r.json()["voce"]["revisioni"]) == 2, "append-only, non un doppione"
+
+
+def test_scarta_toglie_dalla_coda_senza_toccare_il_canone(host_wiki) -> None:
+    client, tmp = host_wiki
+    _proposta_in_outbox(tmp)
+    r = client.post(
+        "/api/wiki/proposte/scarta",
+        json={"id": "fatto-001", "uuid_run": "abcd1234"},
+    )
+    assert r.status_code == 200
+    assert client.get("/api/wiki/proposte").json()["proposte"] == []
+    assert client.get("/api/wiki/voci").json()["voci"] == []
+    doppio = client.post(
+        "/api/wiki/proposte/scarta",
+        json={"id": "fatto-001", "uuid_run": "abcd1234"},
+    )
+    assert doppio.status_code == 404
+    assert doppio.json()["codice"] == "proposta_assente"

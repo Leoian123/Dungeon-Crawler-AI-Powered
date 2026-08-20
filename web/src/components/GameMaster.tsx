@@ -26,6 +26,7 @@ import {
   useVocabolario,
 } from "../api/query";
 import { Calibrazione } from "./Calibrazione";
+import { CruscottoWiki } from "./CruscottoWiki";
 
 type Editor =
   | { modo: "chiuso" }
@@ -396,8 +397,9 @@ function EditorStagione({ iniziale, nuovo, chiudi }: {
 
 // --- Elenco di collezione --------------------------------------------------------
 
-// Le pagine del GM: le tre collezioni di asset + la calibrazione (catalogo §11).
-type PaginaGM = TipoAsset | "calibrazione";
+// Le pagine del GM: le collezioni di asset + calibrazione (§11) + il
+// cruscotto della Wiki del Master (W2: l'outbox delle run → il canone).
+type PaginaGM = TipoAsset | "calibrazione" | "wiki";
 
 const PAGINE: { id: PaginaGM; etichetta: string }[] = [
   { id: "stagioni", etichetta: "Stagioni" },
@@ -405,6 +407,7 @@ const PAGINE: { id: PaginaGM; etichetta: string }[] = [
   { id: "mob", etichetta: "Mob" },
   { id: "archetipi", etichetta: "Archetipi" },
   { id: "calibrazione", etichetta: "Calibrazione" },
+  { id: "wiki", etichetta: "Wiki" },
 ];
 
 function CardAsset({ vista, tipo, apri, duplica }: {
@@ -512,9 +515,13 @@ export function GameMaster() {
           </button>
         ))}
       </div>
-      {pagina === "calibrazione"
-        ? <Calibrazione />
-        : <Libreria key={pagina} collezione={pagina} />}
+      {pagina === "calibrazione" ? (
+        <Calibrazione />
+      ) : pagina === "wiki" ? (
+        <CruscottoWiki />
+      ) : (
+        <Libreria key={pagina} collezione={pagina} />
+      )}
     </div>
   );
 }

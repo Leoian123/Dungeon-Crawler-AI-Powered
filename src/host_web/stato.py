@@ -81,11 +81,15 @@ class StatoHost:
         *,
         contenuti_ufficiali: Path | None = None,
         contenuti_locali: Path | None = None,
+        wiki_dir: Path | None = None,
     ) -> None:
         self.directory = Path(directory) if directory is not None else DIRECTORY_SALVATAGGI
         # Libreria dei contenuti (None = default di main): iniettabili nei test.
         self.contenuti_ufficiali = contenuti_ufficiali
         self.contenuti_locali = contenuti_locali
+        # La wiki del Master (None = default di wiki_master, DCC_WIKI_DIR/wiki/):
+        # iniettabile nei test come le librerie dei contenuti.
+        self.wiki_dir = wiki_dir
         self.sessione: SessioneGioco | None = None
         self.cronaca: CronacaBus | None = None
         self.lock = asyncio.Lock()  # il motore NON è rientrante: un ingresso alla volta

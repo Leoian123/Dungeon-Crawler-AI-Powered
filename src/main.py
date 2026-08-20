@@ -3347,6 +3347,65 @@ def fantasmi_locali(
     return tuple(fantasmi)
 
 
+def proposte_wiki(directory: Path | None = None) -> list[dict]:
+    """Le proposte in coda in TUTTI gli outbox della directory dei salvataggi
+    (cruscotto W2). Lettura PURA: qui non si consuma niente — l'outbox
+    sopravvive al permadeath ed è per-crawler, il cruscotto le vede tutte."""
+    from motore.persistenza.outbox import leggi_proposte
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    if not directory.exists():
+        return []
+    raccolte: list[dict] = []
+    for percorso in sorted(directory.glob("*.proposte.jsonl")):
+        uuid = percorso.name.split(".", 1)[0]
+        raccolte.extend(leggi_proposte(directory, uuid))
+    return raccolte
+
+
+def promuovi_proposta_wiki(
+    id_proposta: str,
+    uuid_run: str,
+    *,
+    directory: Path | None = None,
+    wiki_dir: Path | None = None,
+):
+    """L'ATTO dell'admin (W2): consuma la proposta dall'outbox e la promuove
+    nel master (`wiki_master.promuovi_proposta`). `None` se la proposta non
+    c'è. Se la promozione fallisce, la proposta TORNA in coda (best-effort,
+    F-W4): un click non brucia mai un fatto raccolto in run."""
+    import wiki_master
+    from motore.persistenza.outbox import consuma_proposta, scrivi_proposte
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    proposta = consuma_proposta(directory, uuid_run, id_proposta)
+    if proposta is None:
+        return None
+    try:
+        return wiki_master.promuovi_proposta(proposta, directory=wiki_dir)
+    except Exception:
+        scrivi_proposte(directory, uuid_run, [proposta])
+        raise
+
+
+def scarta_proposta_wiki(
+    id_proposta: str, uuid_run: str, *, directory: Path | None = None
+) -> bool:
+    """Lo scarto esplicito: la proposta esce dalla coda e basta (nessuna
+    traccia nel master — l'admin ha deciso che quel fatto non fa canone)."""
+    from motore.persistenza.outbox import consuma_proposta
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    return consuma_proposta(directory, uuid_run, id_proposta) is not None
+
+
+def voci_wiki(wiki_dir: Path | None = None) -> list:
+    """Le voci del master per il cruscotto (DTO `VoceWiki` di contracts)."""
+    import wiki_master
+
+    return wiki_master.elenca_voci(directory=wiki_dir)
+
+
 def etichetta_oggetto(fonte: str) -> str:
     """Il nome diegetico di un oggetto del catalogo DELLA RUN ("" o ignoto → la
     fonte): l'host mostra parole, mai id di dominio nudi. La VESTIZIONE del
