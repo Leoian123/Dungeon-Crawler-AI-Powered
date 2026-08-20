@@ -339,10 +339,7 @@ def _rimaterializza_vivi(livello: int, zona: Zona, stato: StatoTerritorio) -> No
         if stanza == boss_stanza:
             mob = boss_della_zona(livello, zona)
         else:
-            rng = random.Random(
-                f"{master_seed()}:copione:{livello}:{zona.chiave}:{stanza}"
-            )
-            mob = pesca_spawn(rng)
+            mob = mob_di_stanza(livello, zona, stanza)
         if mob is None or mob.archetipo not in registry:
             continue
         ent = istanzia_entita(EntitaGenerata(
@@ -542,6 +539,36 @@ def pesca_spawn(
         return None
     pesi = [PESO_FREQUENZA[v.frequenza] for v in voci]
     return rng.choices([v.mob for v in voci], weights=pesi, k=1)[0]
+
+
+def _chiave_copione(livello: int, zona: Zona, stanza: int) -> str:
+    return f"{master_seed()}:copione:{livello}:{zona.chiave}:{stanza}"
+
+
+def mob_di_stanza(livello: int, zona: Zona, stanza: int) -> MobAttivo | None:
+    """Il riempitivo DERIVATO della stanza — LA funzione di convergenza: il
+    copione offline, il mob-atteso del fascicolo live e il rientro di zona
+    leggono tutti QUI, così lo stesso posto mostra sempre lo stesso abitante
+    (prima la stessa formula viveva copiata in tre punti).
+
+    ANTI DÉJÀ-VU (playtest 2026-08-19: due Fanti identici, stessa prosa, in
+    stanze adiacenti): la pescata di una stanza ESCLUDE il mob FINALE della
+    stanza precedente — definizione a catena dalla stanza 0, per NUMERO di
+    stanza e mai per percorso di visita: la derivazione resta indipendente
+    dall'ordine in cui il giocatore gira, quindi replay, rientro e riletture
+    non divergono. UNA ri-pescata seeded con esclusione sullo stesso stream
+    (la disciplina dell'imboscata); se anche la seconda lo ripesca (tabella a
+    voce unica), resta lui: è il dungeon a essere monotono, non il dado.
+    O(stanze) per lettura: le zone sono di manciate di stanze."""
+    mob = None
+    for s in range(max(0, stanza) + 1):
+        rng = random.Random(_chiave_copione(livello, zona, s))
+        precedente = mob
+        mob = pesca_spawn(rng)
+        if (mob is not None and precedente is not None
+                and precedente.slug == mob.slug):
+            mob = pesca_spawn(rng, escludi=frozenset({mob.nome})) or mob
+    return mob
 
 
 def pavimento_hp_custode(livello: int) -> int:

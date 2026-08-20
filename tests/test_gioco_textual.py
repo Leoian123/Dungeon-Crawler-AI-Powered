@@ -148,6 +148,59 @@ def test_zaino_e_scheda_dalla_ui() -> None:
         cal.PROB_DROP = vecchio
 
 
+def _carisma_alto() -> None:
+    """Il gate del parlamento reso deterministico (stesso trucco dei test del
+    motore): carisma sopra ogni soglia, mutazione diretta del World attivo."""
+    import esper
+
+    from contracts import StatId
+    from motore.scheda import protagonista
+    from motore.statistiche import Primarie
+
+    pent, _m, _s = protagonista()
+    esper.component_for_entity(pent, Primarie).valori[StatId.CARISMA] = 40
+
+
+def test_mode_scena_batte_e_tronca() -> None:
+    """Il parlamentare dalla TUI (il pilot che mancava): Parlamenta apre la
+    scena e l'input raccoglie BATTUTE (porta di scena, mai il turno GM); una
+    battuta non chiude; l'invio VUOTO tronca e il menu riprende la scena."""
+    pytest.importorskip("textual")
+    from textual.widgets import Button, Input
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            _carisma_alto()
+            parlamenta = next(
+                b for b in app.query(Button)
+                if str(b.label).startswith("Parlamenta")
+            )
+            await pilot.click(f"#{parlamenta.id}")
+            await pilot.pause()
+            assert app._in_scena, "il gate superato entra in mode-scena"
+            assert app.sessione.avanza().scena_aperta
+
+            campo = app.query_one("#azione", Input)
+            campo.focus()
+            await pilot.pause()
+            await pilot.press(*"Chi comanda qui?")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert app._in_scena, "una battuta non chiude la scena"
+            assert app.sessione.avanza().scena_aperta
+
+            campo.focus()
+            await pilot.pause()
+            await pilot.press("enter")  # vuoto = il giocatore tronca
+            await pilot.pause()
+            assert not app._in_scena, "l'invio vuoto tronca la conversazione"
+            assert not app.sessione.avanza().scena_aperta
+
+    asyncio.run(run())
+
+
 def test_permadeath_chiude_il_menu() -> None:
     pytest.importorskip("textual")
     from textual.widgets import Button
@@ -174,3 +227,47 @@ class _SnapFinto:
 
 def _snap_finto() -> _SnapFinto:
     return _SnapFinto()
+
+
+def test_bandierine_sovra_run(run_pulita, tmp_path) -> None:
+    """Le tre bandierine collegate anche in TUI (2026-08-20): --daily deriva
+    il seed dalla data (lato host, mai l'orologio del motore), --infestata
+    monta i fantasmi dal ledger locale. Stesse porte del web."""
+    from datetime import date
+
+    from contracts import EsitoRun, Terminale, seed_del_giorno
+    from motore.fantasmi import fantasmi_correnti
+    from motore.persistenza.esiti import scrivi_esito
+    from motore.seme import master_seed
+
+    esito = EsitoRun(
+        uuid_run="deadbeef", nome="Katia", seed=7, terminale=Terminale.SCONFITTA
+    )
+    scrivi_esito(tmp_path, esito.model_dump(mode="json") | {"id": esito.chiave()})
+
+    sessione = gioco_textual._scegli_sessione(
+        ["--daily", "--infestata"], None, directory=tmp_path
+    )
+    assert master_seed() == seed_del_giorno(date.today().isoformat(), 1)
+    montati = fantasmi_correnti()
+    assert montati is not None and montati.lista[0].nome == "Katia"
+    sessione.esci()
+
+
+def test_il_tasto_b_apre_la_bacheca() -> None:
+    pytest.importorskip("textual")
+    from textual.widgets import RichLog
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            rl = app.query_one("#log", RichLog)
+            prima = len(rl.lines)
+            await pilot.press("b")
+            await pilot.pause()
+            assert len(rl.lines) > prima, (
+                "B scrive la bacheca nel log (o il suo stato vuoto)"
+            )
+
+    asyncio.run(run())

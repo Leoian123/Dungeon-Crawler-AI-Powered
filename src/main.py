@@ -1930,13 +1930,34 @@ class SessioneGioco:
         L'oggetto entra nei coniati persistenti e nello zaino; `_ultimo_drop`
         resta armato — la vestizione AI può ancora dare la targhetta al pezzo,
         ma il pezzo esiste comunque (mai un drop appeso a una chiamata)."""
-        from motore import assicura_coniati, conia_procedurale
+        from motore import conia_procedurale
 
-        attivo = conia_procedurale(self.rng, grado)
+        attivo = conia_procedurale(
+            self.rng, grado, escludi_famiglia=self._ultima_famiglia_coniata()
+        )
         if attivo is None:
             self._deposita_da_pool(grado)
             return
         self._deposita_coniato(attivo, grado)
+
+    def _ultima_famiglia_coniata(self) -> str:
+        """La MANIFATTURA dell'ultimo conio della run ("" se non c'è): derivata
+        dal posseduto persistente (`OggettiConiati`), zero stato nuovo — il
+        nome procedurale finisce sempre con la famiglia («… della Maschera»),
+        quindi il match è sul suffisso; il pezzo unico ha targhetta libera e
+        semplicemente non matcha (nessuna esclusione: onesto)."""
+        from motore import assicura_coniati, fabbrica_attiva
+
+        fabbrica = fabbrica_attiva()
+        if fabbrica is None:
+            return ""
+        voci = assicura_coniati(protagonista()[0]).voci
+        if not voci:
+            return ""
+        ultimo = voci[-1].nome
+        return next(
+            (f.nome for f in fabbrica.famiglie if ultimo.endswith(f.nome)), ""
+        )
 
     def _deposita_coniato(self, attivo, grado: str) -> None:
         """Il deposito condiviso di un oggetto CONIATO (fabbrica, pezzo unico
@@ -2769,24 +2790,37 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
 
 
 class CronacaBus:
-    """Raccoglie gli eventi di dominio dal bus e li rende come righe (host headless)."""
+    """Raccoglie gli eventi di dominio dal bus e li rende come righe (host
+    headless). La coda conserva anche il TIPO dell'evento — il nome della
+    classe, lo stesso identificatore del canale SSE — perché il dato non
+    muoia nella formattazione: un host che deve distinguere il bottino dal
+    varco legge `preleva_tipata()`, MAI i prefissi decorativi del testo
+    (bonifica 2026-08-20: il frontend faceva sniffing di «✦»/«➤» — semantica
+    rinata nel posto sbagliato)."""
 
     def __init__(self, bus: BusEventi) -> None:
         self._bus = bus
-        self._righe: list[str] = []
+        self._righe: list[tuple[str, str]] = []
         self._coppie: list[tuple[type, Callable[[object], None]]] = []
         for tipo, formatta in _MAPPA_EVENTI:
-            handler = self._fai_handler(formatta)
+            handler = self._fai_handler(tipo.__name__, formatta)
             bus.registra(tipo, handler)
             self._coppie.append((tipo, handler))
 
-    def _fai_handler(self, formatta: Callable[[object], str]) -> Callable[[object], None]:
+    def _fai_handler(
+        self, nome_tipo: str, formatta: Callable[[object], str]
+    ) -> Callable[[object], None]:
         def handler(evento: object) -> None:
-            self._righe.append(formatta(evento))
+            self._righe.append((nome_tipo, formatta(evento)))
         return handler
 
     def preleva(self) -> list[str]:
-        """Restituisce e svuota le righe accumulate dall'ultima chiamata."""
+        """I soli TESTI (TUI e consumatori storici): svuota la coda."""
+        return [testo for _tipo, testo in self.preleva_tipata()]
+
+    def preleva_tipata(self) -> list[tuple[str, str]]:
+        """Le righe come `(tipo_evento, testo)`: svuota la coda. Il tipo è il
+        nome della classe dell'evento di dominio (es. "OggettoTrovato")."""
         righe, self._righe = self._righe, []
         return righe
 
@@ -3063,12 +3097,9 @@ class ProviderCopione(FakeProvider):
         precompilate: la stessa lettura vale dopo un load o in qualunque ordine
         di visita (la rilettura resta compito dell'Archivio). `None` = piano
         piatto: si usa il copione keyed storico."""
-        import random as _random
-
         from motore import (
             boss_della_zona,
-            master_seed,
-            pesca_spawn,
+            mob_di_stanza,
             stanza_boss_di,
             zona_corrente,
         )
@@ -3086,10 +3117,9 @@ class ProviderCopione(FakeProvider):
         if stanza == stanza_boss_di(zona, mappa.piano):
             mob = boss_della_zona(livello, zona)
         else:
-            rng = _random.Random(
-                f"{master_seed()}:copione:{livello}:{zona.chiave}:{stanza}"
-            )
-            mob = pesca_spawn(rng)
+            # La derivazione UNICA (anti déjà-vu incluso, `mob_di_stanza`):
+            # il copione offline resta convergente con fascicolo live e rientro.
+            mob = mob_di_stanza(livello, zona, stanza)
         if mob is None:
             return None  # tabella vuota: fallback onesto del gate
         return TurnoNarrazione(
@@ -3328,6 +3358,65 @@ def fantasmi_locali(
         if esito.terminale is _T.SCONFITTA:
             fantasmi.append(FantasmaRun.da_esito(esito))
     return tuple(fantasmi)
+
+
+def proposte_wiki(directory: Path | None = None) -> list[dict]:
+    """Le proposte in coda in TUTTI gli outbox della directory dei salvataggi
+    (cruscotto W2). Lettura PURA: qui non si consuma niente — l'outbox
+    sopravvive al permadeath ed è per-crawler, il cruscotto le vede tutte."""
+    from motore.persistenza.outbox import leggi_proposte
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    if not directory.exists():
+        return []
+    raccolte: list[dict] = []
+    for percorso in sorted(directory.glob("*.proposte.jsonl")):
+        uuid = percorso.name.split(".", 1)[0]
+        raccolte.extend(leggi_proposte(directory, uuid))
+    return raccolte
+
+
+def promuovi_proposta_wiki(
+    id_proposta: str,
+    uuid_run: str,
+    *,
+    directory: Path | None = None,
+    wiki_dir: Path | None = None,
+):
+    """L'ATTO dell'admin (W2): consuma la proposta dall'outbox e la promuove
+    nel master (`wiki_master.promuovi_proposta`). `None` se la proposta non
+    c'è. Se la promozione fallisce, la proposta TORNA in coda (best-effort,
+    F-W4): un click non brucia mai un fatto raccolto in run."""
+    import wiki_master
+    from motore.persistenza.outbox import consuma_proposta, scrivi_proposte
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    proposta = consuma_proposta(directory, uuid_run, id_proposta)
+    if proposta is None:
+        return None
+    try:
+        return wiki_master.promuovi_proposta(proposta, directory=wiki_dir)
+    except Exception:
+        scrivi_proposte(directory, uuid_run, [proposta])
+        raise
+
+
+def scarta_proposta_wiki(
+    id_proposta: str, uuid_run: str, *, directory: Path | None = None
+) -> bool:
+    """Lo scarto esplicito: la proposta esce dalla coda e basta (nessuna
+    traccia nel master — l'admin ha deciso che quel fatto non fa canone)."""
+    from motore.persistenza.outbox import consuma_proposta
+
+    directory = directory or DIRECTORY_SALVATAGGI
+    return consuma_proposta(directory, uuid_run, id_proposta) is not None
+
+
+def voci_wiki(wiki_dir: Path | None = None) -> list:
+    """Le voci del master per il cruscotto (DTO `VoceWiki` di contracts)."""
+    import wiki_master
+
+    return wiki_master.elenca_voci(directory=wiki_dir)
 
 
 def etichetta_oggetto(fonte: str) -> str:

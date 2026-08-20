@@ -9,7 +9,10 @@ REM    -> combattimento a turni (Attacca) -> Vai: stanza N / Scendi la scala
 REM    -> discesa = vittoria del piano (MVP). Comandi: click; 's' salva; 'q' esce.
 REM
 REM  GM: LIVE (Anthropic) se ANTHROPIC_API_KEY e' presente, altrimenti OFFLINE
-REM  (FakeProvider scriptato). Flag: --live (esige il live), --fake (forza offline).
+REM  (FakeProvider scriptato). Flag: --live (esige il live), --fake (forza offline),
+REM  --seed N, --riprendi [uuid], --daily (run del giorno: il seed lo detta la
+REM  data), --infestata (le tue morti passate come fantasmi-lore). Tasto 'b' in
+REM  gioco: la bacheca dei caduti.
 REM  esper e' VENDORIZZATO (vendor/esper): PYTHONPATH include src e vendor.
 REM
 REM  CHIAVE API (PLK par.4 + best practice): la chiave vive SOLO nell'ambiente o in

@@ -77,6 +77,37 @@ def leggi_proposte(directory: Path, uuid: str) -> list[dict]:
     return proposte
 
 
+def consuma_proposta(directory: Path, uuid: str, id_proposta: str) -> dict | None:
+    """Consumo PUNTUALE (cruscotto W2): estrae UNA proposta per id riscrivendo
+    il file senza quella riga. L'outbox è una CODA, non un registro: il
+    consumo parziale è la stessa semantica del move-on-read, a grana fine —
+    l'admin decide proposta per proposta, le altre restano in coda. `None`
+    se assente; righe corrotte preservate com'erano (lasco)."""
+    percorso = path_outbox(directory, uuid)
+    if not percorso.exists():
+        return None
+    restanti: list[str] = []
+    trovata: dict | None = None
+    with percorso.open(encoding="utf-8") as f:
+        for riga in f:
+            try:
+                dato = json.loads(riga)
+            except Exception:
+                restanti.append(riga.rstrip("\n"))
+                continue
+            if trovata is None and dato.get("id") == id_proposta:
+                trovata = dato
+            else:
+                restanti.append(json.dumps(dato, ensure_ascii=False))
+    if trovata is None:
+        return None
+    if restanti:
+        percorso.write_text("\n".join(restanti) + "\n", encoding="utf-8")
+    else:
+        percorso.unlink()
+    return trovata
+
+
 def consuma_proposte(directory: Path, uuid: str) -> list[dict]:
     """Move-on-read: rinomina il file e ritorna il contenuto — il cruscotto
     non rilegge mai due volte, e la run (se ancora viva) riparte da vuoto."""

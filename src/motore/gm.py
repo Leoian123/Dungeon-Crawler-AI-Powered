@@ -484,10 +484,13 @@ def componi_fascicolo(
         if stanza_corrente_e_del_boss() and not boss_sconfitto(zona):
             atteso, imperativo = custode, True
         else:
-            rng_copione = random.Random(
-                f"{master_seed()}:copione:{livello_corrente()}:{zona.chiave}:{stanza}"
+            # La derivazione UNICA (anti déjà-vu incluso): offline, live e
+            # rientro convergono su `mob_di_stanza`.
+            from .territorio import mob_di_stanza
+
+            atteso, imperativo = (
+                mob_di_stanza(livello_corrente(), zona, stanza), False,
             )
-            atteso, imperativo = pesca_spawn(rng_copione), False
         if atteso is not None:
             identita = (f"{atteso.nome} [{atteso.slug}] "
                         f"({atteso.archetipo}/{atteso.grado.value})")
