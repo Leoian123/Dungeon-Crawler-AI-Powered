@@ -25,9 +25,9 @@ export function ThreadForum({ post }: { post: PostThread[] }) {
         ) : p.genere === "prosa" ? (
           <PostProsa key={p.id} righe={p.righe} tipo={p.tipo_prosa} />
         ) : p.genere === "scena" ? (
-          <PostScena key={p.id} righe={p.righe} />
+          <PostScena key={p.id} battute={p.battute ?? []} />
         ) : (
-          <PostEvento key={p.id} righe={p.righe} />
+          <PostEvento key={p.id} eventi={p.eventi ?? []} />
         ),
       )}
       <div ref={fondo} />

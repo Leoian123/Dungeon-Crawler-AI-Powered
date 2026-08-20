@@ -57,7 +57,7 @@ from main import (
 _MODELLI_CONTENUTI = MODELLI_ASSET
 
 from .sse import flusso_eventi
-from .stato import PostThread, StatoHost
+from .stato import CrawlerAttivo, PostThread, StatoHost
 
 
 class ErroreApi(Exception):
@@ -271,7 +271,10 @@ def crea_app(stato: StatoHost) -> FastAPI:
             "occupato": stato.lock.locked(),
             "morto": stato.morto,
             "vittoria": stato.vittoria,
-            "crawler": stato.crawler,
+            "crawler": (
+                stato.crawler.model_dump(mode="json")
+                if stato.crawler is not None else None
+            ),
             "snapshot": snap.model_dump(mode="json") if snap is not None else None,
             "gm": stato.gm_etichetta,
         }
@@ -556,13 +559,17 @@ def crea_app(stato: StatoHost) -> FastAPI:
                     404, "salvataggio_illeggibile",
                     "Il salvataggio non esiste o non è leggibile.",
                 )
-        crawler = {"uuid": sessione.uuid, "nome": sessione.etichetta}
-        if ric.nuovo is not None:
-            # Il seed EFFETTIVO (post-daily): la UI può dire «run del giorno,
-            # seed N» e la verifica futura della classifica è proprio questo
-            # numero (esito.seed == seed_del_giorno(data)).
-            crawler["seed"] = seed
-        stato.adotta(sessione, etichetta, crawler=crawler)
+        # Il seed EFFETTIVO (post-daily) è un CAMPO TIPATO del CrawlerAttivo
+        # (bonifica 2026-08-20: prima entrava di contrabbando in un dict): la
+        # UI può dire «run del giorno, seed N» e la verifica futura della
+        # classifica è proprio questo numero (esito.seed == seed_del_giorno).
+        stato.adotta(
+            sessione, etichetta,
+            crawler=CrawlerAttivo(
+                uuid=sessione.uuid, nome=sessione.etichetta,
+                seed=seed if ric.nuovo is not None else None,
+            ),
+        )
         if ric.carica is not None:
             # Il forum della run riparte dai turni GM congelati (H §11).
             stato.ricostruisci_thread(sessione.ricostruisci_thread())
@@ -570,7 +577,9 @@ def crea_app(stato: StatoHost) -> FastAPI:
         # primo snapshot; da qui in poi vale il protocollo di versione.
         snap = sessione.avanza()
         stato.registra_turno(
-            snap, righe=stato.cronaca.preleva() if stato.cronaca else [], messaggio=None
+            snap,
+            eventi=stato.cronaca.preleva_tipata() if stato.cronaca else [],
+            messaggio=None,
         )
         return _stato_partita()
 
@@ -650,8 +659,8 @@ def crea_app(stato: StatoHost) -> FastAPI:
         sessione = _guardia_equip(ric)
         async with stato.lock:
             snap = sessione.equipaggia(ric.fonte)
-            righe = stato.cronaca.preleva() if stato.cronaca else []
-            nuovi = stato.registra_turno(snap, righe=righe, messaggio=None)
+            eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
+            nuovi = stato.registra_turno(snap, eventi=eventi, messaggio=None)
         return _risposta_turno(nuovi)
 
     @app.post("/api/partita/togli")
@@ -659,8 +668,8 @@ def crea_app(stato: StatoHost) -> FastAPI:
         sessione = _guardia_equip(ric)
         async with stato.lock:
             snap = sessione.togli(ric.fonte)
-            righe = stato.cronaca.preleva() if stato.cronaca else []
-            nuovi = stato.registra_turno(snap, righe=righe, messaggio=None)
+            eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
+            nuovi = stato.registra_turno(snap, eventi=eventi, messaggio=None)
         return _risposta_turno(nuovi)
 
     @app.get("/api/partita")
@@ -684,10 +693,10 @@ def crea_app(stato: StatoHost) -> FastAPI:
         _guardie_di_gioco(ric.versione)
         async with stato.lock:
             snap = await sessione.prossima_narrazione()
-            righe = stato.cronaca.preleva() if stato.cronaca else []
+            eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
             prose = await _drena_prosa(sessione)
             nuovi = stato.registra_turno(
-                snap, righe=righe, messaggio=sessione.ultimo_messaggio, prose=prose
+                snap, eventi=eventi, messaggio=sessione.ultimo_messaggio, prose=prose
             )
         return _risposta_turno(nuovi)
 
@@ -706,7 +715,7 @@ def crea_app(stato: StatoHost) -> FastAPI:
             # host→motore: intento tipizzato in coda, poi IL turno del motore (C-7).
             sessione.coda.accoda(PlayerChoseOption(ric.indice))
             snap = sessione.avanza()
-            righe = stato.cronaca.preleva() if stato.cronaca else []
+            eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
             messaggio = None
             # Lo scontro si è APPENA chiuso (vittoria o fuga, non morte): il
             # turno del RESOCONTO è dovuto SUBITO, anche a menu pieno — è il
@@ -722,11 +731,11 @@ def crea_app(stato: StatoHost) -> FastAPI:
                 # Menu vuoto ⇒ in attesa: si chiede subito il turno di narrazione
                 # (il client segue il progresso via SSE, non orchestra il doppio passo).
                 snap = await sessione.prossima_narrazione()
-                righe += stato.cronaca.preleva() if stato.cronaca else []
+                eventi += stato.cronaca.preleva_tipata() if stato.cronaca else []
                 messaggio = sessione.ultimo_messaggio
             prose = await _drena_prosa(sessione)
             nuovi = stato.registra_turno(
-                snap, righe=righe, messaggio=messaggio, prose=prose
+                snap, eventi=eventi, messaggio=messaggio, prose=prose
             )
         return _risposta_turno(nuovi)
 
@@ -758,10 +767,10 @@ def crea_app(stato: StatoHost) -> FastAPI:
             # editato nella finestra di conferma (stessa sequenza della TUI).
             riepilogo = sessione.riepiloga_azione(ric.testo)
             snap = await sessione.esegui_azione(riepilogo)
-            righe = stato.cronaca.preleva() if stato.cronaca else []
+            eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
             prose = await _drena_prosa(sessione)
             nuovi = stato.registra_turno(
-                snap, righe=righe, messaggio=sessione.ultimo_messaggio, prose=prose
+                snap, eventi=eventi, messaggio=sessione.ultimo_messaggio, prose=prose
             )
         return _risposta_turno(nuovi)
 
@@ -783,18 +792,21 @@ def crea_app(stato: StatoHost) -> FastAPI:
             )
         async with stato.lock:
             testo = ric.testo.strip()
-            scambio: list[str] = []
+            # Lo scambio è STRUTTURATO: `chi` è dato, mai virgolette da
+            # riconoscere nel testo (bonifica 2026-08-20). Le «» le mette il
+            # frontend, come vestizione.
+            scambio: list[tuple[str, str]] = []
             if not testo:
                 sessione.abbandona_parlamento()
-                scambio.append("Il crawler tronca la conversazione.")
+                scambio.append(("canale", "Il crawler tronca la conversazione."))
             else:
                 risposta = await sessione.battuta_parlamento(testo)
-                scambio.extend((f"«{testo}»", risposta))
+                scambio.extend((("crawler", testo), ("canale", risposta)))
             snap = sessione.avanza()
-            righe = stato.cronaca.preleva() if stato.cronaca else []
+            eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
             prose = await _drena_prosa(sessione)
             nuovi = stato.registra_turno(
-                snap, righe=righe, messaggio=None, prose=prose, scena=scambio
+                snap, eventi=eventi, messaggio=None, prose=prose, battute=scambio
             )
         return _risposta_turno(nuovi)
 

@@ -63,36 +63,42 @@ export function PostGM({ id, messaggio }: { id: number; messaggio: MessaggioGM }
   );
 }
 
-/** Una riga di cronaca del bus. Le righe SPECIALI hanno il loro riquadro:
- *  «✦ Bottino» = OGGETTO OTTENUTO (il momento-achievement), «➤» = varco. */
-function RigaEvento({ riga }: { riga: string }) {
-  if (riga.startsWith("✦")) {
+/** Una riga di cronaca del bus. Il registro visivo lo decide il TIPO
+ *  dell'evento (dato del backend, stesso identificatore dell'SSE) — mai lo
+ *  sniffing dei prefissi nel testo: il bottino è un riquadro-achievement, il
+ *  varco un banner, il resto log di sistema. */
+function VoceEvento({ tipo, testo }: { tipo: string; testo: string }) {
+  if (tipo === "OggettoTrovato") {
     return (
       <div className="mx-auto w-fit max-w-full rounded border-2 border-torcia/60 bg-torcia/10 px-4 py-2 text-center shadow-[0_0_16px_rgba(245,158,11,0.25)]">
         <span className="etichetta-hud block text-torcia">Oggetto ottenuto</span>
-        <span className="font-hud text-sm text-pergamena/90">{riga.slice(1).trim()}</span>
+        <span className="font-hud text-sm text-pergamena/90">{testo}</span>
       </div>
     );
   }
-  if (riga.startsWith("➤")) {
+  if (tipo === "TransizioneZona" || tipo === "DiscesaPiano") {
     return (
       <div className="mx-auto w-fit max-w-full rounded border border-show/50 bg-show/5 px-4 py-1.5 text-center font-hud text-sm text-show shadow-[0_0_14px_rgba(34,211,238,0.18)]">
-        {riga.slice(1).trim()}
+        {testo}
       </div>
     );
   }
   return (
     <p className="text-center font-hud text-xs text-pergamena/55">
-      <span className="text-show/60">»</span> {riga}
+      <span className="text-show/60">»</span> {testo}
     </p>
   );
 }
 
-export function PostEvento({ righe }: { righe: string[] }) {
+export function PostEvento({
+  eventi,
+}: {
+  eventi: { tipo: string; testo: string }[];
+}) {
   return (
     <div className="flex flex-col gap-1.5 px-6">
-      {righe.map((riga, i) => (
-        <RigaEvento key={i} riga={riga} />
+      {eventi.map((e, i) => (
+        <VoceEvento key={i} tipo={e.tipo} testo={e.testo} />
       ))}
     </div>
   );
@@ -120,20 +126,26 @@ export function PostProsa({ righe, tipo }: { righe: string[]; tipo?: string }) {
   );
 }
 
-/** Uno scambio del parlamentare: la battuta del crawler («…») + la risposta
- *  del canale scena. Dialogo, non cronaca. */
-export function PostScena({ righe }: { righe: string[] }) {
+/** Uno scambio del parlamentare: `chi` è DATO del backend — le virgolette
+ *  della battuta del crawler le aggiunge qui il frontend, come vestizione. */
+export function PostScena({
+  battute,
+}: {
+  battute: { chi: string; testo: string }[];
+}) {
   return (
     <article className="rounded-lg border border-muschio/30 bg-muschio/5 px-4 py-3">
       <span className="etichetta-hud text-muschio/90">Scena · dialogo</span>
-      {righe.map((riga, i) => (
+      {battute.map((battuta, i) => (
         <p
           key={i}
           className={`mt-1.5 whitespace-pre-wrap leading-relaxed ${
-            riga.startsWith("«") ? "font-bold text-pergamena" : "italic text-pergamena/85"
+            battuta.chi === "crawler"
+              ? "font-bold text-pergamena"
+              : "italic text-pergamena/85"
           }`}
         >
-          {riga}
+          {battuta.chi === "crawler" ? `«${battuta.testo}»` : battuta.testo}
         </p>
       ))}
     </article>

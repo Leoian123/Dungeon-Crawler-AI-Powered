@@ -259,8 +259,10 @@ def test_parlamentare_dal_browser_batte_e_tronca(host) -> None:
     corpo = r.json()
     scena = [p for p in corpo["post"] if p["genere"] == "scena"]
     assert len(scena) == 1
-    assert scena[0]["righe"][0] == "«Chi comanda qui?»"
-    assert len(scena[0]["righe"]) == 2 and scena[0]["righe"][1], (
+    battute = scena[0]["battute"]
+    # `chi` è DATO (bonifica 2026-08-20): niente virgolette da riconoscere.
+    assert battute[0] == {"chi": "crawler", "testo": "Chi comanda qui?"}
+    assert battute[1]["chi"] == "canale" and battute[1]["testo"], (
         "la risposta del canale scena non è mai vuota (degrado deterministico)"
     )
     assert corpo["snapshot"]["scena_aperta"] is True, "una battuta non chiude la scena"
@@ -273,7 +275,8 @@ def test_parlamentare_dal_browser_batte_e_tronca(host) -> None:
     corpo = r.json()
     assert corpo["snapshot"]["scena_aperta"] is False, "battuta vuota = tronca"
     scena = [p for p in corpo["post"] if p["genere"] == "scena"]
-    assert scena and "tronca" in scena[0]["righe"][0]
+    assert scena and "tronca" in scena[0]["battute"][0]["testo"]
+    assert scena[0]["battute"][0]["chi"] == "canale", "il tronca è regia, non battuta"
 
 
 def test_la_prosa_fuori_banda_arriva_al_forum(host, monkeypatch) -> None:
@@ -577,3 +580,22 @@ def test_scarta_toglie_dalla_coda_senza_toccare_il_canone(host_wiki) -> None:
     )
     assert doppio.status_code == 404
     assert doppio.json()["codice"] == "proposta_assente"
+
+
+def test_la_cronaca_viaggia_tipata(host) -> None:
+    """Bonifica 2026-08-20: il TIPO dell'evento è dato del backend (nome della
+    classe, lo stesso dell'SSE) — il client sceglie il registro visivo dal
+    tipo, mai annusando i prefissi decorativi del testo."""
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = _narra(client, apertura["versione"])
+    indice = _indice_opzione(corpo["snapshot"], "Combatti")
+    corpo = client.post(
+        "/api/partita/opzioni", json={"indice": indice, "versione": corpo["versione"]}
+    ).json()
+    eventi = [e for p in corpo["post"] if p["genere"] == "evento" for e in p["eventi"]]
+    assert eventi, "la cronaca dello scontro produce eventi tipati"
+    assert all(e["tipo"] and e["testo"] for e in eventi)
+    assert any(e["tipo"] == "EncounterStarted" for e in eventi), (
+        f"tipi visti: {sorted({e['tipo'] for e in eventi})}"
+    )

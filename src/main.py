@@ -2790,24 +2790,37 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
 
 
 class CronacaBus:
-    """Raccoglie gli eventi di dominio dal bus e li rende come righe (host headless)."""
+    """Raccoglie gli eventi di dominio dal bus e li rende come righe (host
+    headless). La coda conserva anche il TIPO dell'evento — il nome della
+    classe, lo stesso identificatore del canale SSE — perché il dato non
+    muoia nella formattazione: un host che deve distinguere il bottino dal
+    varco legge `preleva_tipata()`, MAI i prefissi decorativi del testo
+    (bonifica 2026-08-20: il frontend faceva sniffing di «✦»/«➤» — semantica
+    rinata nel posto sbagliato)."""
 
     def __init__(self, bus: BusEventi) -> None:
         self._bus = bus
-        self._righe: list[str] = []
+        self._righe: list[tuple[str, str]] = []
         self._coppie: list[tuple[type, Callable[[object], None]]] = []
         for tipo, formatta in _MAPPA_EVENTI:
-            handler = self._fai_handler(formatta)
+            handler = self._fai_handler(tipo.__name__, formatta)
             bus.registra(tipo, handler)
             self._coppie.append((tipo, handler))
 
-    def _fai_handler(self, formatta: Callable[[object], str]) -> Callable[[object], None]:
+    def _fai_handler(
+        self, nome_tipo: str, formatta: Callable[[object], str]
+    ) -> Callable[[object], None]:
         def handler(evento: object) -> None:
-            self._righe.append(formatta(evento))
+            self._righe.append((nome_tipo, formatta(evento)))
         return handler
 
     def preleva(self) -> list[str]:
-        """Restituisce e svuota le righe accumulate dall'ultima chiamata."""
+        """I soli TESTI (TUI e consumatori storici): svuota la coda."""
+        return [testo for _tipo, testo in self.preleva_tipata()]
+
+    def preleva_tipata(self) -> list[tuple[str, str]]:
+        """Le righe come `(tipo_evento, testo)`: svuota la coda. Il tipo è il
+        nome della classe dell'evento di dominio (es. "OggettoTrovato")."""
         righe, self._righe = self._righe, []
         return righe
 

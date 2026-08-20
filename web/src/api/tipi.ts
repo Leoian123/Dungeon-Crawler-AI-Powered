@@ -70,13 +70,32 @@ export interface RiepilogoAzione {
   stima: StimaAzione;
 }
 
+/** Una riga di cronaca TIPATA: `tipo` = nome della classe dell'evento di
+ *  dominio (lo stesso identificatore del canale SSE). Il client sceglie il
+ *  registro visivo dal TIPO — mai annusando i prefissi del testo. */
+export interface RigaEvento {
+  tipo: string;
+  testo: string;
+}
+
+/** Una battuta dello scambio di scena: `chi` è dato, le «» sono vestizione. */
+export interface BattutaThread {
+  chi: "crawler" | "canale";
+  testo: string;
+}
+
 export interface PostThread {
   id: number;
   /** "gm" turno del GM · "evento" cronaca del bus · "prosa" battito fuori
    *  banda (trailer/premio/epitaffio) · "scena" scambio del parlamentare. */
   genere: "gm" | "evento" | "prosa" | "scena";
   messaggio: MessaggioGM | null;
+  /** Solo genere="prosa": il testo puro del battito. */
   righe: string[];
+  /** Solo genere="evento": la cronaca tipata. */
+  eventi: RigaEvento[];
+  /** Solo genere="scena": lo scambio del parlamentare. */
+  battute: BattutaThread[];
   /** Solo per genere="prosa": "apertura" | "premio" | "epitaffio". */
   tipo_prosa?: string;
 }

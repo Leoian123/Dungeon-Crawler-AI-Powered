@@ -45,17 +45,49 @@ _EVENTI_DOMINIO: tuple[type, ...] = (
 )
 
 
+class RigaEvento(BaseModel):
+    """UNA riga di cronaca TIPATA: `tipo` è il nome della classe dell'evento
+    di dominio (lo stesso identificatore del canale SSE). Il client sceglie il
+    registro visivo dal TIPO, mai annusando i prefissi del testo (bonifica
+    2026-08-20: il dato vive nel backend, il frontend veste)."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tipo: str
+    testo: str
+
+
+class BattutaThread(BaseModel):
+    """UNA battuta dello scambio di scena: `chi` è dato ("crawler" | "canale"),
+    non un paio di virgolette da riconoscere nel testo."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    chi: str  # "crawler" | "canale"
+    testo: str
+
+
+class CrawlerAttivo(BaseModel):
+    """Il crawler della run aperta, TIPATO (prima un dict libero: il `seed` ci
+    era entrato di contrabbando). `seed` = quello EFFETTIVO (post-daily), solo
+    per le run nuove: è il numero che la classifica futura verificherà."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    uuid: str
+    nome: str
+    seed: int | None = None
+
+
 class PostThread(BaseModel):
     """Un post del forum play-by-post.
 
     `genere="gm"`: un turno del GM (`MessaggioGM`: prosa + dove/come + tempo + prova).
-    `genere="evento"`: righe di cronaca del bus (scontro iniziato, esito, discesa…).
-    `genere="prosa"`: un battito FUORI BANDA drenato da `prossima_prosa` (trailer
-    d'apertura, vestizione del premio, epitaffio): `righe=(testo,)`, `tipo_prosa`
-    per il registro tipografico — prima l'host web non lo drenava e metà della
-    narrazione (premi, epitaffi) non arrivava mai al forum.
-    `genere="scena"`: uno scambio della scena sociale (battuta del crawler +
-    risposta del canale scena).
+    `genere="evento"`: cronaca del bus, TIPATA (`eventi`: tipo + testo).
+    `genere="prosa"`: un battito FUORI BANDA drenato da `prossima_prosa`
+    (trailer, premio, epitaffio): `righe=(testo,)`, `tipo_prosa` per il
+    registro tipografico.
+    `genere="scena"`: lo scambio del parlamentare come `battute` (chi + testo).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -63,7 +95,9 @@ class PostThread(BaseModel):
     id: int
     genere: str  # "gm" | "evento" | "prosa" | "scena"
     messaggio: MessaggioGM | None = None
-    righe: tuple[str, ...] = ()
+    righe: tuple[str, ...] = ()  # genere "prosa": il testo puro
+    eventi: tuple[RigaEvento, ...] = ()  # genere "evento": cronaca tipata
+    battute: tuple[BattutaThread, ...] = ()  # genere "scena"
     tipo_prosa: str = ""  # TipoProsa.value, solo per genere="prosa"
 
 
@@ -97,7 +131,7 @@ class StatoHost:
         self.thread: list[PostThread] = []
         self.morto = False
         self.vittoria = False  # DiscesaPiano: nell'MVP un piano = vittoria della run
-        self.crawler: dict[str, str] | None = None  # {"uuid", "nome"} della run attiva
+        self.crawler: CrawlerAttivo | None = None  # il crawler della run attiva
         self.gm_etichetta = ""
         self.snapshot: SnapshotVista | None = None  # sostituito in blocco (C-4)
         self.live_vietato = False  # lancio con --fake: l'API non può chiedere il live
@@ -107,7 +141,7 @@ class StatoHost:
     # --- Ciclo di vita ------------------------------------------------------
 
     def adotta(
-        self, sessione: SessioneGioco, etichetta: str, *, crawler: dict[str, str]
+        self, sessione: SessioneGioco, etichetta: str, *, crawler: CrawlerAttivo
     ) -> None:
         """Adotta la sessione appena costruita: cronaca, handler SSE, avanzamento."""
         self.sessione = sessione
@@ -165,28 +199,36 @@ class StatoHost:
         self,
         snap: SnapshotVista,
         *,
-        righe: list[str],
+        eventi: list[tuple[str, str]],
         messaggio: MessaggioGM | None,
         prose: list | None = None,
-        scena: list[str] | None = None,
+        battute: list[tuple[str, str]] | None = None,
     ) -> list[PostThread]:
         """Chiude un ingresso nel motore: nuovi post, snapshot rimpiazzato in blocco,
         versione incrementata, segnale `post` agli abbonati SSE.
 
-        Ordine dei post: cronaca del bus → scambio di scena → battiti fuori
-        banda (`prose`: `ProsaFuoriBanda` drenate) → turno GM. Rispecchia la
-        sequenza percepita in TUI (l'evento accade, la scena parla, il battito
-        veste, il GM riprende)."""
+        `eventi` = cronaca TIPATA (`CronacaBus.preleva_tipata()`); `battute` =
+        lo scambio di scena come `(chi, testo)`. Ordine dei post: cronaca →
+        scambio di scena → battiti fuori banda (`prose`) → turno GM. Rispecchia
+        la sequenza percepita in TUI (l'evento accade, la scena parla, il
+        battito veste, il GM riprende)."""
         nuovi: list[PostThread] = []
-        if righe:
+        if eventi:
             nuovi.append(
-                PostThread(id=len(self.thread), genere="evento", righe=tuple(righe))
+                PostThread(
+                    id=len(self.thread), genere="evento",
+                    eventi=tuple(
+                        RigaEvento(tipo=tipo, testo=testo) for tipo, testo in eventi
+                    ),
+                )
             )
-        if scena:
+        if battute:
             nuovi.append(
                 PostThread(
                     id=len(self.thread) + len(nuovi), genere="scena",
-                    righe=tuple(scena),
+                    battute=tuple(
+                        BattutaThread(chi=chi, testo=testo) for chi, testo in battute
+                    ),
                 )
             )
         for battito in prose or []:

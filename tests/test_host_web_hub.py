@@ -56,7 +56,9 @@ def test_ciclo_hub_completo(host) -> None:
 
     # Carica: il thread riparte dai turni congelati e si continua a giocare.
     ripresa = _apri(client, {"carica": {"uuid": uuid}})
-    assert ripresa["crawler"] == {"uuid": uuid, "nome": "Donut"}
+    # `seed` è il campo TIPATO del CrawlerAttivo (bonifica 2026-08-20): alla
+    # RIPRESA è None — il seed effettivo si dichiara solo alle run nuove.
+    assert ripresa["crawler"] == {"uuid": uuid, "nome": "Donut", "seed": None}
     thread = client.get("/api/partita/thread").json()
     assert [p["genere"] for p in thread["post"]][:1] == ["gm"]
     assert thread["post"][0]["messaggio"]["prosa"] == prosa
