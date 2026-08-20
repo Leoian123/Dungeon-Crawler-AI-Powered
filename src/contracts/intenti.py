@@ -55,13 +55,13 @@ class PlayerChoseOption(Intento):
     opzione: int
 
 
-@dataclass(frozen=True)
-class PlayerScappa(IntentoEsplorazione):
-    """Disimpegno in NARRAZIONE: il giocatore prova a sganciarsi *prima* di ingaggiare
-    (FNC §5.3). È una **prova su stat** tirata dal motore (seeded); se riesce, il
-    combattimento NON si apre. Da non confondere con la *fuga dal combattimento* a
-    scontro iniziato (FNC §4): meccaniche diverse, intenti diversi.
-    """
+# RITIRATO (bonifica 2026-08-20): `PlayerScappa` dichiarava il disimpegno
+# pre-ingaggio come intento, ma la meccanica (prova su Destrezza contro la
+# classe del mob + ritirata universale) vive per intero nella via di menu
+# («Scappi» → `tenta_disimpegno`) — due nomi per la stessa cosa, zero
+# consumatori dell'intento. Se il canale-intenti del combattimento (seam
+# `IntentoCombattimento`, FNC §4) verrà aperto per la Fase E, i suoi membri
+# si definiranno lì, coerenti, non qui.
 
 
 @dataclass(frozen=True)
