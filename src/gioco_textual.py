@@ -50,6 +50,7 @@ def _costruisci_app(sessione):
             Binding("a", "azione", "Azione libera"),
             Binding("z", "zaino", "Zaino"),
             Binding("c", "scheda", "Scheda"),
+            Binding("b", "bacheca", "Bacheca"),
             Binding("s", "salva", "Salva"),
             Binding("q", "quit", "Esci"),
         ]
@@ -284,6 +285,25 @@ def _costruisci_app(sessione):
             zaino = ", ".join(etichetta_oggetto(f) for f in s.zaino) or "vuoto"
             rl.write(f"Indosso: {indosso}  ·  Zaino: {zaino}  [dim](Z per gestirlo)[/]")
 
+        def action_bacheca(self) -> None:
+            """La bacheca dei caduti (sovra-run B) nel log: i necrologi
+            proiettati dal ledger — leggibili anche in TUI, come nel web."""
+            if self._occupato:
+                return
+            from main import DIRECTORY_SALVATAGGI, bacheca
+
+            rl = self.query_one("#log", RichLog)
+            post = bacheca(DIRECTORY_SALVATAGGI)
+            if not post:
+                rl.write("[dim]La bacheca è vuota: il dungeon attende i suoi "
+                         "primi caduti (o vincitori).[/]")
+                return
+            rl.write("[b]— LA BACHECA DEI CADUTI —[/b]")
+            for necrologio in reversed(post[-6:]):  # gli ultimi, i più recenti prima
+                rl.write(f"[b]{necrologio.titolo}[/b]")
+                for riga in necrologio.corpo.splitlines():
+                    rl.write(f"  {riga}")
+
         def action_azione(self) -> None:
             """Apre l'input dell'azione libera (solo in narrazione, da vivi)."""
             if self._morto or self._occupato or self.fase_corrente != "narrazione":
@@ -493,7 +513,27 @@ def _scegli_sessione(argv: list[str], provider, directory=None):
     seed = 1
     if "--seed" in argv:
         seed = int(argv[argv.index("--seed") + 1])
-    return costruisci_sessione(seed=seed, provider=provider, directory=directory)
+    if "--daily" in argv:
+        # RUN DEL GIORNO (sovra-run C): il seed lo detta la DATA, lato host —
+        # il motore non guarda mai l'orologio (J). La TUI gioca la stagione
+        # default (numero 1), come il web senza slug esplicito.
+        from datetime import date
+
+        from contracts import seed_del_giorno
+
+        seed = seed_del_giorno(date.today().isoformat(), 1)
+        print(f"[gioca] run del giorno {date.today().isoformat()}: seed {seed}")
+    fantasmi = ()
+    if "--infestata" in argv:
+        # DUNGEON INFESTATO (sovra-run D): le sconfitte del ledger locale come
+        # fantasmi-lore. Opt-in esplicito, come nel web.
+        from main import fantasmi_locali
+
+        fantasmi = fantasmi_locali(directory)
+        print(f"[gioca] dungeon infestato: {len(fantasmi)} tracce dal ledger")
+    return costruisci_sessione(
+        seed=seed, provider=provider, directory=directory, fantasmi=fantasmi
+    )
 
 
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point)

@@ -227,3 +227,47 @@ class _SnapFinto:
 
 def _snap_finto() -> _SnapFinto:
     return _SnapFinto()
+
+
+def test_bandierine_sovra_run(run_pulita, tmp_path) -> None:
+    """Le tre bandierine collegate anche in TUI (2026-08-20): --daily deriva
+    il seed dalla data (lato host, mai l'orologio del motore), --infestata
+    monta i fantasmi dal ledger locale. Stesse porte del web."""
+    from datetime import date
+
+    from contracts import EsitoRun, Terminale, seed_del_giorno
+    from motore.fantasmi import fantasmi_correnti
+    from motore.persistenza.esiti import scrivi_esito
+    from motore.seme import master_seed
+
+    esito = EsitoRun(
+        uuid_run="deadbeef", nome="Katia", seed=7, terminale=Terminale.SCONFITTA
+    )
+    scrivi_esito(tmp_path, esito.model_dump(mode="json") | {"id": esito.chiave()})
+
+    sessione = gioco_textual._scegli_sessione(
+        ["--daily", "--infestata"], None, directory=tmp_path
+    )
+    assert master_seed() == seed_del_giorno(date.today().isoformat(), 1)
+    montati = fantasmi_correnti()
+    assert montati is not None and montati.lista[0].nome == "Katia"
+    sessione.esci()
+
+
+def test_il_tasto_b_apre_la_bacheca() -> None:
+    pytest.importorskip("textual")
+    from textual.widgets import RichLog
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            rl = app.query_one("#log", RichLog)
+            prima = len(rl.lines)
+            await pilot.press("b")
+            await pilot.pause()
+            assert len(rl.lines) > prima, (
+                "B scrive la bacheca nel log (o il suo stato vuoto)"
+            )
+
+    asyncio.run(run())
