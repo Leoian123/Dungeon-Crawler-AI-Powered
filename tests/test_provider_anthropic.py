@@ -24,12 +24,22 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 def test_F12_output_strutturato_solo_nel_provider() -> None:
     # I marcatori del meccanismo nativo (parse/output_format/json_schema) NON compaiono
     # in contracts né nel motore: vivono solo nel layer provider (PLK §5, F-12).
+    # L'API di Pydantic per l'EMISSIONE della forma (`json_schema_extra`,
+    # `__get_pydantic_json_schema__` — usata da contracts per spogliare le docstring
+    # dallo schema, audit 2026-08-07) è mascherata prima del check: emettere lo schema
+    # è compito dichiarato di contracts (F §1); il divieto copre il TRASPORTO.
+    _api_pydantic = ("json_schema_extra", "__get_pydantic_json_schema__")
     marcatori = ("output_format", "messages.parse", "json_schema", "parsed_output")
+    file_visti = 0
     for layer in ("contracts", "motore"):
         for py in sorted((_SRC / layer).rglob("*.py")):
+            file_visti += 1
             src = py.read_text(encoding="utf-8")
+            for api in _api_pydantic:
+                src = src.replace(api, "")
             for m in marcatori:
                 assert m not in src, f"{py.relative_to(_SRC)}: meccanismo structured-output fuori dal provider ({m})"
+    assert file_visti, "contracts/motore vuoti o spostati: il divieto passerebbe per vacuità"
     # E nel provider c'è davvero.
     backend = (_SRC / "provider" / "anthropic_backend.py").read_text(encoding="utf-8")
     assert "output_format" in backend and "messages.parse" in backend
@@ -65,6 +75,123 @@ def test_il_provider_non_costruisce_il_prompt_ne_valida() -> None:
             assert nodo.module.split(".")[0] != "motore", "il provider non importa il motore (dominio)"
 
 
+# --- Il metodo dell'SDK esiste DAVVERO (regression del live spento) -----------
+
+def test_il_metodo_di_parse_si_risolve_sullo_sdk_installato() -> None:
+    """Regression (giro 2026-08-07): il backend chiamava `client.messages.parse`,
+    che sull'SDK pinnato NON esiste — AttributeError inghiottito, ogni turno live
+    degradato a fallback, e la suite verde perché il lint F-12 controlla la STRINGA
+    nel sorgente. Questo test risolve il METODO sull'SDK vero, senza rete."""
+    anthropic = pytest.importorskip("anthropic")
+
+    client = anthropic.AsyncAnthropic(api_key="x")  # placeholder: nessuna chiamata
+    assert callable(client.beta.messages.parse), (
+        "client.beta.messages.parse non esiste più su questo SDK: il trasporto "
+        "live è di nuovo spento"
+    )
+
+
+def test_le_cause_di_guasto_sono_distinte() -> None:
+    """Un output malformato (troncatura) è GENERAZIONE (pagata); un bug o la rete
+    sono TRASPORTO — e la causa resta leggibile nel tally, mai un None indistinto."""
+    import asyncio
+
+    import pydantic
+
+    from contracts import Flavor
+
+    try:
+        Flavor.model_validate({})
+        raise AssertionError("Flavor vuoto doveva essere invalido")
+    except pydantic.ValidationError as e:
+        errore_forma = e
+
+    class _MessaggiRotti:
+        def __init__(self, exc: Exception) -> None:
+            self._exc = exc
+
+        async def parse(self, **_kw):
+            raise self._exc
+
+    def _client_con(exc: Exception):
+        beta = type("Beta", (), {})()
+        beta.messages = _MessaggiRotti(exc)
+        cli = type("Cli", (), {})()
+        cli.beta = beta
+        return cli
+
+    b = AnthropicBackend()
+    b._client = _client_con(errore_forma)
+    assert asyncio.run(b.genera("p", Flavor)) is None
+    assert b.consumo.generazioni_fallite == 1 and b.consumo.errori_trasporto == 0
+    assert b.consumo.ultima_causa == "forma_output"
+
+    b2 = AnthropicBackend()
+    b2._client = _client_con(AttributeError("metodo sparito"))
+    assert asyncio.run(b2.genera("p", Flavor)) is None
+    assert b2.consumo.errori_trasporto == 1 and b2.consumo.generazioni_fallite == 0
+    assert b2.consumo.ultima_causa == "inatteso:AttributeError", (
+        "un bug di codice deve dirsi per nome, non travestirsi da guasto di rete"
+    )
+
+
+def test_troncatura_ritenta_con_limite_alzato() -> None:
+    """Retry di troncatura (dieta token 2026-08): su `stop_reason == "max_tokens"`
+    ributtare lo stesso prompt con lo stesso limite ritronca quasi certamente —
+    il trasporto ritenta UNA volta col limite raddoppiato. Nessun retry su
+    `refusal` (non è un problema di spazio)."""
+    import asyncio
+
+    from contracts import Flavor
+
+    class _Risposta:
+        def __init__(self, stop: str, parsed=None) -> None:
+            self.stop_reason = stop
+            self.parsed_output = parsed
+            self.usage = None
+
+    class _MessaggiTroncanti:
+        """Prima risposta troncata, seconda buona; registra i max_tokens visti."""
+
+        def __init__(self, risposte: list) -> None:
+            self._risposte = list(risposte)
+            self.limiti_visti: list[int] = []
+
+        async def parse(self, **kw):
+            self.limiti_visti.append(kw["max_tokens"])
+            return self._risposte.pop(0)
+
+    def _client_con(messaggi):
+        beta = type("Beta", (), {})()
+        beta.messages = messaggi
+        cli = type("Cli", (), {})()
+        cli.beta = beta
+        return cli
+
+    buono = Flavor(testo="ok")
+    msg = _MessaggiTroncanti([_Risposta("max_tokens"), _Risposta("end_turn", buono)])
+    b = AnthropicBackend(max_tokens=512)
+    b._client = _client_con(msg)
+    assert asyncio.run(b.genera("p", Flavor)) is buono
+    assert msg.limiti_visti == [512, 1024], "il retry deve alzare il limite, non ripeterlo"
+    # Il primo colpo troncato resta nel tally: si è pagato.
+    assert b.consumo.cause.get("max_tokens") == 1 and b.consumo.chiamate == 2
+
+    # Doppia troncatura: dopo il retry si arrende (None), due guasti nel tally.
+    msg2 = _MessaggiTroncanti([_Risposta("max_tokens"), _Risposta("max_tokens")])
+    b2 = AnthropicBackend(max_tokens=512)
+    b2._client = _client_con(msg2)
+    assert asyncio.run(b2.genera("p", Flavor)) is None
+    assert msg2.limiti_visti == [512, 1024] and b2.consumo.cause["max_tokens"] == 2
+
+    # Refusal: nessun retry (non è un problema di spazio), una sola chiamata.
+    msg3 = _MessaggiTroncanti([_Risposta("refusal")])
+    b3 = AnthropicBackend(max_tokens=512)
+    b3._client = _client_con(msg3)
+    assert asyncio.run(b3.genera("p", Flavor)) is None
+    assert msg3.limiti_visti == [512] and b3.consumo.cause["refusal"] == 1
+
+
 # --- Integrazione LIVE col backend reale (opzionale) --------------------------
 
 _HA_CHIAVE = bool(os.environ.get("ANTHROPIC_API_KEY"))
@@ -83,7 +210,11 @@ def test_live_genera_flavor_conforme() -> None:
     backend = AnthropicBackend(max_tokens=256)
     prompt = "Scrivi una sola frase sarcastica da showrunner di un dungeon."
     candidato = asyncio.run(backend.genera(prompt, Flavor))
-    assert candidato is None or (isinstance(candidato, Flavor) and candidato.testo)
+    # ASSERT-IVO di proposito (giro 2026-08-07): con la chiave presente, un None è
+    # un trasporto rotto — accettarlo faceva passare il test col backend morto.
+    assert isinstance(candidato, Flavor) and candidato.testo, (
+        f"generazione live fallita: {backend.consumo.riassunto()}"
+    )
 
 
 @pytestmark_live
@@ -101,4 +232,4 @@ def test_live_turno_di_narrazione_passa_il_gate(mondo_isolato: str) -> None:
                       voce="Sei il dungeon: genera una stanza con un mostro dal catalogo.")
     )
     # Qualunque sia l'esito (reale o fallback), il motore produce un turno GIOCABILE.
-    assert risultato.turno.prosa and risultato.turno.opzioni
+    assert risultato.turno.prosa and risultato.turno.entita.archetipo

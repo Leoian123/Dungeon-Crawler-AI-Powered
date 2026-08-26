@@ -25,7 +25,9 @@ _RADICI_PERMESSE_EXTRA = {"pydantic", "__future__"}
 
 
 def _moduli_contracts() -> list[Path]:
-    return sorted(_CONTRACTS.rglob("*.py"))
+    out = sorted(_CONTRACTS.rglob("*.py"))
+    assert out, "src/contracts vuoto o spostato: i divieti passerebbero per vacuità"
+    return out
 
 
 def _radici_importate(albero: ast.AST) -> list[tuple[str, int]]:

@@ -35,6 +35,19 @@ import esper
 _DEFAULT_WORLD = "default"
 
 
+@pytest.fixture(autouse=True)
+def _dado_evento_spento(monkeypatch):
+    """Il dado-evento dell'imboscata è SPENTO di default nella suite (Sit.5,
+    2026-08): il seam `componi_imboscata` è cucito nel gioco reale, e con la
+    probabilità di calibrazione i flussi e2e a seed fisso (discese, salvataggi,
+    drenaggio) flakkerebbero a ogni ritocco di seed o di §11 — non è ciò che
+    quei lucchetti provano. Il comportamento dell'imboscata ha i SUOI lucchetti
+    (`test_incontri.py`), che riaccendono il dado esplicitamente (=1.0)."""
+    from motore import tempo as tempo_mod
+
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 0.0)
+
+
 def _sanitize(node_id: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in node_id)
 

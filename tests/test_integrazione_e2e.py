@@ -29,7 +29,7 @@ from motore import (
     materializza_turno,
     proietta_scheda,
     protagonista,
-    risolvi_prova,
+    esito_prova,
     stat_eff,
     tick,
 )
@@ -75,9 +75,9 @@ def test_e2e_piano_intero_capo_a_fine(guscio_pulito, tmp_path) -> None:
     mob = materializza_turno(risultato, g.bus)
     assert esper.entity_exists(mob)
 
-    # --- esplora: una prova di abilità (motore TIRA seeded) -------------------
-    esito = risolvi_prova(stat_eff(pent, StatId.DESTREZZA), ClasseProva.BRONZO, rng)
-    assert isinstance(esito, bool)
+    # --- esplora: una prova di abilità (il motore CONFRONTA a margine) --------
+    esito = esito_prova(stat_eff(pent, StatId.DESTREZZA), ClasseProva.BRONZO)
+    assert isinstance(esito.riuscita, bool)
 
     # --- incontro + combatti fino alla vittoria -------------------------------
     ingaggia_combattimento(g.bus, nemici=[SpecNemico(destrezza=5, punti_vita=3)], seed=1)

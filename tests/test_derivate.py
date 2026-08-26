@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import esper
 
-from contracts import StatId
+from contracts import StatId, StileAttacco
 from motore import (
     Modificatore,
     Primarie,
     Scheda,
     TipoMod,
-    acc_eff,
+    acc_eff_di,
+    acc_fis_eff,
+    acc_mag_eff,
     applica_modificatore,
     atk_eff,
     clampa_hp,
@@ -99,16 +101,29 @@ def test_def_eff_pct_armatura_non_gonfia_i_muscoli(mondo_isolato: str) -> None:
 def test_eva_eff_destrezza_per_coeff(mondo_isolato: str) -> None:
     # eva_eff = Des_eff × coeff_eva (geometria default MVP: veste×media). Magnitudine da Des.
     ent = esper.create_entity(Primarie(valori={StatId.DESTREZZA: 40}))
-    coeff = cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
+    # `K_EVA` è la scala globale: senza di lei il check 1 non si accenderebbe mai (§11).
+    coeff = cal.K_EVA * cal.M_ARMATURA[cal.ARMATURA_DEFAULT] * cal.M_TAGLIA[cal.TAGLIA_DEFAULT]
     assert eva_eff(ent) == 40 * coeff
     # Un enchant +evasione entra in pct_evasione (solo schivata), non in Des: alza solo eva.
     assert eva_eff(ent, pct_evasione=1.0) == 40 * coeff * 2
 
 
-def test_acc_eff_blend_des_int(mondo_isolato: str) -> None:
-    # acc_eff = (w·Des + (1−w)·Int) × coeff_acc; default fisico (Des domina) e arma naturale.
+def test_accuratezze_separate_per_stile(mondo_isolato: str) -> None:
+    # Due stili, due accuratezze: FISICO mira con la sola Destrezza, MAGICO con la sola
+    # Intelligenza (niente blend `w`); la geometria (coeff_acc dell'arma) è la stessa.
     ent = esper.create_entity(Primarie(valori={StatId.DESTREZZA: 10, StatId.INTELLIGENZA: 20}))
-    base = cal.W_FISICO * 10 + (1 - cal.W_FISICO) * 20
-    assert acc_eff(ent) == base * cal.COEFF_ACC[cal.ARMA_DEFAULT]
-    # Ribaltando il peso a magia, Int domina: la formula è UNA sola (mai 0/1).
-    assert acc_eff(ent, w=cal.W_MAGIA) == (cal.W_MAGIA * 10 + (1 - cal.W_MAGIA) * 20) * cal.COEFF_ACC[cal.ARMA_DEFAULT]
+    coeff = cal.COEFF_ACC[cal.ARMA_DEFAULT]
+    assert acc_fis_eff(ent) == 10 * coeff
+    assert acc_mag_eff(ent) == 20 * coeff
+    # Il selettore-dato mappa lo stile alla derivata giusta (mai un ramo per-stile).
+    assert acc_eff_di(ent, StileAttacco.FISICO) == acc_fis_eff(ent)
+    assert acc_eff_di(ent, StileAttacco.MAGICO) == acc_mag_eff(ent)
+
+
+def test_accuratezze_ortogonali_ai_modificatori(mondo_isolato: str) -> None:
+    # Un buff su Intelligenza muove SOLO l'accuratezza magica: la marziale non lo vede.
+    ent = esper.create_entity(Primarie(valori={StatId.DESTREZZA: 10, StatId.INTELLIGENZA: 20}))
+    prima_fis = acc_fis_eff(ent)
+    applica_modificatore(ent, Modificatore(StatId.INTELLIGENZA, TipoMod.PCT, 0.5, "focus"))
+    assert acc_mag_eff(ent) == 30 * cal.COEFF_ACC[cal.ARMA_DEFAULT]  # 20×1.5, propagato da solo
+    assert acc_fis_eff(ent) == prima_fis

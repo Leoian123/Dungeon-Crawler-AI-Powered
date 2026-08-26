@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from contracts import Archetipo, ClasseProva, Durata, StatId
+from contracts import ClasseProva, Durata, StatId
 from motore import calibrazione as cal
 
 
@@ -38,13 +38,20 @@ def test_default_consolidati_invariati() -> None:
     # Combat knobs.
     assert cal.S_CONTEST == 2 and cal.MIN_COLPO == 0.01 and cal.F_AUTOHIT == 3.0
     assert cal.G_GRAZE == 0.5 and cal.DELTA_BANDA == 0.2
+    # `K_EVA` è load-bearing: sotto, la schivata non esiste in partita; sopra ~43, ogni
+    # scontro diventa stocastico e il TTK tarato salta. La sua vera definizione sta nei
+    # due vincoli per-entità di `test_calibrazione_check1.py`.
+    assert cal.K_EVA == 6.0
     # Migrati da catalogo/scheda/combattimento.
     assert cal.PROB_ANOMALIA == 0.05 and cal.PROB_IMBOSCATA == 0.3
     assert cal.DURATA_BLOCCO_DEFAULT == 3 and cal.HP_DEFAULT == 30 and cal.DANNO_BASE == 1
-    assert cal.SOGLIE_PROVA[ClasseProva.BRONZO] == 8 and cal.SOGLIE_PROVA[ClasseProva.CELESTIALE] == 22
+    # Scala ri-derivata per la prova A MARGINE (nessun tiro): il confronto è con lo
+    # `stat_eff` grezzo, non più con `stat + d20`, quindi le soglie del d20 non valgono più.
+    assert cal.SOGLIE_PROVA[ClasseProva.BRONZO] == 6 and cal.SOGLIE_PROVA[ClasseProva.CELESTIALE] == 32
+    assert cal.MARGINE_GRADO == 6 and cal.MARGINE_FUGA_PULITA == 6
     assert cal.CARICO_TICK[Durata.TURNO] == 1 and cal.CARICO_TICK[Durata.UN_BEL_PO] == 8
     assert cal.PRIMARIE_BASE_CARL[StatId.COSTITUZIONE] == 30
-    assert cal.REGISTRY_ARCHETIPI[Archetipo.GOBLIN].destrezza_base == 7
+    assert cal.REGISTRY_ARCHETIPI["goblin"].destrezza_base == 7
 
 
 # --- Override: applica, valida, salva (solo i diversi), azzera -----------------

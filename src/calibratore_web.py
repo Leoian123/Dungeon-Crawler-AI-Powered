@@ -24,7 +24,7 @@ import sys
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from contracts import Archetipo, Grado
+from contracts import Grado
 from motore import calibrazione as cal
 
 # --- Backend: funzioni pure-ish sopra cal.* (testabili senza HTTP) -------------
@@ -35,6 +35,12 @@ _SOTTO_GEOMETRIA = ("armatura", "taglia", "arma")
 def _e_override(chiave: str) -> bool:
     """Vero se il valore effettivo diverge dal default (badge 'modificato')."""
     return cal.valore(chiave) != cal.CATALOGO[chiave].default
+
+
+def esiste(chiave: str) -> bool:
+    """Vero se `chiave` è una voce del catalogo — per gli host (es. `host_web`) che
+    parlano alla calibrazione SOLO via questo backend, senza importare il motore."""
+    return chiave in cal.CATALOGO
 
 
 def _voce(p: cal.Param) -> dict:
@@ -71,8 +77,8 @@ def _voce(p: cal.Param) -> dict:
 def costruisci_vista() -> dict:
     """Stato completo per il frontend: tutte le voci + l'elenco degli archetipi."""
     archetipi = [
-        {"archetipo": a.value, "nome": nome, "titolo": nome.capitalize()}
-        for a, nome in cal._NOME_ARCHETIPO.items()
+        {"archetipo": slug, "nome": slug, "titolo": slug.capitalize()}
+        for slug in cal.ARCHETIPI_BASE
     ]
     return {
         "voci": [_voce(p) for p in cal.elenco()],
@@ -119,14 +125,15 @@ def anteprima(archetipo: str, grado: str, livello: int) -> dict:
     from contracts import TipoDanno
     from motore.combattimento import mult_resistenza
     from motore.corredo import Corredo
-    from motore.derivate import acc_eff, atk_eff, def_eff, eva_eff, max_hp
+    from motore.derivate import acc_fis_eff, acc_mag_eff, atk_eff, def_eff, eva_eff, max_hp
     from motore.modificatori import ResistenzaMod, Resistenze
     from motore.statistiche import Primarie
 
-    arch = Archetipo(archetipo)
+    if archetipo not in cal.REGISTRY_ARCHETIPI:
+        raise ValueError(f"archetipo sconosciuto: {archetipo!r}")
     grad = Grado(grado)
-    profilo = cal.profilo_corrente(arch)  # fresco, non da REGISTRY_ARCHETIPI (cache-ato)
-    primarie = cal.primarie_da_archetipo(arch, grad, livello, profilo=profilo)
+    profilo = cal.profilo_corrente(archetipo)  # fresco, non da REGISTRY_ARCHETIPI (cache-ato)
+    primarie = cal.primarie_da_archetipo(archetipo, grad, livello, profilo=profilo)
     res = {t: v for t, v in profilo.resistenze.items() if v != 0}
 
     comps: list[object] = [
@@ -145,7 +152,8 @@ def anteprima(archetipo: str, grado: str, livello: int) -> dict:
             "atk_eff": atk_eff(ent),
             "def_eff_centesimi": def_eff(ent),
             "eva_eff": round(eva_eff(ent), 4),
-            "acc_eff": round(acc_eff(ent), 4),
+            "acc_fis_eff": round(acc_fis_eff(ent), 4),
+            "acc_mag_eff": round(acc_mag_eff(ent), 4),
             "resistenze_mult": {
                 t.value: round(mult_resistenza(ent, t), 4)
                 for t in (TipoDanno.MISCHIA, TipoDanno.FUOCO, TipoDanno.VELENO)
@@ -315,7 +323,8 @@ async function aggiornaAnteprima(){
   b.appendChild(kv('atk_eff',r.atk_eff));
   b.appendChild(kv('def_eff (cent.)',r.def_eff_centesimi));
   b.appendChild(kv('eva_eff',r.eva_eff));
-  b.appendChild(kv('acc_eff',r.acc_eff));
+  b.appendChild(kv('acc_fis_eff',r.acc_fis_eff));
+  b.appendChild(kv('acc_mag_eff',r.acc_mag_eff));
   b.appendChild(kv('geometria',r.geometria.armatura+' / '+r.geometria.taglia+' / '+r.geometria.arma));
   const R=r.resistenze_mult;
   b.appendChild(kv('mult danno','mischia '+R.mischia+' · fuoco '+R.fuoco+' · veleno '+R.veleno));

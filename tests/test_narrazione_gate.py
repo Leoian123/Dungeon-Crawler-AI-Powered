@@ -9,11 +9,12 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from contracts import Archetipo, Blocco, Durata, Grado
+from contracts import Blocco, Durata, Grado
 from contracts import schema as S
 from motore import (
     REGISTRY_ARCHETIPI,
     REGISTRY_BLOCCHI,
+    motivi_fuori_budget,
     rango_grado,
     valida_turno,
 )
@@ -68,7 +69,20 @@ def test_F6_ogni_blocco_ha_un_binding() -> None:
 
 
 def test_F6_ogni_archetipo_ha_un_binding() -> None:
-    assert set(REGISTRY_ARCHETIPI) == set(Archetipo), "ogni Archetipo deve avere un profilo"
+    # D1: l'archetipo è uno slug a chiusura per-run. L'invariante F-6 diventa: ogni
+    # nome che il GATE può accettare (il registry stesso, e con lui il default di
+    # fallback e il budget segnaposto) ha un profilo istanziabile — mai un nome
+    # accettabile ma non materializzabile.
+    from motore import ARCHETIPO_DEFAULT, Budget
+
+    assert set(REGISTRY_ARCHETIPI) == {"slime", "scheletro", "goblin"}  # gli storici
+    assert ARCHETIPO_DEFAULT in REGISTRY_ARCHETIPI
+    bud = budget()
+    assert bud.archetipi_ammessi <= set(REGISTRY_ARCHETIPI)
+    assert isinstance(bud, Budget)
+    # Un archetipo ben formato ma FUORI registry non passa il gate (strato 2).
+    fuori = turno(archetipo="drago-inventato")
+    assert valida_turno(fuori, budget()) is None
 
 
 def test_F6_ogni_grado_ha_un_rango() -> None:
@@ -86,6 +100,41 @@ def test_F6_nessun_nome_accettabile_ma_non_istanziabile() -> None:
         cls = REGISTRY_BLOCCHI[blocco]
         istanza = cls(rango=1, durata=3)  # istanziabile davvero
         assert istanza is not None
+
+
+# --- Le regole condivise dei gate: una sola implementazione, motivi leggibili --
+
+def test_motivi_fuori_budget_ogni_regola_ha_il_suo_motivo() -> None:
+    ammessi = dict(
+        archetipi_ammessi=frozenset({"slime"}),
+        gradi_ammessi=frozenset({Grado.BRONZO}),
+        blocchi_ammessi=frozenset({Blocco.VELENO}),
+    )
+    assert motivi_fuori_budget("slime", Grado.BRONZO, (Blocco.VELENO,), **ammessi) == []
+    assert any("non nel catalogo" in m for m in motivi_fuori_budget(
+        "drago-inventato", Grado.BRONZO, (), **ammessi))
+    assert any("archetipo 'goblin' fuori budget" in m for m in motivi_fuori_budget(
+        "goblin", Grado.BRONZO, (), **ammessi))
+    assert any("grado" in m for m in motivi_fuori_budget(
+        "slime", Grado.ORO, (), **ammessi))
+    assert any("blocchi fuori budget" in m for m in motivi_fuori_budget(
+        "slime", Grado.BRONZO, (Blocco.RIGENERAZIONE,), **ammessi))
+    assert any("mosse fuori catalogo" in m for m in motivi_fuori_budget(
+        "slime", Grado.BRONZO, (), mosse=("mossa-inventata",), **ammessi))
+
+
+def test_motivi_fuori_budget_modalita_authoring() -> None:
+    # In authoring il grado lo impone il tier (gradi_ammessi=None) e il binding
+    # dell'archetipo nella run non esiste (con_registry=False): un archetipo da
+    # ASSET (es. "zombie", fuori dagli storici) col suo budget di piano passa.
+    motivi = motivi_fuori_budget(
+        "zombie", None, (),
+        archetipi_ammessi=frozenset({"zombie", "lich"}),
+        gradi_ammessi=None,
+        blocchi_ammessi=frozenset(),
+        con_registry=False,
+    )
+    assert motivi == []
 
 
 # --- F-10: il budget raggiunge l'AI DUE volte (prompt soft + gate hard) -------

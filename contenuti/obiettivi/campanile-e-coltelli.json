@@ -1,0 +1,9 @@
+{
+  "slug": "campanile-e-coltelli",
+  "versione": 1,
+  "tags": ["territorio", "spina"],
+  "titolo": "Campanile e coltelli",
+  "testo": "Un paese vero, con la piazza e tutto. Gli abitanti ti fissano come si fissa il piatto del giorno.",
+  "trigger": {"evento": "zona_attraversata", "tier": "paese"},
+  "ricompensa": {"box": {"categoria": "accessori", "grado": "platino"}}
+}

@@ -8,7 +8,6 @@ Il disimpegno è una prova su stat PRIMA di ingaggiare (distinta dalla fuga in c
 from __future__ import annotations
 
 import asyncio
-import random
 
 import esper
 
@@ -91,15 +90,23 @@ def test_G25_nessuna_entita_combat_prima_del_confine(mondo_isolato: str) -> None
 # --- FNC §5.3: disimpegno = prova su stat PRIMA di ingaggiare ------------------
 
 def test_disimpegno_riuscito_non_apre_il_combattimento() -> None:
-    # Stat altissima vs classe facile → disimpegno riuscito (motore tira, seeded).
-    rng = random.Random(1)
-    assert tenta_disimpegno(10_000, ClasseProva.BRONZO, rng) is True
+    # Stat altissima vs classe facile → disimpegno riuscito (il motore confronta a
+    # margine: nessun RNG da passare, G §7.1).
+    assert tenta_disimpegno(10_000, ClasseProva.BRONZO) is True
 
 
-def test_disimpegno_fallito_e_seeded_deterministico() -> None:
-    a = tenta_disimpegno(0, ClasseProva.CELESTIALE, random.Random(5))
-    b = tenta_disimpegno(0, ClasseProva.CELESTIALE, random.Random(5))
+def test_disimpegno_fallito_e_deterministico() -> None:
+    a = tenta_disimpegno(0, ClasseProva.CELESTIALE)
+    b = tenta_disimpegno(0, ClasseProva.CELESTIALE)
     assert a == b is False
+
+
+def test_disimpegno_la_classe_la_impone_il_grado_del_mob() -> None:
+    # La difficoltà non è una costante: la stessa stat basta contro un bronzo e non
+    # contro un celestiale. È ciò che impedisce a "Scappa" di essere sempre uguale.
+    stat = 10
+    assert tenta_disimpegno(stat, ClasseProva.BRONZO) is True
+    assert tenta_disimpegno(stat, ClasseProva.CELESTIALE) is False
 
 
 def test_disimpegno_distinto_dalla_fuga_in_combattimento(mondo_isolato: str) -> None:
@@ -111,7 +118,7 @@ def test_disimpegno_distinto_dalla_fuga_in_combattimento(mondo_isolato: str) -> 
     for tipo in (EncounterStarted, CombatResolved, MortePersonaggio):
         bus.registra(tipo, eventi.append)
 
-    riuscito = tenta_disimpegno(10_000, ClasseProva.BRONZO, random.Random(1))
+    riuscito = tenta_disimpegno(10_000, ClasseProva.BRONZO)
     if riuscito:
         pass  # nessun ingaggio
     assert eventi == []

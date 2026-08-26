@@ -1,0 +1,9 @@
+{
+  "slug": "debutto-in-societa",
+  "versione": 1,
+  "tags": ["combattimento", "pietra-miliare"],
+  "titolo": "Debutto in società",
+  "testo": "Il tuo primo avversario non si rialza. Il pubblico applaude: qualcuno aveva già scommesso contro di te.",
+  "trigger": {"evento": "combat_risolto", "vittoria": true},
+  "ricompensa": {"box": {"categoria": "armi", "grado": "bronzo"}}
+}

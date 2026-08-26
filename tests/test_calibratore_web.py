@@ -62,6 +62,7 @@ def test_anteprima_riflette_override_fresco(mondo_isolato) -> None:
     assert dopo["resistenze_mult"]["fuoco"] == 0.5        # -50% → mult 0.5
     assert set(dopo["primarie"]) == {
         "forza", "destrezza", "costituzione", "intelligenza", "difesa", "saggezza", "fortuna",
+        "carisma",  # la stat sociale del parlamentare (2026-08-16)
     }
 
 

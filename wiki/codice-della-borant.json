@@ -1,0 +1,22 @@
+{
+  "slug": "codice-della-borant",
+  "tipo": "ambientazione",
+  "scope": { "stagione": 1, "piano_da": 1, "piano_a": null, "zona": "" },
+  "segretezza": "in_slice",
+  "regia": "citabile",
+  "costante": true,
+  "inneschi": [],
+  "revisioni": [
+    {
+      "n": 1,
+      "testo": "La Borant Corporation gestisce il World Dungeon come un reality show a budget: ogni disagio dei crawler è contenuto monetizzabile, ogni regola ha una sottosezione, ogni annuncio del Sistema suona come una clausola letta in fretta. Il dungeon non è cattivo: è AZIENDALE.",
+      "vincolo": null,
+      "provenienza": "admin",
+      "ts": "2026-08-18T00:00:00"
+    }
+  ],
+  "approvazioni": [
+    { "revisione_n": 1, "autore": "admin", "ts": "2026-08-18T00:00:00" }
+  ],
+  "link": []
+}

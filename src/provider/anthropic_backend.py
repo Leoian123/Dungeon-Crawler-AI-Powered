@@ -5,9 +5,11 @@ strutturato, pin del modello, lettura della key. **NON** costruisce il prompt, *
 valida catalogo/budget, **non** sceglie il fallback — quelli restano nel motore. Stessa
 interfaccia del `FakeProvider`: il motore non sa quale dei due ha davanti.
 
-Meccanismo di output strutturato (verificato sulla doc API attuale, **non** a memoria —
-F-12): `client.messages.parse(..., output_format=<modello Pydantic>) → .parsed_output`
-(istanza validata). `stop_reason` `"refusal"`/`"max_tokens"` = generazione fallita.
+Meccanismo di output strutturato (verificato sull'**SDK installato** (0.75), non a
+memoria — F-12): `client.beta.messages.parse(..., output_format=<modello Pydantic>)
+→ .parsed_output` (istanza validata). Il namespace NON-beta non ha `parse`: usarlo è
+l'AttributeError silenzioso che ha tenuto spento il live (giro 2026-08-07).
+`stop_reason` `"refusal"`/`"max_tokens"` = generazione fallita.
 Confinato **qui**, mai in `contracts`/`motore`/membrana (F-12).
 
 La **chiave** la legge l'SDK da `ANTHROPIC_API_KEY` (config/env): non è MAI cablata, in
@@ -22,6 +24,8 @@ decide il **motore** dallo schema (F §5.1), non il provider.
 from __future__ import annotations
 
 from contracts import TCandidato
+
+from .consumo import ConsumoProvider
 
 # Pin dei modelli (PLK: il provider possiede il pin). Aggiornarli è deliberato.
 # Il FORTE serve la chiamata gating (il turno); il VELOCE gli stadi ancillari
@@ -54,15 +58,58 @@ def sdk_disponibile() -> bool:
 _STOP_FALLITI = frozenset({"refusal", "max_tokens"})
 
 
+def _classifica_guasto(exc: Exception) -> str:
+    """La causa di un'eccezione di chiamata, come parola chiave stabile.
+
+    Import pigri (l'arnia headless non richiede gli SDK): se le classi non sono
+    importabili si degrada a "inatteso:<Tipo>" — che è comunque più onesto del
+    vecchio contatore unico, dove un bug di codice contava come guasto di rete."""
+    try:
+        import pydantic
+        if isinstance(exc, pydantic.ValidationError):
+            # L'output non ha la forma dello schema: con l'output strutturato è la
+            # firma tipica della TRONCATURA (max_tokens a metà JSON) — e si paga.
+            return "forma_output"
+    except ImportError:
+        pass
+    try:
+        import anthropic
+        if isinstance(exc, anthropic.APITimeoutError):
+            return "timeout"
+        if isinstance(exc, anthropic.APIConnectionError):
+            return "rete"
+        if isinstance(exc, anthropic.APIStatusError):
+            return f"http_{getattr(exc, 'status_code', '?')}"
+    except ImportError:
+        pass
+    return f"inatteso:{type(exc).__name__}"
+
+
 class AnthropicBackend:
     """Provider reale. Una chiamata strutturata per invocazione (provider sottile, G §9.2)."""
 
     def __init__(
-        self, *, modello: str = MODELLO_DEFAULT, max_tokens: int = 2048, timeout: float = 30.0
+        self,
+        *,
+        modello: str = MODELLO_DEFAULT,
+        max_tokens: int = 2048,
+        timeout: float = 30.0,
+        consumo: ConsumoProvider | None = None,
+        retry_troncatura: int = 1,
+        fattore_troncatura: float = 2.0,
     ) -> None:
         self.modello = modello
         self.max_tokens = max_tokens
         self.timeout = timeout
+        # Troncatura (`stop_reason == "max_tokens"`): ributtare lo stesso prompt con
+        # lo stesso limite ritronca quasi certamente — il retry di trasporto alza il
+        # limite (×fattore). È politica di TRASPORTO (come max_retries): il motore
+        # continua a decidere il retry di dominio per schema (F §5.1).
+        self.retry_troncatura = retry_troncatura
+        self.fattore_troncatura = fattore_troncatura
+        # Il tally della spesa: l'`usage` di ogni risposta non si butta più via.
+        # `consumo` condiviso fra più backend = totale per-run senza aggregatori.
+        self.consumo = consumo if consumo is not None else ConsumoProvider()
         self._client = None  # creato pigramente (lazy): nessun SDK finché non si chiama
 
     def _client_async(self):
@@ -94,24 +141,43 @@ class AnthropicBackend:
                 "text": sistema,
                 "cache_control": {"type": "ephemeral"},
             }]
-        try:
-            risposta = await client.messages.parse(
-                model=self.modello,
-                max_tokens=self.max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-                output_format=schema,
-                **extra,
-            )
-        except Exception:
-            # Trasporto: rete / timeout / rate-limit / 5xx → None. Il motore ripiega
-            # (retry per schema, poi fallback atomico) — non è compito del provider.
-            return None
+        max_tokens = self.max_tokens
+        for tentativo in range(self.retry_troncatura + 1):
+            try:
+                # `beta.messages.parse`: è QUESTO il metodo dell'output strutturato
+                # sull'SDK pinnato (0.75) — il namespace non-beta non ce l'ha, e
+                # chiamarlo lì era un AttributeError inghiottito che degradava OGNI
+                # turno live a fallback (giro 2026-08-07). L'header beta lo aggiunge
+                # l'SDK da solo.
+                risposta = await client.beta.messages.parse(
+                    model=self.modello,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}],
+                    output_format=schema,
+                    **extra,
+                )
+            except Exception as exc:
+                # Il motore ripiega comunque (retry per schema, poi fallback atomico);
+                # qui si CLASSIFICA il guasto, così il tally sa dire il perché.
+                self.consumo.registra_guasto(_classifica_guasto(exc))
+                return None
 
-        # Refusal o troncatura (max_tokens): generazione fallita → None (PLK §6).
-        if getattr(risposta, "stop_reason", None) in _STOP_FALLITI:
-            return None
+            # La spesa si conta QUI, prima di ogni esito: anche un refusal si paga.
+            self.consumo.registra_risposta(getattr(risposta, "usage", None))
 
-        candidato = getattr(risposta, "parsed_output", None)
-        # Cintura e bretelle: solo un'istanza conforme allo schema passa (il gate del
-        # motore farà comunque catalogo+budget; qui è la garanzia di forma del trasporto).
-        return candidato if isinstance(candidato, schema) else None
+            # Refusal o troncatura (max_tokens): generazione fallita → None (PLK §6).
+            stop = getattr(risposta, "stop_reason", None)
+            if stop in _STOP_FALLITI:
+                self.consumo.registra_guasto(str(stop))
+                if stop == "max_tokens" and tentativo < self.retry_troncatura:
+                    # Troncato: ritentare uguale ritroncherebbe — si alza il limite.
+                    # Il guasto del primo colpo resta nel tally (si è pagato).
+                    max_tokens = int(max_tokens * self.fattore_troncatura)
+                    continue
+                return None
+
+            candidato = getattr(risposta, "parsed_output", None)
+            # Cintura e bretelle: solo un'istanza conforme allo schema passa (il gate del
+            # motore farà comunque catalogo+budget; qui è la garanzia di forma del trasporto).
+            return candidato if isinstance(candidato, schema) else None
+        return None

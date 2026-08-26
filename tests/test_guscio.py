@@ -185,7 +185,9 @@ def test_E7_nessun_processor_di_guscio_definito() -> None:
 
 def test_E7_guscio_e_host_agnostico_niente_textual() -> None:
     # L'orchestrazione del guscio è host-agnostica (IC §6): nessun import di Textual.
-    for py in sorted((_SRC / "guscio").glob("*.py")):
+    file = sorted((_SRC / "guscio").glob("*.py"))
+    assert file, "src/guscio vuoto o spostato: il divieto passerebbe per vacuità"
+    for py in file:
         tree = ast.parse(py.read_text(encoding="utf-8"))
         for nodo in ast.walk(tree):
             if isinstance(nodo, ast.Import):
@@ -290,6 +292,7 @@ def test_E4_il_giro_completo_gira_nellarnia(guscio_pulito, tmp_path) -> None:
 # divieto di E-2 è strutturale: mai in un Processor/handler/logica di fase.
 
 _MODULI_SRC = sorted((_SRC).rglob("*.py"))
+assert _MODULI_SRC, "src/ vuoto o spostato: i divieti passerebbero per vacuità"
 _FILE_AUTORITA = _SRC / "motore" / "persistenza" / "salvataggio.py"
 
 

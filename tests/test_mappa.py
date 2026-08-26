@@ -22,6 +22,7 @@ from motore import (
     componi_opzioni_scena,
     crea_mappa,
     genera_topologia,
+    livello_corrente,
     mappa_corrente,
     mappa_da_dict,
     mappa_to_dict,
@@ -133,10 +134,20 @@ def test_sessione_arruola_il_mob_della_stanza(run_pulita) -> None:
     assert esper.has_component(mob, Combattente)
 
 
+def _stagione_leggera():
+    """Due piani di sole comparse bronzo: il test verifica il CABLAGGIO del ciclo
+    (esplora → combatti → scala → Scendi), non la taratura del contenuto ufficiale.
+    Il costruttore generale vive in `tests/contenuti_sintetici.py` (perimetro:
+    forma, non contenuto — i test non dipendono dalla stagione pubblicata)."""
+    from tests.contenuti_sintetici import stagione_sintetica
+
+    return stagione_sintetica(n_piani=2, n_stanze=3, slug="s-cablaggio")
+
+
 def test_sessione_vince_esplorando_fino_alla_scala(run_pulita) -> None:
     """Il ciclo che prima era irraggiungibile: esplora → combatti → muovi → scala →
     Scendi → DiscesaPiano (vittoria MVP), tutto dalle porte, via la scena."""
-    sessione = costruisci_sessione(seed=1)
+    sessione = costruisci_sessione(seed=1, stagione=_stagione_leggera())
     eventi: list[DiscesaPiano] = []
     sessione.bus.registra(DiscesaPiano, eventi.append)
     try:
@@ -152,8 +163,9 @@ def test_sessione_vince_esplorando_fino_alla_scala(run_pulita) -> None:
                 sessione.coda.accoda(PlayerChoseOption(0))  # Attacca
             elif "Scendi la scala" in etichette:
                 sessione.coda.accoda(PlayerChoseOption(etichette.index("Scendi la scala")))
-            elif "Combatti" in etichette:
-                sessione.coda.accoda(PlayerChoseOption(etichette.index("Combatti")))
+            elif any(e.startswith("Combatti") for e in etichette):
+                sessione.coda.accoda(PlayerChoseOption(next(
+                    i for i, e in enumerate(etichette) if e.startswith("Combatti"))))
             else:  # solo movimento: vai verso la stanza col numero più alto (la scala è in fondo)
                 idx = max(
                     range(len(snap.opzioni)),
@@ -161,7 +173,14 @@ def test_sessione_vince_esplorando_fino_alla_scala(run_pulita) -> None:
                 )
                 sessione.coda.accoda(PlayerChoseOption(idx))
             snap = sessione.avanza()
-        assert eventi and eventi[0].piano == 2  # vittoria: la discesa è avvenuta
-        assert sessione.guscio._terminale is not None  # PIANO_COMPLETATO rilevato
+        assert eventi and eventi[0].piano == 2  # la discesa è avvenuta
+        # ⚠️ Scendere NON è più vincere: con una stagione a più piani il terminale
+        # scatta solo uscendo dall'ULTIMO. Qui si è arrivati al piano 2 di 2, quindi
+        # la run CONTINUA — ed è il punto: prima questo ramo era irraggiungibile.
+        assert sessione.guscio.terminale is None, (
+            "la run si è chiusa alla prima discesa: il secondo piano è tornato "
+            "irraggiungibile"
+        )
+        assert livello_corrente() == 2
     finally:
         sessione.bus.deregistra(DiscesaPiano, eventi.append)

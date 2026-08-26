@@ -32,6 +32,7 @@ si resta nel guscio, si segnala, **niente caricamento parziale** (§9.3).
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import esper
@@ -96,6 +97,10 @@ def salva_run(
 
     seme = master_seed()
     if archivio is None:
+        # Cintura (audit 2026-08): senza l'Archivio del chiamante si RILEGGE il
+        # sidecar esistente — mai sovrascrivere la storia congelata con un vuoto.
+        archivio = carica_archivio(directory, _peek_uuid())
+    if archivio is None:
         archivio = Archivio(master_seed=seme, model_id=model_id)
 
     stato = serializza_stato(
@@ -136,20 +141,31 @@ def _verifica_coerenza(intestazione: Intestazione, corpo: Corpo) -> None:
 
     - profondità ≥ 1;
     - ogni tag di componente ha un binding nel registry (H-3);
-    - `FaseCorrente`, se presente, porta un valore di fase legale.
+    - `FaseCorrente`, se presente, porta un valore di fase legale;
+    - ESATTAMENTE un protagonista: l'invariante mono-PG che il motore impone a
+      runtime (death-check, `protagonista()`) va rifiutato QUI, al load — un save
+      manomesso con N protagonisti altrimenti passerebbe la validazione e
+      esploderebbe al primo tick, tradendo H-12 (valida-e-degrada, mai crash).
     """
     if intestazione.profondita < 1:
         raise CaricamentoFallito(f"profondità impossibile: {intestazione.profondita}")
+    protagonisti = 0
     for ent in corpo.entita:
         for comp in ent.componenti:
             try:
                 tipo_di(comp.tag)
             except KeyError as e:
                 raise CaricamentoFallito(str(e)) from e
+            if comp.tag == "protagonista":
+                protagonisti += 1
             if comp.tag == "fase_corrente":
                 valore = comp.dati.get("fase")
                 if valore not in {f.value for f in Fase}:
                     raise CaricamentoFallito(f"fase illegale: {valore!r}")
+    if protagonisti != 1:
+        raise CaricamentoFallito(
+            f"protagonista singleton atteso nel save: trovati {protagonisti}"
+        )
 
 
 def carica_da_disco(directory: Path, uuid: str) -> Stato:
@@ -173,6 +189,18 @@ def carica_da_disco(directory: Path, uuid: str) -> Stato:
     except Exception as e:  # ValidationError e affini → degrado pulito
         raise CaricamentoFallito(f"formato non valido: {e}") from e
 
+    # L'identità del FILE deve combaciare con lo slot richiesto (caccia
+    # 2026-08-16): ogni save vivo scrive filename == intestazione.uuid, quindi
+    # solo i `.bak` di recovery (e i file rinominati a mano) violano
+    # l'uguaglianza. Senza questo check, `carica_sessione(uuid=f"{uuid}.bak")`
+    # componeva `<uuid>.bak.stato.json` — il backup di recovery — e il crawler
+    # morto RISORGEVA da una porta pubblica: il .bak protegge dalla corruzione,
+    # mai dal permadeath (H-20).
+    if intestazione.uuid != uuid:
+        raise CaricamentoFallito(
+            f"identità del save non combacia: intestazione {intestazione.uuid!r}, "
+            f"slot richiesto {uuid!r} (un .bak non si carica come slot)"
+        )
     _verifica_coerenza(intestazione, corpo)  # coerenza interna (§9.1.2)
     return Stato(intestazione=intestazione, corpo=corpo)
 
@@ -215,14 +243,24 @@ def entra_run_nuova() -> None:
 
 def carica_crawler(directory: Path, uuid: str) -> bool:
     """Confine guscio→run, **caricamento** (ACV 3b): valida **prima** di toccare il
-    World; su fallimento ritorna `False` senza mutare `current_world` (H-12/E-4). Solo
-    se valido: `"run"` fresco → `applica_stato` (deserializzazione al confine, E-5)."""
+    World; su fallimento ritorna `False` e il contesto resta (o torna) al default —
+    mai un World parziale come contesto attivo (H-12/E-4). Solo se valido: `"run"`
+    fresco → `applica_stato` (deserializzazione al confine, E-5)."""
     try:
         stato = carica_da_disco(directory, uuid)
     except CaricamentoFallito:
         return False  # current_world INTATTO: nessuno switch è avvenuto
     _entra_run_pulito()
-    applica_stato(stato)
+    try:
+        applica_stato(stato)
+    except Exception:
+        # La validazione di carico guarda la BUSTA; la ricostruzione dei componenti
+        # (`tipo(**dati)`) avviene QUI e può tradirla — un campo rinominato senza
+        # migrazione passa i tre strati e poi esplode a metà applicazione. Il World
+        # parziale non deve sopravvivere né restare il contesto attivo (audit
+        # fondamenta 2026-08): teardown e si torna al menu, save intatto su disco.
+        teardown_run()
+        return False
     return True
 
 
@@ -237,13 +275,68 @@ def teardown_run() -> None:
 # --- Invalidazione a fine-run: morte 6a e vittoria 6b (§9.4, H-20) -------------
 
 def invalida(directory: Path, uuid: str) -> None:
-    """Rimuove il save vivo (stato + sidecar). Vale per morte **e** vittoria/piano-
-    completato: entrambe concludono la run (suspend-on-load: non c'è "continua dopo la
-    fine"). Il backup di recovery resta come protezione da corruzione, non da ripristino."""
+    """Rimuove il save vivo (stato + sidecar + slice wiki). Vale per morte **e**
+    vittoria/piano-completato: entrambe concludono la run (suspend-on-load: non c'è
+    "continua dopo la fine"). Il backup di recovery resta come protezione da
+    corruzione, non da ripristino. L'OUTBOX delle proposte wiki NON si tocca
+    (rev. 3 §4-bis): le proposte sopravvivono al permadeath — è il loro scopo;
+    la rimuove solo la pulizia esplicita dell'hub."""
+    from .disco import path_wiki
+
     directory = Path(directory)
-    for p in (path_stato(directory, uuid), path_archivio(directory, uuid)):
+    for p in (path_stato(directory, uuid), path_archivio(directory, uuid),
+              path_wiki(directory, uuid)):
         if p.exists():
             p.unlink()
+
+
+# --- Il terzo artefatto: la slice wiki (contratto VITALE, rev. 3 §3.1) ---------
+
+def salva_wiki_slice(directory: Path, uuid: str, dati: dict) -> Path:
+    """Scrive la slice congelata (`<uuid>.wiki.gz`): gzip di JSON, atomico.
+    Compressione = offuscamento dichiarato (niente spoiler dal file aperto
+    per curiosità), MAI cifratura."""
+    import gzip
+
+    from .disco import path_wiki
+
+    percorso = path_wiki(Path(directory), uuid)
+    percorso.parent.mkdir(parents=True, exist_ok=True)
+    blob = gzip.compress(json.dumps(dati, ensure_ascii=False).encode("utf-8"))
+    tmp = percorso.with_suffix(".tmp")
+    tmp.write_bytes(blob)
+    tmp.replace(percorso)
+    return percorso
+
+
+class SliceWikiIlleggibile(CaricamentoFallito):
+    """Il contratto VITALE del terzo artefatto: la run è nata con una slice
+    (marcatore nello stato) e l'artefatto è assente o corrotto — il load
+    RIFIUTA con questo errore. Mai la rigenerazione silenziosa dal master
+    (che nel frattempo può essere mutato: sarebbe la sostituzione del mondo),
+    mai il degrado muto del sidecar (H-10 NON si applica qui)."""
+
+
+def carica_wiki_slice(directory: Path, uuid: str) -> dict:
+    """Legge la slice. Solleva `SliceWikiIlleggibile` su assenza o corruzione:
+    il chiamante la invoca SOLO se il marcatore nel save la dichiara."""
+    import gzip
+
+    from .disco import path_wiki
+
+    percorso = path_wiki(Path(directory), uuid)
+    if not percorso.exists():
+        raise SliceWikiIlleggibile(
+            f"slice wiki dichiarata dal save ma assente: {percorso.name} — "
+            "il mondo della run non è ricostruibile (contratto vitale)"
+        )
+    try:
+        return json.loads(gzip.decompress(percorso.read_bytes()).decode("utf-8"))
+    except Exception as e:
+        raise SliceWikiIlleggibile(
+            f"slice wiki corrotta: {percorso.name} ({e}) — rifiuto dichiarato, "
+            "mai la sostituzione silenziosa del mondo"
+        ) from e
 
 
 # --- Indice dei crawler: scan per intestazione, no deep-parse (H-22) -----------
@@ -280,6 +373,8 @@ def indice_crawler(directory: Path) -> list[VoceIndice]:
     voci: list[VoceIndice] = []
     for path in sorted(directory.glob(f"*{SUFFISSO_STATO}")):
         uuid = path.name[: -len(SUFFISSO_STATO)]
+        if uuid.endswith(".bak"):
+            continue  # i backup sono SOLO recovery (H §10.3), mai slot dell'elenco
         try:
             intest = leggi_intestazione(path)
             voci.append(

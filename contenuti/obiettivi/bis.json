@@ -1,0 +1,9 @@
+{
+  "slug": "bis",
+  "versione": 1,
+  "tags": ["discesa", "pietra-miliare"],
+  "titolo": "Bis",
+  "testo": "Hai completato il piano e imboccato la scala. Sotto c'è di peggio, e lo sanno tutti tranne le tue ginocchia.",
+  "trigger": {"evento": "discesa"},
+  "ricompensa": {"box": {"categoria": "avventuriero", "grado": "oro"}}
+}

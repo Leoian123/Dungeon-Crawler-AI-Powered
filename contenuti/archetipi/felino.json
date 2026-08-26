@@ -1,0 +1,23 @@
+{
+  "slug": "felino",
+  "versione": 1,
+  "tags": ["dodger", "agile"],
+  "nome": "il Felino",
+  "descrizione": "Piccolo, veloce, e convinto di valere più di te. Non incassa: non si fa toccare. È il primo archetipo del gioco costruito per SCHIVARE — taglia infima e nessuna armatura addosso lo portano dentro la banda del check 1, dove tutti gli altri restano in auto-hit. Fragile per contratto: se un colpo passa, fa molto male.",
+  "profilo": {
+    "destrezza_base": 19,
+    "pv_base": 12,
+    "danno_base": 2,
+    "intelligenza_base": 2,
+    "difesa_base": 0,
+    "saggezza_base": 2,
+    "fortuna_base": 4,
+    "armatura": "veste",
+    "taglia": "infima",
+    "arma": "naturale",
+    "res_mischia": 0.0,
+    "res_fuoco": 0.0,
+    "res_veleno": 0.0
+  },
+  "mosse": ["attacco", "morso_velenoso"]
+}

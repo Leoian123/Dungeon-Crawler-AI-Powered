@@ -17,10 +17,14 @@ _SRC = _REPO / "src"
 
 def _moduli(*sottocartelle: str) -> list[Path]:
     if not sottocartelle:
-        return sorted(_SRC.rglob("*.py"))
-    out: list[Path] = []
-    for s in sottocartelle:
-        out += sorted((_SRC / s).rglob("*.py"))
+        out = sorted(_SRC.rglob("*.py"))
+    else:
+        out = []
+        for s in sottocartelle:
+            out += sorted((_SRC / s).rglob("*.py"))
+    # Guardia di non-vuotezza: se un path cambia (è già successo con la rimozione
+    # di src/adattatore) il divieto passerebbe per vacuità (audit 2026-08-07).
+    assert out, f"nessun modulo trovato per {sottocartelle or ('src',)}"
     return out
 
 

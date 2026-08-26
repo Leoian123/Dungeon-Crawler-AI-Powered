@@ -1,0 +1,18 @@
+{
+  "slug": "il-lich-cinefilo",
+  "versione": 1,
+  "tags": ["nascondino", "boss-di-piano", "non-morti", "cinefilo"],
+  "nome": "Il Lich Cinefilo",
+  "archetipo": "lich",
+  "grado": "celestiale",
+  "blocchi": ["rigenerazione", "brucia"],
+  "descrizione": "Il boss del primo piano, e lo sa. Colleziona pellicole di zombie-movie umani e ha arredato la tana come una sala d'essai: proiettore a fosfori verdi, poltrone di velluto marcio, una parete di VHS etichettate a mano. È lui che conta fino a dieci. Non ha mai perso a nascondino: al massimo si è annoiato.",
+  "prosa_stanza": "La tana è una sala cinema. Il proiettore gracchia un vecchio film in bianco e nero — morti che camminano, ovviamente: un classico. In controluce, seduto in poltrona centrale con un secchiello di popcorn che nessuna mano viva ha pagato, Il Lich Cinefilo non si volta nemmeno. «Shhh», dice, e il fascio del proiettore trema. «Questa è la scena migliore. Poi tocca a te: uno... due... tre...» Da qualche parte dietro lo schermo, una scala scende nel buio.",
+  "durata": "un_pochino",
+  "mosse": ["attacco", "dardo_arcano", "sputo_infuocato"],
+  "override": {
+    "pv_base": 40,
+    "intelligenza_base": 11,
+    "difesa_base": 3
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "slug": "sipario",
+  "versione": 1,
+  "tags": ["morte", "postumo"],
+  "titolo": "Sipario",
+  "testo": "Sei morto nel World Dungeon. Il pubblico si è alzato in piedi: metà per l'ovazione, metà per andarsene prima del traffico.",
+  "trigger": {"evento": "morte"},
+  "ricompensa": {"beffa": "Un necrologio in bacheca, scritto benissimo. I diritti sono nostri."}
+}

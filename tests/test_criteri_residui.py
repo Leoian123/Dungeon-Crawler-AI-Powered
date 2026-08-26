@@ -66,7 +66,8 @@ def test_G23_blocchi_sono_primitivi_componibili() -> None:
     # un'entità è una *somma* di questi componenti (composizione aperta).
     for blocco, tipo in REGISTRY_BLOCCHI.items():
         assert isinstance(tipo, type) and issubclass(tipo, Status), blocco
-        assert {f.name for f in dataclasses.fields(tipo)} == {"rango", "durata"}
+        # `innato` = stato d'istanza (capacità vs afflizione), resta dato puro.
+        assert {f.name for f in dataclasses.fields(tipo)} == {"rango", "durata", "innato"}
 
 
 # --- C-3: il motore non importa una vista/adattatore (host-agnostico) -----------
@@ -78,7 +79,9 @@ def test_C3_motore_non_importa_una_vista() -> None:
     src = Path(__file__).resolve().parents[1] / "src"
     # Il motore resta host-agnostico: niente import di un adattatore di presentazione
     # (rimosso nel ritorno a headless) né di una libreria di UI.
-    for py in (src / "motore").rglob("*.py"):
+    file = sorted((src / "motore").rglob("*.py"))
+    assert file, "src/motore vuoto o spostato: il divieto passerebbe per vacuità"
+    for py in file:
         for nodo in ast.walk(ast.parse(py.read_text(encoding="utf-8"))):
             if isinstance(nodo, ast.ImportFrom) and not nodo.level and nodo.module:
                 assert nodo.module.split(".")[0] not in {"adattatore", "textual"}, py.name

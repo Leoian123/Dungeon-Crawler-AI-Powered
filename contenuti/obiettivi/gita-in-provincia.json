@@ -1,0 +1,9 @@
+{
+  "slug": "gita-in-provincia",
+  "versione": 1,
+  "tags": ["territorio", "spina"],
+  "titolo": "Gita in provincia",
+  "testo": "La provincia: sterminata, silenziosa, e con pessime recensioni da parte di chi non è tornato.",
+  "trigger": {"evento": "zona_attraversata", "tier": "provincia"},
+  "ricompensa": {"box": {"categoria": "armi", "grado": "oro"}}
+}
