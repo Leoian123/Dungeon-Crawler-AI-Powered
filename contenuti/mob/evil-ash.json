@@ -1,0 +1,17 @@
+{
+  "slug": "evil-ash",
+  "versione": 1,
+  "tags": ["nascondino", "boss-di-paese", "non-morti", "cult-cinema"],
+  "nome": "Evil Ash",
+  "archetipo": "scheletro",
+  "grado": "leggendario",
+  "blocchi": ["rigenerazione"],
+  "descrizione": "Il gemello sbagliato di un eroe con la motosega al posto della mano. Metà faccia ossuta, sorriso da divo, un esercito di ossa che gli tiene il mantello. Cita continuamente battute di un film che qui nessuno ha visto e si offende se non ridi.",
+  "prosa_stanza": "Le ossa del paese si sono messe in fila per lui. Evil Ash scende una scalinata che non c'era un secondo fa, apre le braccia come a un premio alla carriera e declama: «Io sono il male. IL male con la M maiuscola, bello.» Dietro di lui, uno scheletro con un tamburo sbaglia l'attacco. Lui sospira. «Trovi tu la brava gente, di questi tempi?»",
+  "durata": "un_pochino",
+  "mosse": ["attacco", "attacco_pesante"],
+  "override": {
+    "pv_base": 28,
+    "danno_base": 4
+  }
+}

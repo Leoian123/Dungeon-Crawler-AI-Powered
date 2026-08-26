@@ -54,6 +54,24 @@ def test_crollo_inevitabile_a_tutti(mondo_isolato: str) -> None:
     assert pent  # sanity
 
 
+def test_il_crollo_si_narra_sul_bus(mondo_isolato: str) -> None:
+    """Regression (giro 2026-08-07): l'escalation infliggeva danno MUTO — HP che
+    calavano senza una riga di cronaca. Col bus, ogni morso del dungeon parla."""
+    from contracts import BusEventi, CrolloDungeon
+
+    crea_protagonista(destrezza=10, punti_vita=1000)
+    _stato_oltre_soglia(R_SOGLIA_CROLLO + 1)
+    esper.create_entity(Nemico(), PuntiVita(attuali=1000, massimi=1000))
+    bus = BusEventi()
+    visti: list[CrolloDungeon] = []
+    bus.registra(CrolloDungeon, visti.append)
+    try:
+        SistemaCrollo(bus).run(1)
+    finally:
+        bus.deregistra(CrolloDungeon, visti.append)
+    assert visti and visti[-1].danno == CROLLO_INCREMENTO
+
+
 def test_crollo_non_scatta_sotto_soglia(mondo_isolato: str) -> None:
     crea_protagonista(destrezza=10, punti_vita=1000)
     _stato_oltre_soglia(R_SOGLIA_CROLLO)               # = soglia, NON oltre

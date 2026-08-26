@@ -1,0 +1,13 @@
+{
+  "slug": "dj-rigor-mortis",
+  "versione": 1,
+  "tags": ["nascondino", "boss-di-citta", "non-morti", "anni-settanta"],
+  "nome": "DJ Rigor Mortis",
+  "archetipo": "scheletro",
+  "grado": "oro",
+  "blocchi": ["rigenerazione"],
+  "descrizione": "Morto nel decennio giusto, sepolto con la sfera a specchi. Le ossa tengono il quattro quarti meglio di quanto la carne abbia mai fatto. Boss di città segnaposto del canone — le altre trentanove le genera lo show.",
+  "prosa_stanza": "La città ha una discoteca e la discoteca non ha mai chiuso. DJ Rigor Mortis alza un braccio d'osso sul giradischi e il piano intero sente il basso nelle tibie. «Ultimo lento», annuncia dal microfono, con la voce di un citofono. Nessuno balla da quarant'anni. Le luci girano lo stesso.",
+  "durata": "un_pochino",
+  "mosse": ["attacco", "attacco_pesante"]
+}

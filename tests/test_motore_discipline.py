@@ -71,6 +71,24 @@ def test_motore_non_importa_textual_ne_thread_ne_timer() -> None:
     )
 
 
+def test_motore_non_importa_provider() -> None:
+    """Il motore riceve i provider PER INIEZIONE (membrana C-2): nessun modulo
+    sotto `motore/` — sottopacchetti inclusi — importa la radice `provider`.
+    Controllo sugli import REALI (AST), non sulle stringhe (review 2026-08-08):
+    posato insieme a `provider/root.py`, perché il composition root che ora vive
+    nel pacchetto provider non venga mai risucchiato nel motore."""
+    moduli = _moduli()
+    assert moduli, "glob vuoto: il lint passerebbe per vacuità"
+    offese: list[str] = []
+    for py in moduli:
+        radici = _radici_importate(ast.parse(py.read_text(encoding="utf-8")))
+        if "provider" in radici:
+            offese.append(f"{py.relative_to(_REPO)}: import della radice 'provider'")
+    assert not offese, (
+        "il motore non importa provider (iniezione, mai import):\n" + "\n".join(offese)
+    )
+
+
 def test_nessun_timer_a_tempo_di_parete() -> None:
     """Nessun avanzamento sul tempo di parete: niente `sleep(`/`Timer`/`time.time(`
     nel motore (l'avanzamento è guidato dal turno, FNC §6.4)."""

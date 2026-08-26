@@ -13,6 +13,7 @@ stessa interfaccia. Il meccanismo nativo di output strutturato vive qui, MAI in
 """
 
 from .composito import ProviderPerSchema
+from .consumo import ConsumoProvider
 from .anthropic_backend import (
     MODELLO_DEFAULT,
     MODELLO_VELOCE,
@@ -22,15 +23,28 @@ from .anthropic_backend import (
     sdk_disponibile,
 )
 from .fake import FALLISCI, FakeProvider
+from .root import (
+    CORSIE_DEFAULT,
+    ProfiloCorsia,
+    costruisci_backend_live,
+    scegli_corsie,
+    scegli_provider,
+)
 
 __all__ = [
     "FakeProvider",
     "FALLISCI",
     "AnthropicBackend",
+    "ConsumoProvider",
+    "CORSIE_DEFAULT",
     "MODELLO_DEFAULT",
     "MODELLO_VELOCE",
     "NOME_VAR_CHIAVE",
+    "ProfiloCorsia",
     "ProviderPerSchema",
     "chiave_presente",
+    "costruisci_backend_live",
+    "scegli_corsie",
+    "scegli_provider",
     "sdk_disponibile",
 ]

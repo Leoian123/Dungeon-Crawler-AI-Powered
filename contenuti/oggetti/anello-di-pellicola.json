@@ -1,0 +1,11 @@
+{
+  "slug": "anello-di-pellicola",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "nome": "Anello di Pellicola",
+  "descrizione": "Un anello di 35mm arrotolato stretto. Nei fotogrammi, qualcuno vince sempre.",
+  "tipo": "accessorio",
+  "grado": "oro",
+  "sede": "dita",
+  "modificatori": [{"stat": "fortuna", "fascia": "marcata"}]
+}

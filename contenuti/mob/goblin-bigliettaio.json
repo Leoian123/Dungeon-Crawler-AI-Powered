@@ -1,0 +1,16 @@
+{
+  "slug": "goblin-bigliettaio",
+  "versione": 1,
+  "tags": [
+    "falsa-idra",
+    "truffa",
+    "mercante"
+  ],
+  "nome": "Goblin Bigliettaio",
+  "archetipo": "goblin",
+  "grado": "bronzo",
+  "blocchi": [],
+  "descrizione": "Cappellino da giostraio, sorriso a ventiquattro denti, tutti in affitto.",
+  "prosa_stanza": "Un bancone di ossa e nastro adesivo: «BIGLIETTI PER L'IDRA — PAURA GARANTITA O NIENTE RIMBORSO». Il goblin dietro il bancone ti squadra e raddoppia il prezzo.",
+  "durata": "un_attimo"
+}

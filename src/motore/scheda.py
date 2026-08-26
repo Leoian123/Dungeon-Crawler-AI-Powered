@@ -24,7 +24,13 @@ import esper
 from contracts import StatId
 
 from .calibrazione import AP_MAX_MVP, HP_DEFAULT, PRIMARIE_BASE_CARL
+from .mob import Repertorio
 from .statistiche import Primarie
+
+# Le mosse di PARTENZA del protagonista (chiavi del catalogo chiuso `mosse.py`).
+# È una scelta di CONTENUTO (diventerà dato/asset più avanti); il componente
+# `Repertorio` è persistente: il repertorio cresce con la run e viaggia nel save.
+MOSSE_INIZIALI_PROTAGONISTA: tuple[str, ...] = ("attacco", "attacco_pesante", "dardo_arcano")
 
 # HP iniziale di default: §11 in `calibrazione.py` (editabile dalla console admin).
 _HP_DEFAULT = HP_DEFAULT
@@ -48,6 +54,29 @@ class Scheda:
 
 
 @dataclass
+class Mana:
+    """Risorsa-mana **posseduta per-entità**: la spesa delle mosse che costano (§11).
+
+    Come `Scheda.punti_vita`, deposita solo il CORRENTE: il massimo DERIVA da
+    Intelligenza (`derivate.max_mana`) — così un modificatore sulla stat si
+    propaga da solo, senza un secondo numero da tenere in sincrono."""
+
+    attuale: int
+
+
+def assicura_mana(entita: int) -> Mana:
+    """Il `Mana` dell'entità, montandolo PIENO se assente (save scritti prima che
+    il mana esistesse: migrazione lazy, nessun cambio di formato)."""
+    comp = esper.try_component(entita, Mana)
+    if comp is None:
+        from .derivate import max_mana  # locale: derivate importa scheda (ciclo)
+
+        comp = Mana(attuale=max_mana(entita))
+        esper.add_component(entita, comp)
+    return comp
+
+
+@dataclass
 class ActionPoint:
     """Risorsa-AP **posseduta per-entità** (G §2.1): il sistema-turno la legge e la spende.
 
@@ -63,27 +92,47 @@ class ActionPoint:
 
 def crea_protagonista(
     *,
-    destrezza: int,
+    destrezza: int | None = None,
     id_dominio: str = "carl",
-    punti_vita: int = _HP_DEFAULT,
+    punti_vita: int | None = None,
 ) -> int:
     """Crea l'entità persistente del protagonista. Non è effimera (§6.3).
 
     `destrezza` e `punti_vita` (HP iniziale) entrano nel vettore `Primarie`: la destrezza
     su `DESTREZZA`, l'HP iniziale su `COSTITUZIONE` (così il massimo derivato `max_hp =
     costituzione_eff`, 1→1 segnaposto §5, coincide con l'HP di partenza → "integro"). Le
-    altre primarie vengono dal profilo-base SEGNAPOSTO `PRIMARIE_BASE_CARL`."""
+    altre primarie vengono dal profilo-base SEGNAPOSTO `PRIMARIE_BASE_CARL`.
+
+    `None` = il valore §11 della calibrazione (`CARL.destrezza`/`HP_DEFAULT`): i knob
+    della console valgono sul percorso di gioco reale, non solo negli harness — un
+    literal qui era il motivo per cui alzare `CARL.costituzione` non faceva nulla
+    (audit 2026-08-07)."""
     valori = dict(PRIMARIE_BASE_CARL)
+    if destrezza is None:
+        destrezza = PRIMARIE_BASE_CARL[StatId.DESTREZZA]
+    if punti_vita is None:
+        punti_vita = _HP_DEFAULT
     valori[StatId.DESTREZZA] = destrezza
     valori[StatId.COSTITUZIONE] = punti_vita
-    return esper.create_entity(
+    from .equip import Zaino  # locale: il ciclo equip↔scheda resta a senso unico
+
+    ent = esper.create_entity(
         Protagonista(id_dominio=id_dominio),
         Primarie(valori=valori),
         Scheda(vivo=True, punti_vita=punti_vita),
+        # L'inventario nasce VUOTO col protagonista: il drop è il suo produttore.
+        Zaino(),
         # AP posseduto e persistente: il Combattente effimero del combattimento non lo porta
         # (single-owner, guida §6.1). Sopravvive a CombatResolved; il loop lo rinfresca.
         ActionPoint(ap=AP_MAX_MVP, ap_max=AP_MAX_MVP),
+        # Le mosse che il giocatore SCEGLIE in combattimento (menu ← questo dato).
+        # Save legacy senza il componente: `_scegli_azione` ripiega su MOSSE_DEFAULT.
+        Repertorio(mosse=MOSSE_INIZIALI_PROTAGONISTA),
     )
+    # Il mana nasce PIENO, e dopo l'entità: il massimo deriva dalle Primarie appena
+    # montate (`max_mana` legge Intelligenza via il fold).
+    assicura_mana(ent)
+    return ent
 
 
 def protagonista() -> tuple[int, Protagonista, Scheda]:

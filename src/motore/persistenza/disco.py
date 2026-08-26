@@ -26,6 +26,11 @@ SUFFISSO_STATO = ".stato.json"
 SUFFISSO_ARCHIVIO = ".archivio.gz"
 SUFFISSO_BACKUP_STATO = ".bak.stato.json"
 SUFFISSO_BACKUP_ARCHIVIO = ".bak.archivio.gz"
+# Il TERZO artefatto (Wiki del Master, rev. 3 §3.1): la slice congelata.
+# Compresso (offuscamento dichiarato, non cifratura), contratto VITALE:
+# la laschezza del sidecar NON si applica — vedi salvataggio.carica_wiki_slice.
+SUFFISSO_WIKI = ".wiki.gz"
+SUFFISSO_BACKUP_WIKI = ".bak.wiki.gz"
 
 
 class StatoCorrotto(Exception):
@@ -51,6 +56,10 @@ def path_stato(directory: Path, uuid: str) -> Path:
 
 def path_archivio(directory: Path, uuid: str) -> Path:
     return directory / f"{uuid}{SUFFISSO_ARCHIVIO}"
+
+
+def path_wiki(directory: Path, uuid: str) -> Path:
+    return directory / f"{uuid}{SUFFISSO_WIKI}"
 
 
 # --- Stato: due righe JSON in chiaro ------------------------------------------
@@ -116,3 +125,10 @@ def backup_coppia(directory: Path, uuid: str) -> None:
     if ps.exists() and pa.exists():
         shutil.copy2(ps, directory / f"{uuid}{SUFFISSO_BACKUP_STATO}")
         shutil.copy2(pa, directory / f"{uuid}{SUFFISSO_BACKUP_ARCHIVIO}")
+        # La TERNA (Wiki del Master, rev. 3 §3.1 — stress-test 2026-08-18):
+        # la slice si copia INSIEME (backup coerente = stesso istante).
+        # Stessa semantica della coppia: protezione da corruzione, mai
+        # auto-ripristino — il contratto vitale resta un rifiuto dichiarato.
+        pw = path_wiki(directory, uuid)
+        if pw.exists():
+            shutil.copy2(pw, directory / f"{uuid}{SUFFISSO_BACKUP_WIKI}")

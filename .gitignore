@@ -36,6 +36,13 @@ Thumbs.db
 *.bak.archivio.gz
 *.tmp
 
+# Crawler salvati dall'host web (slot = crawler, H §1): stato di gioco locale.
+salvataggi/
+
+# Asset creati dal GM mode (stato di guscio persistente, H §12): contenuto
+# locale dell'installazione. Gli UFFICIALI in contenuti/ sono invece versionati.
+contenuti_locali/
+
 # Override di calibrazione (§11) scritti dalla console admin (`calibratore`): numeri locali
 # in fase di taratura, MAI da versionare. I default vivono in `motore/calibrazione.py`.
 calibrazione.overrides.json
@@ -46,6 +53,19 @@ calibrazione.overrides.json
 .env.*
 !.env.example
 
+# Frontend (web/): dipendenze e build della SPA. Il lockfile npm VA versionato.
+web/node_modules/
+web/dist/
+web/.vite/
+
 # esper VENDORIZZATO è versionato di proposito: NON ignorarlo.
 !vendor/
 docs/
+
+# Raccolto generativo di misura_run (--json / --json-oggetti): output generato,
+# fotografia locale — mai versionato.
+raccolto*.json
+
+# Wiki del Master (W1): il registro delle estrazioni è stato locale
+# (cresce a ogni run/test), mai versionato — le VOCI invece sì.
+wiki/.estrazioni.jsonl

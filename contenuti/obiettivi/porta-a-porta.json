@@ -1,0 +1,9 @@
+{
+  "slug": "porta-a-porta",
+  "versione": 1,
+  "tags": ["territorio", "pietra-miliare"],
+  "titolo": "Porta a porta",
+  "testo": "Hai varcato il tuo primo confine di zona. Il piano è più grande di quanto le tue gambe vorrebbero sapere.",
+  "trigger": {"evento": "zona_attraversata"},
+  "ricompensa": {"box": {"categoria": "avventuriero", "grado": "bronzo"}}
+}

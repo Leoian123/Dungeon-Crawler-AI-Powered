@@ -1,0 +1,17 @@
+{
+  "slug": "leon-della-casa-del-male",
+  "versione": 1,
+  "tags": ["nascondino", "boss-di-paese", "non-morti", "cult-videogioco"],
+  "nome": "Leon quello della Casa del Male",
+  "archetipo": "zombie",
+  "grado": "leggendario",
+  "blocchi": ["veleno"],
+  "descrizione": "Era il migliore a sopravvivere agli zombie. Poi il dungeon ha trovato divertente il contrappasso. Giacca d'ordinanza, frangia perfetta anche da morto, e la fastidiosa abitudine di rispondere alle domande con mezze frasi da doppiaggio. Continua a cercare la figlia del presidente in un piano che non ce l'ha.",
+  "prosa_stanza": "Il paese ha una centrale di polizia, e la centrale ha lui. Leon quello della Casa del Male ti punta addosso una torcia che non è accesa da anni e sussurra, roco: «Fermo. Zona contaminata.» Poi ti morde l'aria, per abitudine. La frangia, impeccabile, non si muove di un millimetro. Il pubblico dello show lo ADORA.",
+  "durata": "un_pochino",
+  "mosse": ["attacco", "morso_velenoso"],
+  "override": {
+    "destrezza_base": 6,
+    "pv_base": 30
+  }
+}

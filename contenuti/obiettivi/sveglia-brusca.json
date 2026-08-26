@@ -1,0 +1,9 @@
+{
+  "slug": "sveglia-brusca",
+  "versione": 1,
+  "tags": ["riposo"],
+  "titolo": "Sveglia brusca",
+  "testo": "Il tuo riposo è stato interrotto nel modo peggiore. Gli ascolti, in compenso, sono saliti benissimo.",
+  "trigger": {"evento": "riposo_concluso", "interrotto": true},
+  "ricompensa": {"box": {"categoria": "accessori", "grado": "bronzo"}}
+}

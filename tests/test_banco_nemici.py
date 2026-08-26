@@ -11,7 +11,8 @@ import esper
 import pytest
 
 import banco_nemici as bn
-from contracts import Archetipo, Blocco, Grado
+from contracts import Blocco, Grado
+from motore import MasterEngine, ROTTE
 from provider import FakeProvider
 
 
@@ -22,15 +23,25 @@ def _budget_normale():
 
 # --- Schema sperimentale ------------------------------------------------------
 
+def test_anche_il_banco_passa_dal_master_engine() -> None:
+    # Nessuna chiamata AI nel repo bypassa il canale unico: il banco ha la SUA
+    # rotta registrata (fuori-run, gating, corsia forte) e lo schema vive in
+    # contracts come i fratelli di authoring.
+    rotta = ROTTE["banco.nemico"]
+    assert rotta.schema is bn.NemicoSperimentale
+    assert rotta.gating is True and rotta.fase is None
+    assert rotta.corsia.value == "forte"
+
+
 def test_schema_core_piu_drop_azioni() -> None:
     n = bn.nemico_scriptato()
-    assert isinstance(n.archetipo, Archetipo) and isinstance(n.grado, Grado)
+    assert isinstance(n.archetipo, str) and isinstance(n.grado, Grado)
     assert isinstance(n.drop, list) and isinstance(n.azioni, list)
     assert n.azioni and all(isinstance(a, str) for a in n.azioni)   # mosse = stringhe
     # extra="forbid": niente campi non previsti.
     with pytest.raises(Exception):
         bn.NemicoSperimentale(  # type: ignore[call-arg]
-            archetipo=Archetipo.SLIME, grado=Grado.BRONZO, blocchi=[], nome="x",
+            archetipo="slime", grado=Grado.BRONZO, blocchi=[], nome="x",
             descrizione="y", drop=[], azioni=[], extra_non_previsto=1,
         )
 
@@ -39,16 +50,25 @@ def test_schema_core_piu_drop_azioni() -> None:
 
 def test_pipeline_gate_passa_e_stat_reali(mondo_isolato: str) -> None:
     budget = _budget_normale()
-    prov = {"(fake)": FakeProvider([bn.nemico_scriptato().model_dump()])}
+    prov = {"(fake)": MasterEngine.avvolgi(FakeProvider([bn.nemico_scriptato().model_dump()]))}
     esiti = asyncio.run(bn.confronta(prov, "prompt", budget, livello=3))
 
     assert len(esiti) == 1
     e = esiti[0]
     assert e.trasporto_ok and e.gate_ok and e.motivo_gate is None
-    # Stat VALIDATE dal motore (formula-madre): slime pv_base 6 × rango(bronzo=1) × liv 3 = 18.
+    # Stat VALIDATE dal motore (formula-madre). Il valore atteso si DERIVA dalle
+    # costanti §11 invece di essere cablato: HP e danno hanno curve separate da F9
+    # (`K_RANGO_HP` > `K_RANGO_DANNO`), e un numero scritto a mano qui renderebbe ogni
+    # ritocco di bilanciamento un test rosso da inseguire.
+    from motore.calibrazione import K_LIVELLO_HP, K_RANGO_HP, REGISTRY_ARCHETIPI
+    atteso = round(
+        REGISTRY_ARCHETIPI["slime"].pv_base
+        * (1 + K_RANGO_HP * 0)        # bronzo = rango 1 → zero passi
+        * (1 + K_LIVELLO_HP * 2)      # livello 3 → due passi di profondità
+    )
     assert e.stat is not None
-    assert e.stat["primarie"]["costituzione"] == 18
-    assert isinstance(e.stat["max_hp"], int) and e.stat["max_hp"] == 18   # int, non float
+    assert e.stat["primarie"]["costituzione"] == atteso
+    assert isinstance(e.stat["max_hp"], int) and e.stat["max_hp"] == atteso  # int, non float
     assert e.stat["atk_eff"] >= 1
     # Drop/azioni riportati (sperimentali).
     assert e.candidato.drop and e.candidato.azioni
@@ -70,7 +90,7 @@ def test_materializzazione_pulisce_dopo_se(mondo_isolato: str) -> None:
 def test_gate_reject_fuori_budget(mondo_isolato: str) -> None:
     budget = _budget_normale()                               # gradi ammessi: BRONZO, ARGENTO
     fuori = bn.NemicoSperimentale(
-        archetipo=Archetipo.SLIME, grado=Grado.CELESTIALE, blocchi=[],
+        archetipo="slime", grado=Grado.CELESTIALE, blocchi=[],
         nome="Slime Apocalittico", descrizione="Troppo.", drop=[], azioni=["Cancella la realtà"],
     )
     gate_ok, motivo, stat = bn.gate_e_stat(fuori, budget, livello=1)
@@ -81,7 +101,7 @@ def test_gate_reject_fuori_budget(mondo_isolato: str) -> None:
 def test_gate_reject_blocco_fuori_budget(mondo_isolato: str) -> None:
     budget = _budget_normale()                               # blocchi ammessi: VELENO, RIGENERAZIONE
     fuori = bn.NemicoSperimentale(
-        archetipo=Archetipo.SLIME, grado=Grado.BRONZO, blocchi=[Blocco.STORDITO],
+        archetipo="slime", grado=Grado.BRONZO, blocchi=[Blocco.STORDITO],
         nome="Slime Stordente", descrizione="x", drop=[], azioni=[],
     )
     gate_ok, motivo, _ = bn.gate_e_stat(fuori, budget, livello=1)
@@ -90,7 +110,8 @@ def test_gate_reject_blocco_fuori_budget(mondo_isolato: str) -> None:
 
 def test_trasporto_none_riportato(mondo_isolato: str) -> None:
     budget = _budget_normale()
-    esiti = asyncio.run(bn.confronta({"(fake)": FakeProvider([None])}, "p", budget, livello=1))
+    esiti = asyncio.run(bn.confronta(
+        {"(fake)": MasterEngine.avvolgi(FakeProvider([None]))}, "p", budget, livello=1))
     assert esiti[0].trasporto_ok is False and esiti[0].candidato is None
 
 
@@ -101,7 +122,8 @@ def test_cli_fake_smoke(capsys) -> None:
     out = capsys.readouterr().out
     assert "BANCO NEMICI" in out
     assert "Slime Mangiascarti" in out
-    assert "azioni (mosse di combattimento)" in out
+    # Fase 6: le azioni proposte incrociano il catalogo mosse reale (match-rate).
+    assert "azioni (vs catalogo mosse" in out
     assert "SOMMARIO" in out
 
 

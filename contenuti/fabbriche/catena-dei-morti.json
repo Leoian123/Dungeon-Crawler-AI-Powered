@@ -1,0 +1,28 @@
+{
+  "slug": "catena-dei-morti",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "nome": "Catena di Montaggio dei Morti",
+  "basi": [
+    {"nome": "Elmo", "tipo": "armatura", "slot": "testa", "categoria": "leggera"},
+    {"nome": "Cappotto", "tipo": "armatura", "slot": "busto", "categoria": "veste"},
+    {"nome": "Corpetto", "tipo": "armatura", "slot": "busto", "categoria": "media"},
+    {"nome": "Guanto", "tipo": "armatura", "slot": "mano_dx", "categoria": "leggera", "taglia": "piccola"},
+    {"nome": "Lama", "tipo": "arma"},
+    {"nome": "Anello", "tipo": "accessorio", "sede": "dita"},
+    {"nome": "Amuleto", "tipo": "accessorio", "sede": "collo"}
+  ],
+  "famiglie": [
+    {"nome": "del Becchino", "descrizione": "Manifattura funeraria: robusta, silenziosa, con l'odore del lavoro ben fatto.", "modificatori": [{"stat": "costituzione", "fascia": "lieve"}]},
+    {"nome": "della Maschera", "descrizione": "Attrezzeria di sala: leggera, scattante, strappata a chi non è mai uscito dal cinema.", "modificatori": [{"stat": "destrezza", "fascia": "lieve"}]},
+    {"nome": "del Sindacato", "descrizione": "Roba del Syndicate: rifinita male apposta, per sembrare meno preziosa di quanto è.", "modificatori": [{"stat": "fortuna", "fascia": "lieve"}]},
+    {"nome": "di Borant", "descrizione": "Fornitura ufficiale dello show: massiccia, sponsorizzata, con la garanzia scaduta.", "modificatori": [{"stat": "forza", "fascia": "lieve"}]}
+  ],
+  "affissi": [
+    {"nome": "Fumante", "descrizione": "Tiene addosso un tepore di brace che il fuoco riconosce e lascia stare.", "res_contro": "fuoco", "res_fascia": "lieve"},
+    {"nome": "Marcio", "descrizione": "L'odore è un problema di chi ti cammina accanto; il veleno non è più un problema tuo.", "res_contro": "veleno", "res_fascia": "marcata"},
+    {"nome": "Blindato", "descrizione": "Piastrine fitte come squame di pesce vecchio: la mischia ci si spunta sopra.", "res_contro": "mischia", "res_fascia": "lieve"},
+    {"nome": "Lucidato", "descrizione": "Uno smalto che non serve a niente, tranne che a piegare la fortuna dalla tua parte.", "modificatori": [{"stat": "fortuna", "fascia": "marcata"}]},
+    {"nome": "Sgraffignato", "descrizione": "Già rubato almeno una volta: ha imparato a muoversi in fretta e a non farsi domande.", "modificatori": [{"stat": "destrezza", "fascia": "marcata"}]}
+  ]
+}

@@ -10,3 +10,10 @@
 # Il lockfile con la chiusura transitiva pinnata è requirements.lock.
 
 pydantic==2.10.6
+
+# --- Host web (opt-in, FUORI dal motore: src/host_web) ----------------------
+# Il game engine resta headless e dipende SOLO da Pydantic; questi pacchetti
+# servono l'API HTTP di gioco (host, C-2a/C-5) e i suoi test (TestClient→httpx).
+fastapi==0.141.1
+uvicorn==0.52.1
+httpx==0.28.1

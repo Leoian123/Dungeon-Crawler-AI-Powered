@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import esper
 
-from contracts import Archetipo, EntitaGenerata, Grado, TipoDanno
+import dataclasses
+
+from contracts import EntitaGenerata, Grado, TipoDanno
 from motore import narrazione
+from motore.calibrazione import profilo_corrente
 from motore.combattimento import mult_resistenza
 from motore.corredo import Corredo
 from motore.modificatori import Resistenze
@@ -16,7 +19,7 @@ from motore.modificatori import Resistenze
 
 def _slime() -> EntitaGenerata:
     return EntitaGenerata(
-        archetipo=Archetipo.SLIME, grado=Grado.BRONZO, blocchi=[],
+        archetipo="slime", grado=Grado.BRONZO, blocchi=[],
         nome="Slime di prova", descrizione="verde",
     )
 
@@ -24,7 +27,8 @@ def _slime() -> EntitaGenerata:
 def test_istanzia_attacca_il_corredo(mondo_isolato) -> None:
     ent = narrazione.istanzia_entita(_slime(), livello=1)
     corredo = esper.component_for_entity(ent, Corredo)
-    assert (corredo.armatura, corredo.taglia, corredo.arma) == narrazione.geometria_da_archetipo(Archetipo.SLIME)
+    p = profilo_corrente("slime")
+    assert (corredo.armatura, corredo.taglia, corredo.arma) == (p.armatura, p.taglia, p.arma)
 
 
 def test_profilo_neutro_non_attacca_resistenze(mondo_isolato) -> None:
@@ -33,9 +37,13 @@ def test_profilo_neutro_non_attacca_resistenze(mondo_isolato) -> None:
 
 
 def test_resistenze_dal_profilo_con_fonte_stabile(monkeypatch, mondo_isolato) -> None:
+    # Il profilo arriva dal registry della run (D1): si inietta un registry con lo
+    # slime resistente al fuoco — la strada dei dati, non un hook per-archetipo.
+    resistente = dataclasses.replace(
+        profilo_corrente("slime"), resistenze={TipoDanno.FUOCO: -50.0},
+    )
     monkeypatch.setattr(
-        narrazione, "resistenze_da_archetipo",
-        lambda a: {TipoDanno.FUOCO: -50.0},
+        narrazione, "registry_archetipi_correnti", lambda: {"slime": resistente},
     )
     ent = narrazione.istanzia_entita(_slime(), livello=1)
     res = esper.component_for_entity(ent, Resistenze)
@@ -44,7 +52,14 @@ def test_resistenze_dal_profilo_con_fonte_stabile(monkeypatch, mondo_isolato) ->
     assert mult_resistenza(ent, TipoDanno.VELENO) == 1.0  # non toccato = identità
 
 
-def test_corredo_e_resistenze_non_sono_persistenti() -> None:
+def test_corredo_e_resistenze_sono_persistenti() -> None:
+    """Rovesciato in Fase 0 (mob componibili): il profilo del mob rivelato round-trippa
+    nel save — prima si perdeva e l'ingaggio post-load degradava allo scalare di
+    fallback (cfr. test_persistenza_mob.py). Gli EFFIMERI di combattimento restano fuori."""
+    from motore.combattimento import Combattente, Nemico, PuntiVita
     from motore.persistenza.tag import e_persistente
-    assert not e_persistente(Corredo)
-    assert not e_persistente(Resistenze)
+
+    assert e_persistente(Corredo)
+    assert e_persistente(Resistenze)
+    for effimero in (Nemico, Combattente, PuntiVita):
+        assert not e_persistente(effimero)

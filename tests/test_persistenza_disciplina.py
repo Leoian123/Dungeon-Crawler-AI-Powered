@@ -20,7 +20,9 @@ _PERS = _SRC / "motore" / "persistenza"
 
 
 def _moduli() -> list[Path]:
-    return sorted(_PERS.glob("*.py"))
+    out = sorted(_PERS.glob("*.py"))
+    assert out, "motore/persistenza vuoto o spostato: i divieti passerebbero per vacuità"
+    return out
 
 
 # --- H-1 / H-19: niente pickle, niente prompt caching -------------------------

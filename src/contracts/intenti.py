@@ -55,13 +55,13 @@ class PlayerChoseOption(Intento):
     opzione: int
 
 
-@dataclass(frozen=True)
-class PlayerScappa(IntentoEsplorazione):
-    """Disimpegno in NARRAZIONE: il giocatore prova a sganciarsi *prima* di ingaggiare
-    (FNC §5.3). È una **prova su stat** tirata dal motore (seeded); se riesce, il
-    combattimento NON si apre. Da non confondere con la *fuga dal combattimento* a
-    scontro iniziato (FNC §4): meccaniche diverse, intenti diversi.
-    """
+# RITIRATO (bonifica 2026-08-20): `PlayerScappa` dichiarava il disimpegno
+# pre-ingaggio come intento, ma la meccanica (prova su Destrezza contro la
+# classe del mob + ritirata universale) vive per intero nella via di menu
+# («Scappi» → `tenta_disimpegno`) — due nomi per la stessa cosa, zero
+# consumatori dell'intento. Se il canale-intenti del combattimento (seam
+# `IntentoCombattimento`, FNC §4) verrà aperto per la Fase E, i suoi membri
+# si definiranno lì, coerenti, non qui.
 
 
 @dataclass(frozen=True)
@@ -86,6 +86,64 @@ class PlayerSiMuove(IntentoEsplorazione):
     """
 
     stanza: int
+
+
+@dataclass(frozen=True)
+class PlayerEquipaggia(IntentoEsplorazione):
+    """Il giocatore indossa/impugna un oggetto che possiede (ADR-1 D3).
+
+    `fonte` è l'**id di dominio durevole** dell'oggetto (mai un id esper, mai un
+    puntatore vivo — GR2-16): è ciò con cui il motore ritroverà i suoi modificatori per
+    toglierli, e ciò che sopravvive a un round-trip di salvataggio.
+
+    È un `IntentoEsplorazione` per una ragione di regole, non di comodità: in MVP ci si
+    equipaggia **solo in NARRAZIONE** e gratis (D3). Il phase-gate strutturale è la
+    guardia — nessun `if fase ==` nel sistema. Il costo dello swap *mid-combat* è già
+    previsto come dato per-item (`swappable`), ma il suo consumatore è post-MVP.
+    """
+
+    fonte: str
+
+
+@dataclass(frozen=True)
+class PlayerUsaOggetto(IntentoEsplorazione):
+    """Il giocatore USA un consumabile che possiede (canale B, 2026-08-26).
+
+    Specchio di `PlayerEquipaggia`: `fonte` è l'id di dominio durevole, il
+    canale è l'INVENTARIO (mai un menu di scena — un'opzione per pozione
+    affollerebbe la scena), e l'uso è SOLO in NARRAZIONE via phase-gate
+    strutturale (`SistemaConsumabili` nel bucket solo-narrazione: in
+    combattimento l'intento resta in coda). L'uso in scontro — con costo AP
+    e cooldown, come nel riferimento — è DICHIARATO post-MVP: cambierebbe il
+    bilanciamento del TTK e va misurato, non improvvisato."""
+
+    fonte: str
+
+
+@dataclass(frozen=True)
+class PlayerToglie(IntentoEsplorazione):
+    """Il giocatore si toglie un oggetto equipaggiato (ADR-1 D3).
+
+    Identificato per `fonte` come l'equip: togliere è `rimuovi_per_fonte`, **mai** una
+    divisione inversa del bonus (ADR-1 D1 / Gr2 §4.1). Mettere e togliere sono entrambi
+    banali proprio perché nessuno dei due "disfa" un calcolo.
+    """
+
+    fonte: str
+
+
+@dataclass(frozen=True)
+class PlayerAttraversa(IntentoEsplorazione):
+    """Intento di ATTRAVERSAMENTO (territorio, 2026-08): il giocatore varca un
+    confine di zona.
+
+    `destinazione` = chiave della zona bersaglio per le DEVIAZIONI laterali e i
+    ritorni sulla spina (composta dal motore nella scena, mai inventata dalla
+    vista); vuota = avanti sulla spina (il passaggio custodito dal boss).
+    Validità e avanzamento sono del MOTORE (`SistemaAttraversamento`, unico
+    proprietario) — un intento non valido è consumato senza effetto."""
+
+    destinazione: str = ""
 
 
 @dataclass(frozen=True)

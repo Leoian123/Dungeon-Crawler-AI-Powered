@@ -1,0 +1,22 @@
+{
+  "slug": "patto-del-sesto-piano",
+  "tipo": "evento",
+  "scope": { "stagione": 1, "piano_da": 1, "piano_a": null, "zona": "" },
+  "segretezza": "in_slice",
+  "regia": "velato",
+  "costante": false,
+  "inneschi": ["archivista", "sesto", "patto", "protocollo"],
+  "revisioni": [
+    {
+      "n": 1,
+      "testo": "L'Archivista ha firmato qualcosa al sesto piano, molto prima di questa stagione: un protocollo che lo obbliga a catalogare finché il dungeon esiste. Chi trova la pratica originale può riscattarlo — o consegnarlo.",
+      "vincolo": null,
+      "provenienza": "admin",
+      "ts": "2026-08-18T00:00:00"
+    }
+  ],
+  "approvazioni": [
+    { "revisione_n": 1, "autore": "admin", "ts": "2026-08-18T00:00:00" }
+  ],
+  "link": []
+}

@@ -31,36 +31,38 @@ from pydantic import ValidationError
 
 from contracts import (
     AnomalyTriggered,
-    Archetipo,
+    ClasseProva,
     Durata,
     EncounterStarted,
     EntitaGenerata,
     Flavor,
-    Grado,
-    Opzione,
     SchedaProiezione,
-    TipoAzione,
     TurnoNarrazione,
 )
 
-from .calibrazione import (
-    geometria_da_archetipo,
-    primarie_da_archetipo,
-    resistenze_da_archetipo,
-)
+from .calibrazione import primarie_da_archetipo
 from .corredo import Corredo
+from .design import (
+    archetipo_attivo,
+    mob_del_cast,
+    profilo_con_override,
+    registry_archetipi_correnti,
+)
 from .modificatori import ResistenzaMod, Resistenze
 from .catalogo import (
     DURATA_BLOCCO_DEFAULT,
-    REGISTRY_ARCHETIPI,
     REGISTRY_BLOCCHI,
     Budget,
+    classe_da_grado,
     prepara_contesto,
     rango_grado,
 )
 from .combattimento import PianoIncontro, SpecNemico
 from .derivate import max_hp
-from .prove import risolvi_prova
+from .mappa import mob_corrente
+from .mob import EntitaMob, Repertorio
+from .mosse import MOSSE_DEFAULT
+from .prove import prova_riuscita
 from .scheda import Scheda
 from .statistiche import REGISTRY_STAT, Primarie, Visibilita, stat_eff
 from .status import Rigenerazione, Stordito, Veleno
@@ -79,27 +81,11 @@ PROSA_NEUTRA = "La stanza è silenziosa. Qualcosa si muove nell'ombra."
 NOME_NEUTRO = "Sagoma indistinta"
 DESCRIZIONE_NEUTRA = "Una presenza generica, abbozzata dal dungeon."
 
-# Il menu fisso di default (F §6.3): Combatti / Scappi / Altro.
-MENU_FISSO: tuple[Opzione, ...] = (
-    Opzione(tipo=TipoAzione.COMBATTI, etichetta="Combatti"),
-    Opzione(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
-    Opzione(tipo=TipoAzione.ALTRO, etichetta="Altro"),
-)
-
 
 # --- Componente dell'entità generata (materializzata nel World) ---------------
-
-@dataclass
-class EntitaMob:
-    """Dato puro dell'entità generata: i campi categoriali scelti dall'AI + flavor +
-    la profondità legata dal motore dopo il gate. Le statistiche stanno nel vettore
-    `Primarie` (derivate via `stat_eff`, GR2-3) — una sola strada-stat (§16.4), MAI qui."""
-
-    archetipo: Archetipo
-    grado: Grado
-    nome: str
-    descrizione: str
-    livello: int
+# `EntitaMob` vive in `mob.py` (modulo foglia: è persistente e il registry dei tag
+# non importa moduli coi sistemi); l'import sopra lo ri-esporta per i consumatori
+# storici (`from .narrazione import EntitaMob`).
 
 
 # --- Proiezione di sola lettura della scheda (G §6.6, G-13) -------------------
@@ -160,11 +146,15 @@ def costruisci_prompt(budget: Budget, proiezione: SchedaProiezione, voce: str) -
     """
     gradi = ", ".join(sorted(g.value for g in budget.gradi_ammessi))
     blocchi = ", ".join(sorted(b.value for b in budget.blocchi_ammessi))
+    # Fix F-10: anche gli ARCHETIPI raggiungono l'AI due volte (prompt soft + gate
+    # hard) — prima erano vincolati solo hard, con più fallback del necessario.
+    archetipi = ", ".join(sorted(budget.archetipi_ammessi))
     stato = ", ".join(proiezione.descrittori) if proiezione.descrittori else "ignoto"
     righe = [
         voce,
         f"[contesto] profondità del piano: {budget.livello}",
         f"[contesto] stato del protagonista (vista): {stato}",
+        f"[budget] archetipi ammessi: {archetipi}",
         f"[budget] gradi ammessi: {gradi}",
         f"[budget] blocchi ammessi: {blocchi}",
         "[budget] scegli archetipo/grado/blocchi DENTRO il budget; "
@@ -177,6 +167,54 @@ def costruisci_prompt(budget: Budget, proiezione: SchedaProiezione, voce: str) -
 
 # --- Il gate: tre strati nel MOTORE (F §4, F-5/F-6/F-10; clamp G-25/F-14) ------
 
+def motivi_fuori_budget(
+    archetipo: str,
+    grado,
+    blocchi,
+    *,
+    archetipi_ammessi,
+    gradi_ammessi,
+    blocchi_ammessi,
+    mosse=(),
+    con_registry: bool = True,
+    mosse_ammesse=None,
+) -> list[str]:
+    """Le regole CONDIVISE dei gate (catalogo + budget + mosse) come motivi
+    leggibili; `[]` = passa. UNICA implementazione per i tre consumatori —
+    `valida_turno` (l'autorità runtime), il `gate_boss` dell'authoring e il
+    banco di prova: prima erano tre copie che potevano divergere in silenzio.
+
+    `gradi_ammessi=None` salta il controllo del grado (authoring: il grado lo
+    impone il tier, mai l'AI). `con_registry=False` salta il binding
+    dell'archetipo nel registry della RUN (authoring: nessuna run attiva — il
+    binding lo verifica il gate finale `risolvi_stagione`). Il binding dei
+    blocchi resta sempre attivo: è un invariante di runtime (F-6).
+    `mosse_ammesse=None` = il catalogo storico; l'authoring che conosce la
+    libreria (mosse-asset) passa il SUO set.
+    """
+    from .mosse import mosse_note
+
+    motivi: list[str] = []
+    if con_registry and archetipo not in registry_archetipi_correnti():
+        motivi.append(f"archetipo '{archetipo}' non nel catalogo")
+    if archetipo not in archetipi_ammessi:
+        motivi.append(f"archetipo '{archetipo}' fuori budget")
+    for blocco in blocchi:
+        if blocco not in REGISTRY_BLOCCHI:
+            motivi.append(f"blocco '{blocco.value}' non nel catalogo")
+    if not set(blocchi) <= set(blocchi_ammessi):
+        ammessi = ", ".join(sorted(b.value for b in blocchi_ammessi)) or "nessuno"
+        motivi.append(f"blocchi fuori budget (ammessi: {ammessi})")
+    if grado is not None and gradi_ammessi is not None and grado not in gradi_ammessi:
+        ammessi = ", ".join(sorted(g.value for g in gradi_ammessi))
+        motivi.append(f"grado '{grado.value}' fuori budget (ammessi: {ammessi})")
+    note = mosse_note() if mosse_ammesse is None else mosse_ammesse
+    fuori_mosse = [m for m in mosse if m not in note]
+    if fuori_mosse:
+        motivi.append("mosse fuori catalogo: " + ", ".join(fuori_mosse))
+    return motivi
+
+
 def valida_turno(
     candidato: TurnoNarrazione,
     budget: Budget,
@@ -187,8 +225,9 @@ def valida_turno(
 
     1. **Schema** — il candidato ri-parsa nel modello Pydantic (garanzia
        backend-agnostica: un backend senza grammatica produrrebbe testo da parsare).
-    2. **Catalogo** — ogni `Archetipo`/`Blocco` scelto è un membro legale **e** ha un
-       binding nel registry (F-6): nessun nome accettabile ma non istanziabile.
+    2. **Catalogo** — ogni archetipo/`Blocco` scelto ha un binding nel registry
+       (F-6): per gli archetipi il registry è quello DELLA RUN (storici + asset
+       congelati nella stagione, D1) — nessun nome accettabile ma non istanziabile.
     3. **Budget** — rarità e insieme di blocchi cadono nel set ammissibile (F-10). È
        **obbligatorio e insostituibile**: la grammatica vincola il vocabolario, non i
        valori; il budget è un vincolo di valore → solo il gate lo garantisce.
@@ -205,18 +244,26 @@ def valida_turno(
 
     eg = cand.entita
 
-    # Strato 2: appartenenza al catalogo + binding nel registry.
-    if eg.archetipo not in REGISTRY_ARCHETIPI:
+    # Strati 2+3: catalogo (binding nel registry DELLA RUN, F-6/D1) + budget
+    # (HARD, oltre al soft del prompt) — le regole condivise vivono in
+    # `motivi_fuori_budget`, una sola implementazione per tutti i gate.
+    if motivi_fuori_budget(
+        eg.archetipo, eg.grado, eg.blocchi,
+        archetipi_ammessi=budget.archetipi_ammessi,
+        gradi_ammessi=budget.gradi_ammessi,
+        blocchi_ammessi=budget.blocchi_ammessi,
+    ):
         return None
-    for blocco in eg.blocchi:
-        if blocco not in REGISTRY_BLOCCHI:
-            return None
 
-    # Strato 3: rispetto del budget (HARD, oltre al soft del prompt).
-    if eg.grado not in budget.gradi_ammessi:
-        return None
-    if not set(eg.blocchi) <= budget.blocchi_ammessi:
-        return None
+    # Strato 4 (D5): il `riferimento` è un RECLUTAMENTO dal cast del piano corrente
+    # — un nome fuori cast è un rifiuto (fallback F-13), mai contenuto arbitrario.
+    # Senza un piano attivo (harness, save legacy) il vincolo non esiste: il
+    # riferimento resta un'annotazione inerte (la materializzazione lo ignora).
+    if eg.riferimento is not None:
+        from .design import design_piano_corrente
+
+        if design_piano_corrente() is not None and mob_del_cast(eg.riferimento) is None:
+            return None
 
     # Clamp d'ingresso al combattimento (C3): la durata è ricondotta a TURNO.
     if ingresso_combattimento and cand.durata != Durata.TURNO:
@@ -245,8 +292,8 @@ class RisultatoTurno:
 # --- Fallback atomico, locale, deterministico (F §6.3, F-8) -------------------
 
 def fallback_turno(budget: Budget, *, ingresso_combattimento: bool = False) -> RisultatoTurno:
-    """Il fallback unico: testo neutro + archetipo di default DESIGNATO nel budget +
-    menu fisso, applicati **insieme** (atomico).
+    """Il fallback unico: testo neutro + archetipo di default DESIGNATO nel budget,
+    applicati **insieme** (atomico). Il menu non c'entra: lo compone la mappa.
 
     - **Locale** — catalogo e testo neutro sono in casa: nessuna rete.
     - **Deterministico** — l'archetipo di default è *designato* (non pescato) e la
@@ -265,7 +312,6 @@ def fallback_turno(budget: Budget, *, ingresso_combattimento: bool = False) -> R
     turno = TurnoNarrazione(
         prosa=PROSA_NEUTRA,
         entita=entita,
-        opzioni=list(MENU_FISSO),
         durata=Durata.TURNO,
     )
     # In-budget per costruzione; ripassa per il gate per coerenza (e clamp d'ingresso).
@@ -370,17 +416,35 @@ async def esegui_turno_narrazione(
 def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
     """Istanzia l'entità validata nel World con le stat **derivate dal motore** (F-6).
 
-    Le primarie escono dalla formula-madre `(archetipo, grado, livello) → Primarie`
-    (`calibrazione.primarie_da_archetipo`): **stesso vettore** del protagonista e dei nemici,
-    letto via `stat_eff` — una sola strada-stat (§16.4). I blocchi scelti diventano
-    componenti-status (la chimera è una somma di componenti, FNC §5.5), col **rango copiato
-    dalla rarità** (G §4.3). Il `livello` (profondità) è legato qui, dopo il gate — l'AI non
-    lo ha emesso (G-17).
+    Le primarie escono dalla formula-madre `(profilo, grado, livello) → Primarie`:
+    **stesso vettore** del protagonista e dei nemici, letto via `stat_eff` — una sola
+    strada-stat (§16.4). Il PROFILO viene dal registry archetipi DELLA RUN (storici di
+    calibrazione + asset congelati nella stagione — D1): l'entità è composta da dati,
+    mai da rami per-archetipo. I blocchi scelti diventano componenti-status (la chimera
+    è una somma di componenti, FNC §5.5), col **rango copiato dalla rarità** (G §4.3).
+    Il `livello` (profondità) è legato qui, dopo il gate — l'AI non lo ha emesso (G-17).
     """
-    primarie = Primarie(valori=primarie_da_archetipo(entita.archetipo, entita.grado, livello))
+    profilo = registry_archetipi_correnti()[entita.archetipo]  # post-gate: sempre presente
+    # RECLUTAMENTO (D5): col `riferimento` si materializza QUEL mob del cast — il suo
+    # override di profilo vince campo-per-campo, le sue mosse vincono sul repertorio
+    # d'archetipo. Tutto dato → dato, mai un ramo per-mob nel codice.
+    reclutato = mob_del_cast(entita.riferimento) if entita.riferimento else None
+    if reclutato is not None:
+        profilo = profilo_con_override(profilo, reclutato.override)
+    primarie = Primarie(
+        valori=primarie_da_archetipo(entita.archetipo, entita.grado, livello, profilo=profilo)
+    )
     rango = rango_grado(entita.grado)
 
-    armatura, taglia, arma = geometria_da_archetipo(entita.archetipo)
+    # Repertorio: mosse del mob reclutato → dell'archetipo-asset → default del motore.
+    attivo = archetipo_attivo(entita.archetipo)
+    if reclutato is not None and reclutato.mosse:
+        mosse = tuple(reclutato.mosse)
+    elif attivo is not None and attivo.mosse:
+        mosse = tuple(attivo.mosse)
+    else:
+        mosse = MOSSE_DEFAULT
+
     componenti: list[object] = [
         EntitaMob(
             archetipo=entita.archetipo,
@@ -388,20 +452,28 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
             nome=entita.nome,
             descrizione=entita.descrizione,
             livello=livello,
+            aspetto=entita.aspetto,
+            tratto=entita.tratto,
         ),
         primarie,
-        Corredo(armatura=armatura, taglia=taglia, arma=arma),  # seam gear per-entità
+        # Seam gear per-entità: le chiavi vengono dal profilo (dato), mai da lookup
+        # per-archetipo nel codice.
+        Corredo(armatura=profilo.armatura, taglia=profilo.taglia, arma=profilo.arma),
+        # Le mosse che il mob porta (dato nel componente; il system le esegue).
+        Repertorio(mosse=mosse),
     ]
-    resistenze = resistenze_da_archetipo(entita.archetipo)
+    resistenze = {t: v for t, v in profilo.resistenze.items() if v != 0}
     if resistenze:  # assenza = identità DT-6: nessun Resistenze se il profilo è neutro
-        fonte = f"archetipo:{entita.archetipo.value}"  # tag di dominio stabile (mai id esper)
+        fonte = f"archetipo:{entita.archetipo}"  # tag di dominio stabile (mai id esper)
         componenti.append(Resistenze(voci=[
             ResistenzaMod(contro=tipo, valore=valore, fonte=fonte)
             for tipo, valore in resistenze.items()
         ]))
     for blocco in entita.blocchi:
         cls = REGISTRY_BLOCCHI[blocco]
-        componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT))
+        # INNATO: capacità del mob (lo slime È velenoso), non afflizione — non
+        # scade, non danneggia il portatore; agisce sul colpo o come passiva.
+        componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT, innato=True))
 
     return esper.create_entity(*componenti)
 
@@ -415,20 +487,51 @@ def materializza_turno(risultato: RisultatoTurno, bus=None) -> int:
     """
     ent = istanzia_entita(risultato.turno.entita, risultato.budget.livello)
     if bus is not None and risultato.anomala:
-        bus.pubblica(AnomalyTriggered(entita=ent))
+        # L'anomalia si annuncia SOLO se si è MANIFESTATA (playtest 2026-08-12):
+        # il budget gonfiato è una possibilità, non un fatto — col copione
+        # offline (mob fisso dalla tabella) o un modello che non la coglie,
+        # «Il dungeon ride…» prometteva un evento che non arrivava mai. Il
+        # criterio è del mondo, non del provider: il grado dell'entità DEVE
+        # essere fuori dalla finestra del contesto (tier di zona / profondità).
+        from .territorio import finestra_gradi_loot
+
+        if risultato.turno.entita.grado not in finestra_gradi_loot(
+            risultato.budget.livello
+        ):
+            bus.pubblica(AnomalyTriggered(entita=ent))
     return ent
 
 
 # --- Disimpegno: prova su stat PRIMA di ingaggiare (FNC §5.3) ------------------
 
-def tenta_disimpegno(destrezza: int, classe, rng: random.Random) -> bool:
+def classe_disimpegno() -> ClasseProva:
+    """La classe che il mob **della scena** impone a chi si vuole disimpegnare.
+
+    Gemella di `_classe_fuga` in combattimento, ma su un'altra sorgente: qui lo scontro
+    non è aperto, quindi il grado lo detta il mob registrato nella stanza. Senza mob (o
+    senza `EntitaMob`) ripiega su `BRONZO` = comportamento storico invariato."""
+    ent = mob_corrente()
+    if ent is None:
+        return ClasseProva.BRONZO
+    em = esper.try_component(ent, EntitaMob)
+    return ClasseProva.BRONZO if em is None else classe_da_grado(em.grado)
+
+
+def tenta_disimpegno(destrezza: int, classe) -> bool:
     """Disimpegno in NARRAZIONE: una prova su stat *prima* di ingaggiare. Il **motore
-    tira** (seeded); se riesce, il combattimento NON si apre (FNC §5.3).
+    confronta a margine** (nessun tiro, G §7.1); se riesce, il combattimento NON si
+    apre (FNC §5.3).
 
     Distinto dalla *fuga dal combattimento* a scontro iniziato (FNC §4): qui non c'è
     ancora nessuno scontro da cui fuggire. Riusa la meccanica delle prove (G §7).
+
+    **Non è gratis anche quando riesce, ed è ciò che gli toglie la dominanza.** Il
+    disimpegno spende la durata della sua azione (`DURATA_AZIONE[SCAPPA]`), quindi il
+    tempo di piano avanza e con esso gira il dado-evento d'imboscata (J §8): il rischio
+    non sparisce, resta dov'è già modellato. Il chiamante non riceve più un RNG perché
+    non c'è nulla da pescare qui.
     """
-    return risolvi_prova(destrezza, classe, rng)
+    return prova_riuscita(destrezza, classe)
 
 
 # --- Confine narrazione→combattimento: EncounterStarted al tick (G-25) ---------

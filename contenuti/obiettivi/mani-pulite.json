@@ -1,0 +1,9 @@
+{
+  "slug": "mani-pulite",
+  "versione": 1,
+  "tags": ["combattimento", "fuga"],
+  "titolo": "Mani pulite",
+  "testo": "Ti sei sfilato da uno scontro aperto senza lasciare il tuo sangue in scena. La regia taglia sulla tua schiena che si allontana.",
+  "trigger": {"evento": "combat_risolto", "fuga": true},
+  "ricompensa": {"beffa": "Il coraggio è sopravvalutato. La cauzione, però, non è rimborsabile."}
+}

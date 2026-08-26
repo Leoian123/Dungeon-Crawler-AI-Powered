@@ -1,0 +1,19 @@
+{
+  "slug": "gemelli-nel-trench",
+  "versione": 1,
+  "tags": [
+    "falsa-idra",
+    "travestimento",
+    "coppia"
+  ],
+  "nome": "Gemelli nel Trench",
+  "archetipo": "slime",
+  "grado": "argento",
+  "blocchi": [
+    "veleno",
+    "rigenerazione"
+  ],
+  "descrizione": "Uno fa la voce grossa, l'altro fa la voce piccola. Nessuno fa l'idra.",
+  "prosa_stanza": "Due slime impilati in un impermeabile fingono di essere un'idra a due teste. Il travestimento regge finché quello sopra non sbadiglia.",
+  "durata": "un_pochino"
+}

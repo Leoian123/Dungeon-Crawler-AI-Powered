@@ -1,7 +1,8 @@
 @echo off
 REM ============================================================================
 REM  start.bat - setup venv + demo headless a un click (driver di riferimento).
-REM  Per GIOCARE con l'interfaccia usa gioca.bat; per calibrare, calibra.bat.
+REM  Per GIOCARE con l'interfaccia usa gioca.bat; per calibrare, calibra.bat;
+REM  per popolare i roster del piano con l'authoring AI, genera_stagione.bat.
 REM
 REM  Al PRIMO avvio crea un virtualenv (.venv) e installa le dipendenze; dal
 REM  secondo avvio in poi il venv c'e' gia' e parte subito.

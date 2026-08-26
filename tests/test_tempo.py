@@ -25,14 +25,11 @@ from motore import (
     PianoIncontro,
     Risoluzione,
     SistemaDeathCheck,
+    sistemi_status,
     SistemaDiscesa,
-    SistemaRigenerazione,
     SistemaRinforzi,
-    SistemaStordito,
     SistemaTempoPiano,
     SistemaTurnoCombattimento,
-    SistemaBrucia,
-    SistemaVeleno,
     SpecNemico,
     TempoNonAvanzabile,
     Valenza,
@@ -62,6 +59,7 @@ from motore import (
     valenza_di,
 )
 from motore import catalogo as C
+from motore import tempo as tempo_mod
 from tests.narr_helpers import budget
 
 _SRC = Path(__file__).resolve().parents[1] / "src"
@@ -79,7 +77,9 @@ def _avvia_esplorazione(*, seed: int = 42, hp: int = 30, destrezza: int = 10):
     pent = crea_protagonista(destrezza=destrezza, punti_vita=hp)
     avvia_run(
         sempre_attivi=[
-            SistemaVeleno(), SistemaBrucia(), SistemaRigenerazione(), SistemaStordito(),
+            # DERIVATI dalla tabella unica (come il guscio vero): un status nuovo
+            # entra da sé, e non c'è modo di cablarne due volte lo stesso.
+            *sistemi_status(),
             SistemaDeathCheck(bus), SistemaTempoPiano(),
         ],
         solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(bus)],
@@ -257,10 +257,12 @@ def test_J8_passa_turno_non_e_una_genera() -> None:
 def test_J9_flag_status_nel_catalogo_non_sul_componente() -> None:
     import dataclasses
 
-    # I componenti-status portano solo {rango, durata}: nessun campo valenza/risoluzione.
+    # I componenti-status portano {rango, durata, innato}: nessun campo
+    # valenza/risoluzione (quelli sono flag di TIPO, nel catalogo). `innato` è
+    # stato d'ISTANZA (capacità del mob vs afflizione subita), non un flag di tipo.
     for tipo in (Veleno, Confusione):
         campi = {f.name for f in dataclasses.fields(tipo)}
-        assert campi == {"rango", "durata"}
+        assert campi == {"rango", "durata", "innato"}
     # I flag vivono nel catalogo (mappa di tipo).
     assert hasattr(C, "FLAG_STATUS")
 
@@ -300,9 +302,11 @@ def test_J10_dado_seeded_deterministico() -> None:
 
 # --- J-11 / J-12: morte tronca prima del dado; imboscata solo a confine, su vivo
 
-def test_J11_morte_tronca_prima_del_dado(mondo_isolato: str) -> None:
+def test_J11_morte_tronca_prima_del_dado(mondo_isolato: str, monkeypatch) -> None:
     # Anche con un callback d'imboscata pronto, se il tick uccide NON si tira il dado:
-    # il callback non viene chiamato (niente imboscata su un cadavere).
+    # il callback non viene chiamato (niente imboscata su un cadavere). Il dado è
+    # riacceso apposta (=1.0): senza troncatura scatterebbe di sicuro.
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)
     bus, pent = _avvia_esplorazione(seed=_seed_dado(imboscata=True))
     _p, _m, scheda = protagonista()
     scheda.punti_vita = 0
@@ -312,7 +316,10 @@ def test_J11_morte_tronca_prima_del_dado(mondo_isolato: str) -> None:
     assert chiamato == []  # dado NON tirato: la morte ha troncato
 
 
-def test_J12_imboscata_emette_encounter_a_confine(mondo_isolato: str) -> None:
+def test_J12_imboscata_emette_encounter_a_confine(mondo_isolato: str, monkeypatch) -> None:
+    # Il dado è spento di default nella suite (conftest): QUI si prova proprio
+    # il confine dell'imboscata, quindi si riaccende.
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)
     seed = _seed_dado(imboscata=True)  # il dado scatta al tick 1
     bus, _pent = _avvia_esplorazione(seed=seed)
     eventi: list = []
@@ -334,7 +341,8 @@ def test_J12_imboscata_emette_encounter_a_confine(mondo_isolato: str) -> None:
 
 # --- J-13: in combattimento passa-turno/fast-forward disabilitati -------------
 
-def test_J13_scorrimento_disabilitato_in_combattimento(mondo_isolato: str) -> None:
+def test_J13_scorrimento_disabilitato_in_combattimento(mondo_isolato: str, monkeypatch) -> None:
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)  # vedi J-12: qui il dado serve
     bus, _pent = _avvia_esplorazione(seed=_seed_dado(imboscata=True))
 
     def _componi() -> int:

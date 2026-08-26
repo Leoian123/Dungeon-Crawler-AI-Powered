@@ -1,0 +1,12 @@
+{
+  "slug": "cappotto-di-scena",
+  "versione": 1,
+  "tags": ["nascondino", "seed"],
+  "nome": "Cappotto di Scena",
+  "descrizione": "Un cappotto da guardaroba teatrale, tarme incluse. Non protegge granché, ma nessuno fa domande a chi lo indossa.",
+  "tipo": "armatura",
+  "grado": "bronzo",
+  "slot": "busto",
+  "categoria": "veste",
+  "taglia": "media"
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "slime-mangiascarti",
+  "versione": 1,
+  "tags": [
+    "falsa-idra",
+    "apertura",
+    "rifiuti"
+  ],
+  "nome": "Slime Mangiascarti",
+  "archetipo": "slime",
+  "grado": "bronzo",
+  "blocchi": [
+    "veleno"
+  ],
+  "descrizione": "Verde, acido, vagamente offeso dalla tua presenza.",
+  "prosa_stanza": "Un corridoio umido gocciola luce verde su un manifesto: «L'IDRA DEL PRIMO PIANO — TERRORE A NOVE TESTE». Sotto il manifesto, uno Slime Mangiascarti ribolle tra rifiuti e un Rolex digerito.",
+  "durata": "turno"
+}

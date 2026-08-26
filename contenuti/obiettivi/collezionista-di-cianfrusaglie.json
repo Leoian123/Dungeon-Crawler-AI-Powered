@@ -1,0 +1,9 @@
+{
+  "slug": "collezionista-di-cianfrusaglie",
+  "versione": 1,
+  "tags": ["loot", "pietra-miliare"],
+  "titolo": "Collezionista di cianfrusaglie",
+  "testo": "Hai raccolto il tuo primo bottino. Era di qualcun altro, ma qui sotto la proprietà è un concetto elastico.",
+  "trigger": {"evento": "oggetto_trovato"},
+  "ricompensa": {"beffa": "Il bottino È la ricompensa. Non fare quella faccia."}
+}

@@ -32,30 +32,36 @@ import random
 from enum import Enum
 from pathlib import Path
 
-from contracts import BusEventi, DiscesaPiano, MortePersonaggio
+from contracts import BusEventi, CombatResolved, DiscesaPiano, MortePersonaggio, Terminale
 from motore import (
     Fase,
     MODEL_ID_DEFAULT,
     NOME_DEFAULT,
     NOME_RUN,
-    SistemaBrucia,
+    SistemaCrollo,
     SistemaDeathCheck,
     SistemaDiscesa,
+    SistemaAttraversamento,
+    SistemaConsumabili,
+    SistemaEquip,
     SistemaMovimento,
-    SistemaRigenerazione,
     SistemaRinforzi,
-    SistemaStordito,
     SistemaTempoPiano,
     SistemaTurnoCombattimento,
-    SistemaVeleno,
+    sistemi_status,
     avvia_run,
+    carica_archivio,
     carica_crawler,
+    collega_boss,
     collega_combattimento,
+    collega_discesa_mappa,
     collega_transizioni_fase,
     crea_mappa,
     crea_profondita,
     crea_protagonista,
     crea_seme,
+    crea_stagione,
+    stagione_corrente,
     crea_tempo_piano,
     mappa_to_dict,
     entra_run_nuova,
@@ -81,12 +87,9 @@ class StatoGuscio(Enum):
     IN_RUN = "in_run"
 
 
-class Terminale(Enum):
-    """I tre terminali run→guscio (E-8). Gli esiti vittoria/fuga NON sono qui."""
-
-    SCONFITTA = "sconfitta"               # 6a — death-check seeded → MortePersonaggio
-    PIANO_COMPLETATO = "piano_completato"  # 6b — DiscesaPiano (nell'MVP, un piano → vittoria)
-    USCITA_VOLONTARIA = "uscita_volontaria"  # 6c — intento del giocatore
+# `Terminale` vive in `contracts` (ri-esportato qui per i chiamanti storici): è la
+# domanda «come è finita la run», e un host deve poterla fare senza guardare dentro
+# il motore. Vedi contracts/vista.py.
 
 
 class Guscio:
@@ -106,6 +109,12 @@ class Guscio:
         self._coppie_in_run: list[tuple[type, object]] = []
         self._boot()
 
+    @property
+    def terminale(self) -> Terminale | None:
+        """Come è finita la run, `None` se è in corso. Lettura PUBBLICA: prima
+        l'unico accesso era l'attributo privato — e i test stessi lo leggevano."""
+        return self._terminale
+
     # --- BOOT → MENU ---------------------------------------------------------
 
     def _boot(self) -> None:
@@ -119,15 +128,31 @@ class Guscio:
     def _sistemi_run(self):
         return dict(
             sempre_attivi=[
-                SistemaVeleno(),
-                SistemaBrucia(),
-                SistemaRigenerazione(),
-                SistemaStordito(),
+                # I tick di status sono DERIVATI dalla tabella unica (SPEC_STATUS):
+                # un nuovo status non tocca il guscio.
+                *sistemi_status(self.bus),
                 SistemaDeathCheck(self.bus),
                 SistemaTempoPiano(),  # contatore di tempo-piano, avanza al tick condiviso (J-14)
             ],
-            solo_combattimento=[SistemaRinforzi(), SistemaTurnoCombattimento(self.bus)],
-            solo_narrazione=[SistemaMovimento(), SistemaDiscesa(self.bus)],
+            # `SistemaCrollo` DOPO il sistema-turno (legge il `turni_scontro` appena
+            # avanzato): la rete di terminazione per costruzione è ATTIVA (G-L1).
+            solo_combattimento=[
+                SistemaRinforzi(),
+                SistemaTurnoCombattimento(self.bus),
+                SistemaCrollo(self.bus),
+            ],
+            # SistemaEquip: il canale indossa/togli è ACCESO (giro 2026-08-07 —
+            # era l'unico Processor del motore mai registrato: un intento equip
+            # accodato marciva nel World per sempre).
+            solo_narrazione=[
+                SistemaMovimento(), SistemaDiscesa(self.bus), SistemaEquip(),
+                # Canale B: l'uso dei consumabili — stesso phase-gate
+                # dell'equip (in combattimento l'intento resta in coda).
+                SistemaConsumabili(self.bus),
+                # Territorio (2026-08-10): il passaggio di zona è un intento con
+                # un solo proprietario, gemello della discesa.
+                SistemaAttraversamento(self.bus),
+            ],
         )
 
     def _registra_handler_run(self) -> None:
@@ -137,6 +162,12 @@ class Guscio:
         coppie: list[tuple[type, object]] = []
         coppie += collega_transizioni_fase(self.bus)
         coppie += collega_combattimento(self.bus)
+        # La mappa si rigenera da sé alla discesa (la topologia è roba sua, non del
+        # guscio): la scala del nuovo piano la legge dalla stagione congelata, che è
+        # l'unico contenuto di cui una run in corso possa fidarsi.
+        coppie.append((DiscesaPiano, collega_discesa_mappa(self.bus, _stanze_del_piano)))
+        # Territorio: la vittoria nella stanza-boss marca il custode come battuto.
+        coppie.append((CombatResolved, collega_boss(self.bus)))
         for tipo, handler in ((MortePersonaggio, self._su_morte), (DiscesaPiano, self._su_discesa)):
             self.bus.registra(tipo, handler)
             coppie.append((tipo, handler))
@@ -151,29 +182,64 @@ class Guscio:
 
     # --- Detection dei terminali (in-run, sul bus): solo segnale, MAI switch ---
 
+    # (helper di modulo definito in fondo al file: `_stanze_del_piano`)
+
     def _su_morte(self, _evento: MortePersonaggio) -> None:
         """Terminale di perdita (6a). Solo un flag: il teardown è nella shell (E-4)."""
         self._terminale = Terminale.SCONFITTA
 
-    def _su_discesa(self, _evento: DiscesaPiano) -> None:
-        """Piano-completato (6b): nell'MVP (un piano) la `DiscesaPiano` è la vittoria
-        della run (G §6.7). Solo un flag, nessuno switch in volo (E-4)."""
-        self._terminale = Terminale.PIANO_COMPLETATO
+    def _su_discesa(self, evento: DiscesaPiano) -> None:
+        """Terminale di vittoria (6b) — ma **solo scendendo dall'ULTIMO piano** (G §6.7).
+
+        Prima qui non c'era condizione: con una stagione a un piano solo, la prima
+        `DiscesaPiano` *era* la fine della run, e il codice lo dava per scontato. Con
+        più piani quella scorciatoia trasformava il secondo piano in codice
+        irraggiungibile: si scendeva, e la run finiva sul posto.
+
+        La stagione congelata è l'autorità su "quanti piani ci sono" — non una costante,
+        non la libreria su disco (che può essere cambiata sotto i piedi di una run già
+        avviata). `evento.piano` è il livello RAGGIUNTO: superare l'ultimo significa
+        essere usciti dal dungeon, cioè aver vinto. Solo un flag, nessuno switch in volo
+        (E-4)."""
+        stagione = stagione_corrente()
+        piani = len(stagione.piani) if stagione is not None else 1
+        if evento.piano > piani:
+            self._terminale = Terminale.PIANO_COMPLETATO
 
     # --- Ingresso run: protagonista NASCE o si DESERIALIZZA, solo qui (E-5) ----
 
     def nuova_partita(
-        self, uuid: str = "carl", *, destrezza: int = 10, hp: int = 30, seed: int = 0
+        self,
+        uuid: str = "carl",
+        *,
+        destrezza: int | None = None,
+        hp: int | None = None,
+        seed: int = 0,
+        n_stanze: int | None = None,
+        stagione=None,
     ) -> None:
         """Confine guscio→run, nuova partita (3a): `"run"` fresco e il protagonista
-        **nasce** qui (Carl predefinito, G §6.5). Mai a una transizione di fase (E-5)."""
+        **nasce** qui (Carl predefinito, G §6.5). Mai a una transizione di fase (E-5).
+
+        `n_stanze` sovrascrive il default di calibrazione (`MAPPA_STANZE`) per la
+        topologia del piano: lo usa l'host quando il contenuto è un copione a
+        lunghezza nota (es. il giro scriptato del GM offline). `stagione` è
+        l'aggregato di contenuto RISOLTO (`design.StagioneAttiva`): viene
+        congelato qui, accanto agli altri singleton, e viaggia col save."""
         assert self.stato == StatoGuscio.MENU, self.stato
         entra_run_nuova()  # H esegue lo switch al `"run"` fresco; il guscio lo orchestra
         # I singleton di stato nascono qui; `FaseCorrente` la crea `avvia_run`.
         crea_profondita()
         crea_seme(seed)
         crea_tempo_piano()
-        crea_mappa(random.Random(seed))  # topologia seeded dal seme di run (G-18 garantito)
+        if stagione is not None:
+            crea_stagione(stagione)  # il design della run: congelato al confine (E-5)
+        # Territorio (2026-08-10): un piano-mondo monta la mappa della PRIMA zona
+        # della spina; i piani piatti (e i legacy) restano sulla topologia storica.
+        from motore.territorio import avvia_territorio
+
+        if not avvia_territorio(livello=1):
+            crea_mappa(random.Random(seed), n_stanze)  # topologia seeded (G-18)
         crea_protagonista(destrezza=destrezza, punti_vita=hp, id_dominio=uuid)
         self.coda = avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE, **self._sistemi_run())
         self._registra_handler_run()
@@ -201,8 +267,17 @@ class Guscio:
 
     def esci_volontariamente(self) -> None:
         """Intento del giocatore (6c): segnala il terminale. NON fa switch_world — è
-        solo detection in-run; il teardown è in `concludi` (E-4)."""
+        solo detection in-run; il teardown è in `concludi` (E-4).
+
+        Un terminale GIÀ rilevato non si rinegozia (caccia 2026-08-16): qui si
+        sovrascriveva incondizionatamente con USCITA_VOLONTARIA — così `concludi`
+        prendeva il ramo `salva_run` invece di `invalida`, e «esci» dopo la
+        vittoria RISALVAVA lo slot che il permadeath aveva ritirato (save-scumming
+        via porta pubblica). Il terminale di run è un fatto del motore: l'intento
+        d'uscita dell'host non lo cambia."""
         assert self.stato == StatoGuscio.IN_RUN, self.stato
+        if self._terminale is not None:
+            return
         self._terminale = Terminale.USCITA_VOLONTARIA
 
     # --- Loop di run host-agnostico (coroutine, guidata dal turno) -------------
@@ -229,7 +304,14 @@ class Guscio:
 
     # --- La cucitura unica: hand-off del terminale (E-4, E-8) ------------------
 
-    def concludi(self) -> Terminale:
+    def concludi(
+        self,
+        *,
+        archivio=None,
+        etichetta: str | None = None,
+        timestamp: float = 0.0,
+        rng_state: list | None = None,
+    ) -> Terminale:
         """Esegue l'hand-off del terminale rilevato (stessa cucitura per 6a/6b/6c):
 
         1. **save-wiring PRIMA dello switch** (World ancora vivo): uscita volontaria
@@ -239,14 +321,29 @@ class Guscio:
            `delete_world("run")`, E-6) — chiamato dalla shell, fuori da ogni handler (E-4).
 
         Da chiamare **dopo** che `esegui_run` ha ceduto il controllo: mai in un handler.
+
+        `archivio`/`etichetta`/`timestamp` riguardano SOLO il ramo uscita volontaria:
+        l'Archivio della sessione va passato dal chiamante che lo possiede — senza,
+        si RILEGGE il sidecar esistente, che così non viene mai azzerato da un
+        salva-ed-esci (il sidecar è la storia congelata dei turni GM, H §11).
         """
         assert self.stato == StatoGuscio.IN_RUN and self._terminale is not None
         terminale = self._terminale
         uuid = self._uuid
 
         if terminale is Terminale.USCITA_VOLONTARIA:
+            if archivio is None and uuid is not None:
+                archivio = carica_archivio(self.directory, uuid)
             # La mappa viaggia nello slot `esplorazione` (topologia + posizione + visitate).
-            salva_run(self.directory, model_id=self.model_id, esplorazione=mappa_to_dict())
+            salva_run(
+                self.directory,
+                archivio=archivio,
+                model_id=self.model_id,
+                etichetta=etichetta,
+                timestamp=timestamp,
+                esplorazione=mappa_to_dict(),
+                rng_state=rng_state,
+            )
         else:  # SCONFITTA (6a) o PIANO_COMPLETATO (6b): fine-run → invalida
             if uuid is not None:
                 invalida(self.directory, uuid)
@@ -297,3 +394,20 @@ class Guscio:
             self._abbandona_run()
             raise
         return self.concludi()
+
+
+def _stanze_del_piano(livello: int) -> int | None:
+    """La scala del piano `livello` dalla stagione **congelata nella run**.
+
+    Non dalla libreria su disco: una run in corso non deve cambiare forma perché
+    qualcuno ha ritoccato un asset. `None` → la scala di calibrazione (nessun contenuto
+    che dica quanto è grande questo piano).
+
+    Offline la scala è derivata dal cast (`len(cast)`), che è anche la lunghezza del
+    copione: una stanza per turno scriptato."""
+    stagione = stagione_corrente()
+    if stagione is None or not stagione.piani:
+        return None
+    indice = min(livello, len(stagione.piani)) - 1
+    piano = stagione.piani[max(0, indice)]
+    return piano.stanze if piano.stanze is not None else len(piano.cast) or None

@@ -8,3 +8,19 @@ pydantic==2.10.6
 pydantic_core==2.27.2
 annotated-types==0.7.0
 typing_extensions==4.12.2
+
+# --- Chiusura transitiva dell'host web (fastapi/uvicorn/httpx) --------------
+fastapi==0.141.1
+starlette==1.3.1
+uvicorn==0.52.1
+httpx==0.28.1
+httpcore==1.0.9
+anyio==4.14.2
+sniffio==1.3.1
+h11==0.16.0
+idna==3.18
+certifi==2026.7.22
+click==8.4.2
+colorama==0.4.6
+typing-inspection==0.4.2
+annotated-doc==0.0.5

@@ -1,0 +1,13 @@
+{
+  "slug": "ballerino-del-video-proibito",
+  "versione": 1,
+  "tags": ["nascondino", "non-morti", "riempitivo", "anni-ottanta"],
+  "nome": "Ballerino del Video Proibito",
+  "archetipo": "zombie",
+  "grado": "argento",
+  "blocchi": [],
+  "descrizione": "Giacca rossa di pelle, coreografia impressa nei tendini piu a fondo del rigor mortis. Non attacca: SI ESIBISCE nella tua direzione, con effetti identici.",
+  "prosa_stanza": "Parte una musica da dove non ci sono casse. Il Ballerino del Video Proibito scatta in posa controluce, giacca rossa e cerniere ovunque, e avanza verso di te a passi sincopati perfetti — spalla, spalla, girata, ringhio. Dietro di lui, altri due cadaveri sbagliano il tempo e lui li fulmina con l'occhio che gli è rimasto.",
+  "durata": "turno",
+  "mosse": ["attacco", "attacco_pesante"]
+}
