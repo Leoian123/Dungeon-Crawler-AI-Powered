@@ -991,8 +991,16 @@ per grado (§11), monouso via inventario (`sessione.usa` → `PlayerUsaOggetto`
 rifiuto-non-consuma, antidoto mai sugli innati, `OggettoUsato` tipato in
 cronaca, dato demo (3 pezzi) nel giro dei drop; post-MVP dichiarati: uso in
 combattimento (muove il TTK), consumabili da fabbrica/box, ×N ai tier alti.
-Restano dichiarate: moltiplicatore benefactor (quando esisteranno box
-sponsor), joke item come contenuto autorale.
+**Vestizione §B-4 chiusa** (2026-08-26): pezzi vivi con grado/fattura/
+descrizione, `EquipVista` li espone, porta nuova `zaino_vista()` →
+`OggettoVista` (inventario tipato: tipo, grado, fattura, effetto, indossato
+— badge e bottone «Usa» della SPA nascono da qui); il nome resta pulito; le
+descrizioni si COMPONGONO (voce di fattura da pool autorali pescata seeded +
+manifattura della famiglia + nota d'elemento `ParteAffisso.descrizione`,
+campo nuovo d'asset con le note della catena-dei-morti scritte) — mai un
+prefisso fisso, mai testo generato a runtime. Restano dichiarate:
+moltiplicatore benefactor (quando esisteranno box sponsor), joke item come
+contenuto autorale.
 
 Il passo ora è la RIFINITURA: il giocatore vero sceglie gli scontri e usa i
 vicoli — le run manuali arrivano più in là della politica; leve residue in

@@ -884,7 +884,12 @@ def _equip_di(entita: int) -> tuple[EquipVista, ...]:
         categoria = (
             indossato.taglia.value if slot is SlotEquip.ARMA else indossato.categoria.value
         )
-        return EquipVista(slot=slot, nome=indossato.nome, categoria=categoria)
+        return EquipVista(
+            slot=slot, nome=indossato.nome, categoria=categoria,
+            grado=getattr(indossato, "grado", ""),
+            qualita=getattr(indossato, "qualita", ""),
+            descrizione=getattr(indossato, "descrizione", ""),
+        )
 
     return tuple(_riga(slot) for slot in SlotEquip)
 
@@ -1916,6 +1921,38 @@ class SessioneGioco:
         pent, _marker, _scheda = protagonista()
         comp = equip_attivo(pent)
         return comp.fonti() if comp is not None else ()
+
+    def zaino_vista(self) -> tuple["OggettoVista", ...]:
+        """L'inventario TIPATO (§B-4: il dato vive qui, l'host veste): una
+        riga per fonte nello Zaino con tipo, grado, fattura, effetto e
+        descrizione — i badge della SPA e il bottone «Usa» nascono da qui,
+        mai da uno sniffing sul nome."""
+        from contracts import OggettoVista
+        from motore import (
+            Accessorio, Arma, Consumabile, PezzoArmatura,
+            catalogo_oggetti_correnti, fonti_zaino,
+        )
+
+        self._guardia_aperta()
+        pent, _marker, _scheda = protagonista()
+        catalogo = catalogo_oggetti_correnti()
+        indossate = set(self.fonti_indossate())
+        tipi = ((Consumabile, "consumabile"), (Arma, "arma"),
+                (PezzoArmatura, "armatura"), (Accessorio, "accessorio"))
+        righe = []
+        for fonte in fonti_zaino(pent):
+            ogg = catalogo.get(fonte)
+            righe.append(OggettoVista(
+                fonte=fonte,
+                nome=getattr(ogg, "nome", "") or fonte,
+                tipo=next((t for cls, t in tipi if isinstance(ogg, cls)), ""),
+                grado=getattr(ogg, "grado", "") or "",
+                qualita=getattr(ogg, "qualita", "") or "",
+                effetto=getattr(ogg, "effetto", "") or "",
+                descrizione=getattr(ogg, "descrizione", "") or "",
+                indossato=fonte in indossate,
+            ))
+        return tuple(righe)
 
     def _provider_offline(self) -> bool:
         """Vero se il GM è il copione offline (FakeProvider e derivati): il
@@ -3094,6 +3131,7 @@ def _fabbrica_a_attiva(fabbrica) -> "FabbricaAttiva | None":
         affissi=tuple(
             AffissoAttivo(
                 nome=a.nome,
+                descrizione=a.descrizione,
                 res_contro=a.res_contro.value if a.res_contro is not None else None,
                 res_fascia=a.res_fascia.value if a.res_fascia is not None else None,
                 modificatori=tuple(

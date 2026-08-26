@@ -88,11 +88,22 @@ Manca (i due buchi che il power-play del 2026-08-26 ha misurato):
    scelta del giocatore (tenersi la box per il territorio profondo), non un
    exploit — il conio resta deterministico per-box nella timeline in cui
    apri. `BoxAperta.grado` dice il grado CONIATO.
-2. **Il dato agli host — FATTA (metà backend)**: `OggettoTrovato` trasporta
-   `grado`+`qualita`, `BoxAperta` la `qualita` ("" = non detto: eventi
-   vecchi e pool storico validano); la cronaca annuncia la fattura («—
-   fattura di scarto / pregiata», l'onesto tace). La VESTIZIONE (colori,
-   badge nella SPA) è del lab, al prossimo travaso.
+2. **Il dato agli host — FATTA (backend completo, §B-4 chiuso 2026-08-26)**:
+   `OggettoTrovato` trasporta `grado`+`qualita`, `BoxAperta` la `qualita`
+   ("" = non detto); la cronaca annuncia la fattura («— fattura di scarto /
+   pregiata», l'onesto tace). I pezzi vivi (Arma/PezzoArmatura/Accessorio)
+   portano grado/fattura/descrizione; `EquipVista` li espone per slot e la
+   porta NUOVA `zaino_vista()` dà l'inventario TIPATO (`OggettoVista`: tipo,
+   grado, fattura, effetto del consumabile, indossato) — i badge e il
+   bottone «Usa» della SPA nascono da lì, mai da sniffing sul nome. Il NOME
+   resta pulito (identità del pezzo): la fattura è vista+cronaca, non un
+   suffisso col problema del genere. E le DESCRIZIONI ora si COMPONGONO:
+   voce di fattura da POOL autorali (5/4/5 varianti, pescata seeded in coda
+   allo stream — mai un prefisso fisso, il timbro ripetuto era déjà-vu) +
+   riga di manifattura della famiglia (asset) + nota dell'ELEMENTO
+   (`ParteAffisso.descrizione`, campo NUOVO d'asset, note scritte per la
+   catena-dei-morti). Tre registri, tutti dato autorale o pool del motore —
+   mai testo generato a runtime.
 3. **Box Benefactor** (moltiplicatore ×2 tier): oggi non esistono box
    benefactor — quando arriveranno (sponsor/fan, strato sovra-run), il
    moltiplicatore è la regola. Dichiarata ora, si implementa allora.

@@ -167,6 +167,7 @@ from .contenuti import (
 from .hub import CrawlerVista
 from .proiezione import (
     EquipVista,
+    OggettoVista,
     ProgressioneVista,
     SchedaProiezione,
     SchedaVista,
@@ -295,6 +296,7 @@ __all__ = [
     "SchedaVista",
     "SkillVista",
     "EquipVista",
+    "OggettoVista",
     "SlotEquip",
     "SLOT_ARMATURA",
     "SLOT_IMPUGNATI",

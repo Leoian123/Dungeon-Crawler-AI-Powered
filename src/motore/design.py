@@ -152,6 +152,7 @@ class FamigliaAttiva:
 @dataclass(frozen=True)
 class AffissoAttivo:
     nome: str
+    descrizione: str = ""            # la nota autorale dell'elemento (§B-4)
     res_contro: str | None = None
     res_fascia: str | None = None
     modificatori: tuple[tuple[str, str], ...] = ()

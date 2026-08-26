@@ -90,6 +90,17 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
     danno arma dal grado, resistenze dalle fasce."""
     tipo = o.tipo
     nome = o.nome
+    # Il dato di vestizione (§B-4) viaggia sul pezzo vivo: la vista mostra
+    # grado e fattura senza ricalcoli. Sul pezzo l'ONESTO tace ("" come il
+    # non-detto degli asset autorati): il badge di fattura esiste solo per
+    # scarto e pregiato — la stessa disciplina della cronaca. Così le due
+    # forme (asset con enum, attivo congelato) traducono IDENTICO.
+    qualita = getattr(o, "qualita", "") or ""
+    vestizione = {
+        "grado": o.grado.value if hasattr(o.grado, "value") else str(o.grado),
+        "qualita": "" if qualita == "onesto" else qualita,
+        "descrizione": getattr(o, "descrizione", "") or "",
+    }
     if tipo == "consumabile":
         # Canale B: il consumabile non è un pezzo d'equip — è monouso, e
         # `equipaggia()` lo rifiuta per costruzione (non è fra i suoi tipi).
@@ -114,6 +125,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
             mitigazione_cent=o.mitigazione_cent,
             modificatori=mods,
             resistenze=resistenze,
+            **vestizione,
         )
     if tipo == "arma":
         danno = o.danno_base
@@ -126,6 +138,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
             danno_base=danno,
             modificatori=mods,
             resistenze=resistenze,
+            **vestizione,
         )
     return Accessorio(
         fonte=o.slug,
@@ -134,6 +147,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
         modificatori=mods,
         resistenze=resistenze,
         mosse=tuple(o.mosse),
+        **vestizione,
     )
 
 

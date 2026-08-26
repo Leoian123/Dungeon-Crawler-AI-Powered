@@ -76,18 +76,24 @@ def test_la_curva_danno_arma_e_convessa_e_monotona() -> None:
 def test_scarto_e_pregiato_muovono_gli_affissi(mondo_isolato) -> None:
     """SCARTO = zero affissi anche dove il grado li darebbe (oro); PREGIATO =
     un affisso in più del dovuto. Il nome dello scarto perde l'affisso."""
+    from motore.fabbrica import _VOCI_FATTURA
+
     _arma_fabbrica()
     scarto = conia_procedurale(random.Random(3), "oro", qualita="scarto")
     assert scarto.qualita == "scarto"
     assert scarto.resistenze == (), "lo scarto non porta l'elemento"
-    assert "scarto" in scarto.descrizione.lower()
+    assert any(scarto.descrizione.startswith(v) for v in _VOCI_FATTURA["scarto"]), (
+        "la voce di scarto apre la descrizione (dal pool autorale)"
+    )
 
     onesto = conia_procedurale(random.Random(3), "bronzo", qualita="onesto")
     pregiato = conia_procedurale(random.Random(3), "bronzo", qualita="pregiato")
     # Stesso stream: il pregiato di bronzo ha UN affisso dove l'onesto zero
     # (la sovrapposizione col grado sopra, per costruzione).
     assert len(pregiato.modificatori) >= len(onesto.modificatori)
-    assert "pregiata" in pregiato.descrizione.lower()
+    assert any(
+        pregiato.descrizione.startswith(v) for v in _VOCI_FATTURA["pregiato"]
+    )
 
 
 def test_la_qualita_sposta_il_danno_dell_arma(mondo_isolato) -> None:
@@ -218,6 +224,90 @@ def test_gli_eventi_loot_portano_grado_e_fattura() -> None:
     assert _nota_fattura(vecchio) == "", "il non-detto tace in cronaca"
     scarto = OggettoTrovato(nome="Chiodo", fonte="chiodo-z", qualita="scarto")
     assert _nota_fattura(scarto) == " — fattura di scarto"
+
+
+def test_le_descrizioni_si_compongono_senza_timbro_fisso(mondo_isolato) -> None:
+    """§B-4: la voce di fattura è un POOL autorale pescato seeded — mai un
+    prefisso unico (il timbro ripetuto è déjà-vu). Stesso stream = stessa
+    descrizione (replay-safe); su un campione le aperture variano."""
+    from motore.fabbrica import _VOCI_FATTURA
+
+    _arma_fabbrica()
+    a = conia_procedurale(random.Random(21), "oro")
+    b = conia_procedurale(random.Random(21), "oro")
+    assert a.descrizione == b.descrizione, "stesso stream → stessa voce"
+
+    aperture = set()
+    for i in range(40):
+        o = conia_procedurale(random.Random(i), "oro", qualita="pregiato")
+        aperture.add(next(
+            v for v in _VOCI_FATTURA["pregiato"] if o.descrizione.startswith(v)
+        ))
+    assert len(aperture) >= 3, "il timbro unico è tornato: la voce deve variare"
+
+
+def test_la_nota_dell_affisso_e_tessuta_nel_pezzo(mondo_isolato) -> None:
+    """La nota dell'ELEMENTO è dato d'asset (`ParteAffisso.descrizione`) e il
+    compositore la tesse nella descrizione del conio che porta quell'affisso."""
+    from motore import fabbrica_attiva
+
+    _arma_fabbrica()
+    fabbrica = fabbrica_attiva()
+    assert any(a.descrizione for a in fabbrica.affissi), (
+        "la stagione seed deve avere note d'affisso: sono dato autorale"
+    )
+    for i in range(60):
+        o = conia_procedurale(random.Random(i), "oro", qualita="onesto")
+        affisso = next(
+            (a for a in fabbrica.affissi if f" {a.nome} " in f" {o.nome} "),
+            None,
+        )
+        if affisso is not None and affisso.descrizione:
+            assert affisso.descrizione in o.descrizione, (
+                "l'elemento del nome deve raccontarsi nella descrizione"
+            )
+            return
+    raise AssertionError("nessun conio con affisso nel campione: fabbrica rotta")
+
+
+def test_la_vista_porta_grado_e_fattura(run_pulita, tmp_path) -> None:
+    """§B-4, la vestizione: `zaino_vista` e `EquipVista` trasportano grado,
+    fattura, descrizione (e l'effetto dei consumabili) — l'host veste, mai
+    deduce dal nome."""
+    import asyncio
+
+    from main import costruisci_sessione
+    from motore import assicura_zaino, protagonista
+    from motore.oggetti import assicura_coniati
+
+    sessione = costruisci_sessione(nome="Vetrina", seed=2, directory=tmp_path)
+    asyncio.run(sessione.prossima_narrazione())
+    pent = protagonista()[0]
+    lama = conia_procedurale(
+        random.Random(9), "argento", tipi_base=("arma",), qualita="pregiato",
+    )
+    assicura_coniati(pent).voci.append(lama)
+    assicura_zaino(pent).fonti.append(lama.slug)
+
+    riga = next(r for r in sessione.zaino_vista() if r.fonte == lama.slug)
+    assert (riga.tipo, riga.grado, riga.qualita) == ("arma", "argento", "pregiato")
+    assert riga.descrizione == lama.descrizione and riga.indossato is False
+    # Un consumabile demo nello zaino porta il suo effetto (il bottone «Usa»).
+    assicura_zaino(pent).fonti.append("tonico-di-latta")
+    tonico = next(r for r in sessione.zaino_vista() if r.fonte == "tonico-di-latta")
+    assert (tonico.tipo, tonico.effetto) == ("consumabile", "cura")
+
+    sessione.equipaggia(lama.slug)
+    from contracts import SlotEquip
+
+    vista_arma = next(
+        v for v in sessione.scheda().equip if v.slot is SlotEquip.ARMA
+    )
+    assert (vista_arma.grado, vista_arma.qualita) == ("argento", "pregiato")
+    assert vista_arma.descrizione == lama.descrizione
+    riga = next(r for r in sessione.zaino_vista() if r.fonte == lama.slug)
+    assert riga.indossato is True
+    sessione.esci()
 
 
 def test_i_save_vecchi_non_cambiano(mondo_isolato) -> None:

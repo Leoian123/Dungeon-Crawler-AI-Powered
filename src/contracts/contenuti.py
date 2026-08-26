@@ -355,11 +355,15 @@ class ParteFamiglia(BaseModel):
 
 class ParteAffisso(BaseModel):
     """L'AFFISSO (l'"elemento"/tratto di BL3): un aggettivo nel nome
-    («Fumante …») + resistenza tipata a fascia e/o un modificatore."""
+    («Fumante …») + resistenza tipata a fascia e/o un modificatore.
+    `descrizione` è la NOTA autorale dell'elemento — la riga che il
+    compositore delle descrizioni tesse nel pezzo coniato (§B-4): il testo
+    è dato d'asset, mai generato dal motore."""
 
     model_config = _FROZEN
 
     nome: str = Field(min_length=1)
+    descrizione: str = ""
     res_contro: TipoDanno | None = None       # resistenza elementale...
     res_fascia: Fascia | None = None          # ...con l'intensità a fascia
     modificatori: list[ModificatoreDati] = Field(default_factory=list, max_length=1)
