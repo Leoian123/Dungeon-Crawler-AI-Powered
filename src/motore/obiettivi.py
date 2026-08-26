@@ -208,3 +208,70 @@ class OsservatoreObiettivi:
 
 def attiva_osservatore(bus) -> OsservatoreObiettivi:
     return OsservatoreObiettivi(bus)
+
+
+# --- L'apertura delle box (fase O2): solo nei luoghi quieti ---------------------
+
+# Categoria della box → tipi di BASE della fabbrica che può estrarre.
+# `None` = qualunque base (la box generalista). Una categoria si dichiara solo
+# se la fabbrica può onorarla: il vincolo che azzera i candidati è un errore
+# di catalogo e l'apertura degrada a no-op, mai a crash.
+_TIPI_PER_CATEGORIA: dict[str, tuple[str, ...] | None] = {
+    "armi": ("arma",),
+    "indumenti": ("armatura",),
+    "accessori": ("accessorio",),
+    "avventuriero": None,
+}
+
+
+def prossima_box() -> BoxChiusa | None:
+    """La prossima box in coda (FIFO: la prima guadagnata è la prima aperta).
+    Sola lettura: comporre il menu non consuma niente."""
+    comp = obiettivi_correnti()
+    if comp is None or not comp.box:
+        return None
+    return comp.box[0]
+
+
+def apri_prossima_box(bus) -> object | None:
+    """Apre la prossima box: conio della fabbrica VINCOLATO alla categoria,
+    su stream RNG ISOLATO `master_seed:box:{id}` — replay-safe, lo stream di
+    sessione non si muove; stessa box = stesso oggetto, sempre.
+
+    GATE STRUTTURALE: solo nel luogo quieto (la composizione del menu è la
+    prima guardia, questa è la cintura — un host che chiama fuori posto
+    riceve `None`, mai un oggetto). La box esce dalla coda SOLO a conio
+    riuscito. Deposito: coniati persistenti + zaino; il fatto va in cronaca
+    (`BoxAperta`)."""
+    import random
+
+    from contracts import BoxAperta
+
+    from .equip import assicura_zaino
+    from .fabbrica import conia_procedurale
+    from .mappa import stanza_quieta
+    from .oggetti import assicura_coniati
+    from .scheda import protagonista
+    from .seme import master_seed
+
+    comp = obiettivi_correnti()
+    if comp is None or not comp.box:
+        return None
+    if not stanza_quieta():
+        return None
+    box = comp.box[0]
+    rng = random.Random(f"{master_seed()}:box:{box.id}")
+    attivo = conia_procedurale(
+        rng, box.grado, tipi_base=_TIPI_PER_CATEGORIA.get(box.categoria),
+    )
+    if attivo is None:
+        return None  # fabbrica assente o categoria non onorabile: la box resta
+    comp.box.pop(0)
+    pent, _marker, _scheda = protagonista()
+    assicura_coniati(pent).voci.append(attivo)
+    assicura_zaino(pent).fonti.append(attivo.slug)
+    bus.pubblica(BoxAperta(
+        categoria=box.categoria, grado=box.grado,
+        nome=attivo.nome, fonte=attivo.slug,
+    ))
+    return attivo

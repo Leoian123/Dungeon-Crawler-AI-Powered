@@ -225,3 +225,102 @@ def test_sessione_sblocca_e_il_reload_non_ripete(run_pulita, tmp_path) -> None:
         "il catalogo congelato viaggia col save"
     )
     riaperta.esci()
+
+
+# --- Fase O2: l'apertura delle box nei luoghi quieti ----------------------------
+
+def _stanza_quieta_del_piano():
+    """La prima stanza QUIETA della zona corrente (None se non ce n'è)."""
+    from contracts import TipoStanza
+    from motore.mappa import mappa_corrente, tipo_di
+
+    mappa = mappa_corrente()[1]
+    for stanza in sorted(mappa.piano.adiacenze):
+        if tipo_di(mappa.piano, stanza) in (
+            TipoStanza.SAFE_ROOM, TipoStanza.BAGNO,
+        ):
+            return stanza
+    return None
+
+
+def _sessione_con_box(tmp_path, seed_candidati=(3, 1, 5, 8)):
+    """Una run con una box ARMI/ARGENTO guadagnata e una stanza quieta nel
+    piano: il seed si sceglie deterministicamente fra i candidati (il primo
+    la cui zona ha un luogo quieto)."""
+    from main import costruisci_sessione
+
+    for seed in seed_candidati:
+        sessione = costruisci_sessione(
+            seed=seed, directory=tmp_path / f"s{seed}", nome="Donut",
+            obiettivi=(_asset(box=("armi", "argento")),),
+        )
+        if _stanza_quieta_del_piano() is not None:
+            return sessione
+        sessione.esci()
+    raise AssertionError("nessun seed candidato ha una stanza quieta in zona")
+
+
+def test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
+    run_pulita, tmp_path
+) -> None:
+    """Il filo O2: vinci → box in coda; fuori dalla quiete l'opzione non si
+    compone e la cintura del motore rifiuta; nel luogo quieto l'opzione è
+    VERA, l'apertura conia un'ARMA (categoria vincolata), deposita in
+    coniati+zaino, svuota la coda e l'opzione sparisce."""
+    from motore.mappa import mappa_corrente, segna_visitata
+    from motore.obiettivi import apri_prossima_box, obiettivi_correnti
+
+    sessione = _sessione_con_box(tmp_path)
+    asyncio.run(_vinci_il_primo_scontro(sessione))
+    comp = obiettivi_correnti()
+    assert len(comp.box) == 1
+
+    # Fuori dalla quiete: la cintura strutturale rifiuta, la box resta.
+    quieta = _stanza_quieta_del_piano()
+    mappa = mappa_corrente()[1]
+    if mappa.stanza_corrente != quieta:
+        assert apri_prossima_box(sessione.bus) is None
+        assert len(comp.box) == 1, "fuori dal sicuro la box resta chiusa"
+
+    # L'harness si porta nel luogo quieto (visitato): l'opzione è VERA.
+    mappa.stanza_corrente = quieta
+    segna_visitata()
+    snap = sessione.avanza()
+    etichette = [o.etichetta for o in snap.opzioni]
+    assert "Apri box — Armi di Argento" in etichette, etichette
+
+    indice = next(
+        o.indice for o in snap.opzioni if o.etichetta.startswith("Apri box")
+    )
+    sessione.coda.accoda(PlayerChoseOption(indice))
+    snap = sessione.avanza()
+
+    comp = obiettivi_correnti()
+    assert comp.box == [], "la box è stata consumata"
+    from motore import protagonista
+    from motore.equip import fonti_zaino
+    from motore.oggetti import assicura_coniati
+
+    pent = protagonista()[0]
+    [coniato] = assicura_coniati(pent).voci
+    assert coniato.tipo == "arma", "la categoria ARMI vincola il conio"
+    assert coniato.grado == "argento"
+    assert coniato.slug in fonti_zaino(pent), "il pezzo è nello zaino"
+    assert all(
+        not o.etichetta.startswith("Apri box") for o in snap.opzioni
+    ), "a coda vuota l'opzione sparisce"
+    sessione.esci()
+    return coniato.slug
+
+
+def test_l_apertura_e_deterministica_per_replay(run_pulita, tmp_path) -> None:
+    """Stessa run (stesso seed, stessa box id) → stesso oggetto, sempre: lo
+    stream del conio è isolato per-box (`master_seed:box:{id}`), il replay
+    non può divergere."""
+    slug_a = test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
+        run_pulita, tmp_path / "a"
+    )
+    slug_b = test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
+        run_pulita, tmp_path / "b"
+    )
+    assert slug_a == slug_b, "il conio della box non è replay-safe"

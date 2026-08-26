@@ -182,6 +182,19 @@ class MortePersonaggio(EventoDominio):
 
 
 @dataclass(frozen=True)
+class BoxAperta(EventoDominio):
+    """Una box degli obiettivi si è aperta (nodo O2, solo nei luoghi quieti):
+    il conio è del motore (fabbrica, stream isolato per-box — replay-safe),
+    l'evento è il fatto compiuto per cronaca e showrunner. `fonte` è l'id di
+    dominio dell'oggetto coniato (Zaino/equip), `nome` il diegetico."""
+
+    categoria: str
+    grado: str
+    nome: str
+    fonte: str
+
+
+@dataclass(frozen=True)
 class ObiettivoRaggiunto(EventoDominio):
     """La NOTIFICA DI SISTEMA di un obiettivo sbloccato (nodo O): il dungeon
     ti guarda e commenta. Lo sblocco l'ha deciso l'osservatore del motore su

@@ -72,6 +72,7 @@ from contracts import (
     IntentoEsplorazione,
     MessaggioGM,
     MortePersonaggio,
+    BoxAperta,
     ObiettivoRaggiunto,
     OggettoTrovato,
     PlayerDiscende,
@@ -2453,6 +2454,15 @@ class SessioneGioco:
             # tick spesi via fast-forward, recupero da foglie §11, evento in cronaca.
             riposa(self.bus)
             return
+        if azione.tipo is TipoAzione.APRI_BOX:
+            # ⚠️ Ramo ESPLICITO (la stessa mina). L'apertura è del motore:
+            # conio vincolato su stream isolato per-box, deposito in
+            # coniati+zaino, evento in cronaca. Zero tick: il tempo l'hai
+            # già pagato arrivando al sicuro.
+            from motore.obiettivi import apri_prossima_box
+
+            apri_prossima_box(self.bus)
+            return
         if azione.tipo is TipoAzione.PASSA:
             # «Aspetta» (J §6, playtest 2026-08-12): UN tick secco — gli status
             # tickano, il dado tira. È la valvola della tenaglia del veleno:
@@ -2791,6 +2801,12 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
         f"(nello zaino).")),
     (TurnoSaltato, _riga_turno_saltato),
     (CombatResolved, _riga_risolto),
+    # Nodo O2: la box si apre (solo nei luoghi quieti) — il conio è già fatto,
+    # la cronaca annuncia il pezzo.
+    (BoxAperta, lambda e: (
+        f"◇ La Box {getattr(e, 'categoria', '?').capitalize()} di "
+        f"{getattr(e, 'grado', '?').capitalize()} si apre: "
+        f"{getattr(e, 'nome', '?')} (nello zaino).")),
     # Nodo O: la notifica di sistema. Testo e ricompensa sono GIÀ composti dal
     # motore (dato autorale, deterministico): la cronaca li affianca e basta.
     (ObiettivoRaggiunto, lambda e: (

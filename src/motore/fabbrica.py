@@ -85,7 +85,8 @@ def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
 
 
 def conia_procedurale(
-    rng: random.Random, grado: str, *, escludi_famiglia: str = ""
+    rng: random.Random, grado: str, *, escludi_famiglia: str = "",
+    tipi_base: tuple[str, ...] | None = None,
 ) -> OggettoAttivo | None:
     """UN oggetto dalla fabbrica, per il grado deciso dal motore. `None` senza
     fabbrica attiva. Deterministico: stesso stream RNG → stesso oggetto.
@@ -93,14 +94,25 @@ def conia_procedurale(
     `escludi_famiglia` (playtest 2026-08-19: tre «della Maschera» di fila): la
     manifattura dell'ULTIMO conio non si ripete se la fabbrica ne ha altre —
     SHIFT deterministico all'indice successivo, nessun draw in più: il resto
-    dello stream (affissi, suffisso) resta byte-identico allo storico."""
+    dello stream (affissi, suffisso) resta byte-identico allo storico.
+
+    `tipi_base` (nodo O2, le box a categoria): vincola la pescata della BASE
+    ai soli tipi indicati (es. `("arma",)`); `None` = tutte — il drop storico
+    resta byte-identico. `None` anche se il vincolo azzera i candidati (una
+    box che non può aprire nulla è un errore di catalogo, non un crash)."""
     from .catalogo import RANGO_GRADO
     from contracts import Grado
 
     fabbrica = fabbrica_attiva()
     if fabbrica is None:
         return None
-    base = fabbrica.basi[rng.randrange(len(fabbrica.basi))]
+    basi = (
+        fabbrica.basi if tipi_base is None
+        else [b for b in fabbrica.basi if b.tipo in tipi_base]
+    )
+    if not basi:
+        return None
+    base = basi[rng.randrange(len(basi))]
     indice = rng.randrange(len(fabbrica.famiglie))
     famiglia = fabbrica.famiglie[indice]
     if (escludi_famiglia and famiglia.nome == escludi_famiglia
