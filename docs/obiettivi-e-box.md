@@ -4,7 +4,8 @@ Il sistema di achievement dello show: **il dungeon ti guarda e commenta**.
 Ogni obiettivo è una notifica di sistema — sarcastica, nel registro
 dark-comico dello show — con una ricompensa che spesso è una **Box** (loot
 box per categoria e grado) e a volte è una beffa dichiarata. Le box si
-aprono **solo nei luoghi quieti**.
+aprono **solo nelle SAFE ROOM** (ratifica 2026-08-26: il bagno è privacy,
+la safe room è il rifugio attrezzato — è lì che si scartano i regali).
 
 > **Nota IP (vincolante).** Il riferimento di meccanica e registro è il
 > romanzo; i TESTI del catalogo sono **originali al 100%**: mai righe, nomi
@@ -102,8 +103,8 @@ il contenuto non esiste: mai una box che non può aprire nulla.
 1. **Casa del catalogo**: obiettivi di SISTEMA (`contenuti/obiettivi/`,
    validi per ogni stagione) + le stagioni possono aggiungerne di propri?
    (proposta: sì, stesso pattern degli altri asset)
-2. **Apertura solo in quiete**: confermi la regola? (proposta: sì — fedele
-   al riferimento e alla meccanica esistente; dà valore alle safe room)
+2. **Apertura solo in SAFE ROOM** — RATIFICATA COSÌ (2026-08-26), più
+   stretta della proposta: il bagno resta fuori (privacy, non servizi).
 3. **Beffe**: ricompensa-testo senza oggetto, dichiarata nel dato —
    confermi che è un tipo di ricompensa legittimo? (proposta: sì, è metà
    del registro comico)

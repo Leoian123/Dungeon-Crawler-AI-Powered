@@ -620,13 +620,14 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         downtime = _lettura_tollerante("recupero", _c_e_da_recuperare, True)
     if downtime:
         opzioni.append(OpzioneScena(tipo=TipoAzione.RIPOSA, etichetta="Riposa"))
-    # APRI BOX (nodo O2): SOLO nel luogo quieto, SOLO se c'è una box in coda e
-    # la fabbrica può onorarla — l'opzione compare quando è VERA, come Riposa.
+    # APRI BOX (nodo O2): SOLO in SAFE ROOM (ratifica 2026-08-26 — il bagno è
+    # privacy, la safe room è il rifugio attrezzato), SOLO se c'è una box in
+    # coda e la fabbrica può onorarla — l'opzione compare quando è VERA.
     def _etichetta_box() -> str:
         from .fabbrica import fabbrica_attiva
         from .obiettivi import prossima_box
 
-        if not stanza_quieta():
+        if tipo_stanza_corrente() is not TipoStanza.SAFE_ROOM:
             return ""
         box = prossima_box()
         if box is None or fabbrica_attiva() is None:

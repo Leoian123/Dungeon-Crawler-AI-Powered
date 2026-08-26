@@ -229,35 +229,25 @@ def test_sessione_sblocca_e_il_reload_non_ripete(run_pulita, tmp_path) -> None:
 
 # --- Fase O2: l'apertura delle box nei luoghi quieti ----------------------------
 
-def _stanza_quieta_del_piano():
-    """La prima stanza QUIETA della zona corrente (None se non ce n'è)."""
+def _sessione_con_box(tmp_path):
+    """Una run (seed 3) con una box ARMI/ARGENTO nel catalogo e una SAFE
+    ROOM DESIGNATA dall'harness: qui si prova il GATE dell'apertura (solo
+    rifugio, ratifica 2026-08-26), non lo spawn-rate dei rifugi — quello ha
+    i suoi test (test_tipi_stanza). Ritorna (sessione, stanza_sicura)."""
     from contracts import TipoStanza
-    from motore.mappa import mappa_corrente, tipo_di
-
-    mappa = mappa_corrente()[1]
-    for stanza in sorted(mappa.piano.adiacenze):
-        if tipo_di(mappa.piano, stanza) in (
-            TipoStanza.SAFE_ROOM, TipoStanza.BAGNO,
-        ):
-            return stanza
-    return None
-
-
-def _sessione_con_box(tmp_path, seed_candidati=(3, 1, 5, 8)):
-    """Una run con una box ARMI/ARGENTO guadagnata e una stanza quieta nel
-    piano: il seed si sceglie deterministicamente fra i candidati (il primo
-    la cui zona ha un luogo quieto)."""
     from main import costruisci_sessione
+    from motore.mappa import mappa_corrente
 
-    for seed in seed_candidati:
-        sessione = costruisci_sessione(
-            seed=seed, directory=tmp_path / f"s{seed}", nome="Donut",
-            obiettivi=(_asset(box=("armi", "argento")),),
-        )
-        if _stanza_quieta_del_piano() is not None:
-            return sessione
-        sessione.esci()
-    raise AssertionError("nessun seed candidato ha una stanza quieta in zona")
+    sessione = costruisci_sessione(
+        seed=3, directory=tmp_path, nome="Donut",
+        obiettivi=(_asset(box=("armi", "argento")),),
+    )
+    mappa = mappa_corrente()[1]
+    sicura = next(
+        s for s in sorted(mappa.piano.adiacenze) if s != mappa.piano.partenza
+    )
+    mappa.piano.tipi[sicura] = TipoStanza.SAFE_ROOM
+    return sessione, sicura
 
 
 def test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
@@ -270,17 +260,40 @@ def test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
     from motore.mappa import mappa_corrente, segna_visitata
     from motore.obiettivi import apri_prossima_box, obiettivi_correnti
 
-    sessione = _sessione_con_box(tmp_path)
+    sessione, quieta = _sessione_con_box(tmp_path)
     asyncio.run(_vinci_il_primo_scontro(sessione))
     comp = obiettivi_correnti()
     assert len(comp.box) == 1
 
-    # Fuori dalla quiete: la cintura strutturale rifiuta, la box resta.
-    quieta = _stanza_quieta_del_piano()
+    # Fuori dalla safe room: la cintura strutturale rifiuta, la box resta.
     mappa = mappa_corrente()[1]
     if mappa.stanza_corrente != quieta:
         assert apri_prossima_box(sessione.bus) is None
-        assert len(comp.box) == 1, "fuori dal sicuro la box resta chiusa"
+        assert len(comp.box) == 1, "fuori dal rifugio la box resta chiusa"
+
+    # Nemmeno nel BAGNO (ratifica 2026-08-26: quiete ≠ servizi): l'harness
+    # trasforma una stanza ordinaria in bagno — niente opzione, cintura chiusa.
+    from contracts import TipoStanza
+    from motore.mappa import segna_visitata as _segna
+
+    bagno = next(
+        s for s in sorted(mappa.piano.adiacenze)
+        if s not in (quieta, mappa.piano.partenza)
+    )
+    tipo_originale = mappa.piano.tipi.get(bagno)
+    mappa.piano.tipi[bagno] = TipoStanza.BAGNO
+    mappa.stanza_corrente = bagno
+    _segna()
+    snap_bagno = sessione.avanza()
+    assert all(
+        not o.etichetta.startswith("Apri box") for o in snap_bagno.opzioni
+    ), "nel bagno la box resta chiusa: privacy, non servizi"
+    assert apri_prossima_box(sessione.bus) is None
+    assert len(comp.box) == 1
+    if tipo_originale is None:
+        del mappa.piano.tipi[bagno]
+    else:
+        mappa.piano.tipi[bagno] = tipo_originale
 
     # L'harness si porta nel luogo quieto (visitato): l'opzione è VERA.
     mappa.stanza_corrente = quieta
@@ -289,6 +302,10 @@ def test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
     etichette = [o.etichetta for o in snap.opzioni]
     assert "Apri box — Armi di Argento" in etichette, etichette
 
+    from contracts import BoxAperta
+
+    aperture: list[BoxAperta] = []
+    sessione.bus.registra(BoxAperta, aperture.append)
     indice = next(
         o.indice for o in snap.opzioni if o.etichetta.startswith("Apri box")
     )
@@ -297,12 +314,19 @@ def test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
 
     comp = obiettivi_correnti()
     assert comp.box == [], "la box è stata consumata"
+    [evento] = aperture
+    assert (evento.categoria, evento.grado) == ("armi", "argento")
     from motore import protagonista
     from motore.equip import fonti_zaino
     from motore.oggetti import assicura_coniati
 
     pent = protagonista()[0]
-    [coniato] = assicura_coniati(pent).voci
+    # Il drop della vittoria può aver coniato anche lui: il pezzo della BOX
+    # si riconosce dal fatto dell'evento, mai per posizione.
+    coniato = next(
+        v for v in assicura_coniati(pent).voci if v.slug == evento.fonte
+    )
+    assert coniato.nome == evento.nome
     assert coniato.tipo == "arma", "la categoria ARMI vincola il conio"
     assert coniato.grado == "argento"
     assert coniato.slug in fonti_zaino(pent), "il pezzo è nello zaino"

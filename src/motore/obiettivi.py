@@ -238,18 +238,19 @@ def apri_prossima_box(bus) -> object | None:
     su stream RNG ISOLATO `master_seed:box:{id}` — replay-safe, lo stream di
     sessione non si muove; stessa box = stesso oggetto, sempre.
 
-    GATE STRUTTURALE: solo nel luogo quieto (la composizione del menu è la
-    prima guardia, questa è la cintura — un host che chiama fuori posto
-    riceve `None`, mai un oggetto). La box esce dalla coda SOLO a conio
-    riuscito. Deposito: coniati persistenti + zaino; il fatto va in cronaca
-    (`BoxAperta`)."""
+    GATE STRUTTURALE: SOLO in SAFE ROOM (ratifica 2026-08-26: il bagno è
+    privacy, non servizi — la safe room è il rifugio attrezzato). La
+    composizione del menu è la prima guardia, questa è la cintura — un host
+    che chiama fuori posto riceve `None`, mai un oggetto. La box esce dalla
+    coda SOLO a conio riuscito. Deposito: coniati persistenti + zaino; il
+    fatto va in cronaca (`BoxAperta`)."""
     import random
 
-    from contracts import BoxAperta
+    from contracts import BoxAperta, TipoStanza
 
     from .equip import assicura_zaino
     from .fabbrica import conia_procedurale
-    from .mappa import stanza_quieta
+    from .mappa import tipo_stanza_corrente
     from .oggetti import assicura_coniati
     from .scheda import protagonista
     from .seme import master_seed
@@ -257,7 +258,7 @@ def apri_prossima_box(bus) -> object | None:
     comp = obiettivi_correnti()
     if comp is None or not comp.box:
         return None
-    if not stanza_quieta():
+    if tipo_stanza_corrente() is not TipoStanza.SAFE_ROOM:
         return None
     box = comp.box[0]
     rng = random.Random(f"{master_seed()}:box:{box.id}")
