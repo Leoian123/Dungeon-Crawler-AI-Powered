@@ -72,9 +72,25 @@ def iniziativa(entita: int) -> int:
 # --- Le quattro derivate del risolutore a due check (§5/§6, GR2-10) ------------
 
 def atk_eff(att: int) -> int:
-    """Offesa del check 2, in **unità** (§5.1): `stat_eff(FORZA)` (+ skill offensive — nessuna
-    nell'MVP; l'ex-`mira` confluisce qui, non nel colpire). Niente Destrezza nel danno."""
-    return stat_eff(att, StatId.FORZA)
+    """Offesa del check 2, in **unità** (§5.1): `stat_eff(FORZA)` + il danno
+    dell'arma IMPUGNATA (review-armi 2026-08-26, nodo B1: il layer impugnato è
+    SVEGLIO — in un gioco senza livelli la progressione offensiva viaggia
+    sull'equip, come quella difensiva già faceva via fascia×rango). Le entità
+    senza manifest equip non si muovono di un punto: lo scaling dei mob resta
+    `K_RANGO_DANNO`. Niente Destrezza nel danno."""
+    return stat_eff(att, StatId.FORZA) + danno_arma_impugnata(att)
+
+
+def danno_arma_impugnata(entita: int) -> int:
+    """Il contributo dell'arma indossata: `danno_base` del pezzo nel mount
+    ARMA (0 a mani nude o senza manifest — il degrado è il comportamento
+    storico, mai un crash). Import locale: derivate resta a monte di equip."""
+    from .equip import equip_attivo
+
+    comp = equip_attivo(entita)
+    if comp is None or comp.arma is None:
+        return 0
+    return max(0, int(comp.arma.danno_base))
 
 
 def cost_eff_come_centesimi(ber: int) -> int:

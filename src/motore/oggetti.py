@@ -106,7 +106,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
     if tipo == "arma":
         danno = o.danno_base
         if danno is None:
-            danno = DANNO_ARMA_PER_GRADO[Grado(o.grado).value]
+            danno = DANNO_ARMA_PER_GRADO[_grado_arma_effettivo(o)]
         return Arma(
             fonte=o.slug,
             taglia=_valore_enum(o.taglia, Taglia),
@@ -180,6 +180,24 @@ def assicura_coniati(entita: int) -> OggettiConiati:
 def _coniati_correnti():
     for _ent, coniati in esper.get_component(OggettiConiati):
         yield from coniati.voci
+
+
+def _grado_arma_effettivo(o) -> str:
+    """Il grado con cui l'ARMA pesca il suo danno §11 (nodo B2): la qualità
+    del conio lo sposta di UN passo — scarto un grado sotto (floor bronzo),
+    pregiato un grado sopra (cap celestiale). È la sovrapposizione del
+    ventaglio: una lama pregiata d'argento colpisce come un'ORO onesta.
+    Oggetti senza qualità (asset autorati, save vecchi) = onesto: invariati."""
+    from .catalogo import RANGO_GRADO
+
+    ordinati = [g.value for g in sorted(RANGO_GRADO, key=RANGO_GRADO.__getitem__)]
+    indice = ordinati.index(Grado(o.grado).value)
+    qualita = getattr(o, "qualita", "onesto")
+    if qualita == "scarto":
+        indice = max(0, indice - 1)
+    elif qualita == "pregiato":
+        indice = min(len(ordinati) - 1, indice + 1)
+    return ordinati[indice]
 
 
 def attivo_da_asset(ogg) -> OggettoAttivo:

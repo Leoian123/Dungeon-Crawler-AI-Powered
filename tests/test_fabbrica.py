@@ -61,8 +61,9 @@ def test_conio_deterministico_e_composto(mondo_isolato) -> None:
 def test_rarita_governa_le_parti(mondo_isolato) -> None:
     _arma_fabbrica()
     rng = random.Random(7)
-    bronzo = conia_procedurale(rng, "bronzo")
-    # BRONZO: base × famiglia — niente affissi (né resistenze, mod solo famiglia).
+    # A qualità ONESTA (dichiarata: qui si prova la regola del GRADO, non il
+    # ventaglio B2): BRONZO = base × famiglia — niente affissi né resistenze.
+    bronzo = conia_procedurale(rng, "bronzo", qualita="onesto")
     assert bronzo.resistenze == ()
     # ORO: fino a due affissi — su molti coni almeno uno porta una resistenza.
     con_res = [conia_procedurale(random.Random(i), "oro") for i in range(30)]

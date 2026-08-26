@@ -110,7 +110,12 @@ def test_oggetto_da_asset_deriva_i_numeri() -> None:
     arma = oggetto_da_asset(OggettoAsset(
         slug="lama-test", nome="Lama", tipo="arma", grado=Grado.ORO,
     ))
-    assert isinstance(arma, Arma) and arma.danno_base == 3   # DANNO_ARMA[oro]=rango
+    # Il danno senza valore esplicito viene dalla foglia §11 del grado (curva
+    # convessa dal nodo B1: l'oracolo segue la calibrazione, non un numero).
+    from motore.calibrazione import DANNO_ARMA_PER_GRADO
+
+    assert isinstance(arma, Arma)
+    assert arma.danno_base == DANNO_ARMA_PER_GRADO["oro"]
 
     accessorio = oggetto_da_asset(OggettoAsset(
         slug="anello-test", nome="Anello", tipo="accessorio", grado=Grado.BRONZO,

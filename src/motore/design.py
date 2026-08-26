@@ -179,6 +179,10 @@ class OggettoAttivo:
     tipo: str                       # armatura | arma | accessorio
     grado: str
     descrizione: str = ""
+    # La QUALITÀ del conio (nodo B2): il ventaglio dentro il grado —
+    # scarto | onesto | pregiato. Default "onesto" = comportamento storico
+    # (i save e gli asset scritti prima del ventaglio non cambiano di un byte).
+    qualita: str = "onesto"
     slot: str | None = None
     categoria: str | None = None
     taglia: str = "media"

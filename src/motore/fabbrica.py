@@ -48,9 +48,37 @@ def _fascia_maggiore(a: str, b: str) -> str:
     return a if OGGETTO_MOD_FASCIA[a] >= OGGETTO_MOD_FASCIA[b] else b
 
 
+_DESCRIZIONE_QUALITA = {
+    # Le due fatture VISIBILI (nodo B2, registro originale): lo scarto è metà
+    # del tono del dungeon, il pregiato è la festa. L'onesto tace.
+    "scarto": "Fattura di scarto: la catena l'ha sputato senza voltarsi.",
+    "pregiato": "Fattura pregiata: la catena, per una volta, ha preso la mira.",
+}
+
+
+def _pesca_qualita(rng: random.Random, grado: str) -> str:
+    """Il ventaglio DENTRO il grado (nodo B2): pescata pesata sui pesi §11
+    (`LOOT.QUALITA.{grado}.*`, derivati dal dataset di riferimento). A pesi
+    tutti nulli il ventaglio è spento: onesto, il comportamento storico."""
+    from .calibrazione import LOOT_QUALITA_PESI, QUALITA_CONIO
+
+    pesi = LOOT_QUALITA_PESI.get(grado, {})
+    totale = sum(pesi.get(q, 0) for q in QUALITA_CONIO)
+    if totale <= 0:
+        return "onesto"
+    tiro = rng.random() * totale
+    cumulo = 0.0
+    for q in QUALITA_CONIO:
+        cumulo += pesi.get(q, 0)
+        if tiro < cumulo:
+            return q
+    return "onesto"
+
+
 def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
               *, nome: str | None = None,
-              descrizione: str | None = None) -> OggettoAttivo:
+              descrizione: str | None = None,
+              qualita: str = "onesto") -> OggettoAttivo:
     """L'UNICO assemblatore: dalle parti all'`OggettoAttivo`. Lo usano il conio
     procedurale (parti pescate seeded) e il pezzo UNICO (parti SCELTE dall'AI,
     gated): la meccanica esce sempre dalla stessa catena — merge per stat con
@@ -68,13 +96,18 @@ def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
     composto = " ".join(x for x in (
         base.nome, affissi[0].nome if affissi else "", famiglia.nome,
     ) if x)
+    descr = (descrizione or famiglia.descrizione
+             or "Uscito dalla catena di montaggio del piano.")
+    battuta = _DESCRIZIONE_QUALITA.get(qualita)
+    if battuta:
+        descr = f"{battuta} {descr}".strip()
     return OggettoAttivo(
         slug=f"{_slug(nome or composto)}-{suffisso}",
         nome=nome or composto,
         tipo=base.tipo,
         grado=grado,
-        descrizione=descrizione or famiglia.descrizione
-        or "Uscito dalla catena di montaggio del piano.",
+        descrizione=descr,
+        qualita=qualita,
         slot=base.slot,
         categoria=base.categoria,
         taglia=base.taglia,
@@ -87,6 +120,7 @@ def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
 def conia_procedurale(
     rng: random.Random, grado: str, *, escludi_famiglia: str = "",
     tipi_base: tuple[str, ...] | None = None,
+    qualita: str | None = None,
 ) -> OggettoAttivo | None:
     """UN oggetto dalla fabbrica, per il grado deciso dal motore. `None` senza
     fabbrica attiva. Deterministico: stesso stream RNG → stesso oggetto.
@@ -99,7 +133,13 @@ def conia_procedurale(
     `tipi_base` (nodo O2, le box a categoria): vincola la pescata della BASE
     ai soli tipi indicati (es. `("arma",)`); `None` = tutte — il drop storico
     resta byte-identico. `None` anche se il vincolo azzera i candidati (una
-    box che non può aprire nulla è un errore di catalogo, non un crash)."""
+    box che non può aprire nulla è un errore di catalogo, non un crash).
+
+    `qualita` (nodo B2, il ventaglio dentro il grado): `None` = pescata pesata
+    §11 IN CODA allo stream (base/famiglia/affissi/suffisso restano
+    byte-identici allo storico); una qualità esplicita è la dichiarazione del
+    chiamante (test, box speciali future). SCARTO scarta gli affissi già
+    pescati (il junk di consolazione); PREGIATO ne aggiunge uno in più."""
     from .catalogo import RANGO_GRADO
     from contracts import Grado
 
@@ -131,7 +171,17 @@ def conia_procedurale(
     # Suffisso dallo STESSO stream seeded: due coni della stessa run non
     # collidono, e il replay riconia identico.
     suffisso = f"{rng.randrange(16 ** 4):04x}"
-    return _assembla(base, famiglia, affissi, grado, suffisso)
+
+    # La qualità si pesca DOPO il suffisso: i draw storici non si spostano.
+    if qualita is None:
+        qualita = _pesca_qualita(rng, grado)
+    if qualita == "scarto":
+        affissi = []
+    elif qualita == "pregiato" and fabbrica.affissi:
+        extra = fabbrica.affissi[rng.randrange(len(fabbrica.affissi))]
+        if all(a.nome != extra.nome for a in affissi):
+            affissi.append(extra)
+    return _assembla(base, famiglia, affissi, grado, suffisso, qualita=qualita)
 
 
 def assembla_unico(scelte, grado: str, rng: random.Random):

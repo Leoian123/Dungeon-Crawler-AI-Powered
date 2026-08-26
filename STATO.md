@@ -959,11 +959,35 @@ vittoria FURTIVA in tana, 5 zone, ~20 riposi). Il ramo «`CARL.hp` che cresce
 col piano» è ESCLUSO dai dati: la spina resta a profondità 1, il muro è dentro
 il piano 1 — la progressione è l'equip, come da design.
 
-Il passo ora è la RIFINITURA: 8% con combatti-tutto è un pavimento (il
-giocatore vero sceglie gli scontri e usa i vicoli — le run manuali arrivano
-più in là della politica); leve residue in canna: `K_RANGO_DANNO` 0.4→0.3
-(con `test_ttk` come rete), fasce del canale mosse, margine di fuga. Tutte da
-console (`calibra.bat`) con `misura_run.bat` come oracolo del prima/dopo.
+**Nodo B (2026-08-26, bilanciamento oggetti dal dataset di riferimento —
+piano in docs/bilanciamento-oggetti.md, modello estratto da docs/Fine Tuning
+Oggetti, curve e regole MAI nomi: la nota IP vale anche qui).** Due leve
+strutturali, misurate in stack:
+- **B1, la review-armi**: il layer impugnato è SVEGLIO — `atk_eff` somma il
+  `danno_base` dell'arma indossata (i mob senza manifest non si muovono:
+  il loro scaling resta `K_RANGO_DANNO`); la curva `OGGETTO.DANNO_ARMA.*` è
+  convessa, derivata da `K_RANGO_HP` (2/3/5/6/8/9): l'offesa da equip insegue
+  i pool come la difesa già faceva. Era la radice del muro provincia/paese
+  misurato dal power-play del 2026-08-26.
+- **B2, la qualità del conio**: il ventaglio DENTRO il grado
+  (scarto/onesto/pregiato, vocabolario motore, mai AI-facing) pescato in coda
+  allo stream (i draw storici non si spostano) con pesi §11 per grado derivati
+  dal dataset (`LOOT.QUALITA.*`); scarto = zero affissi + arma un grado sotto
+  (il junk di consolazione dei tier bassi), pregiato = un affisso in più +
+  arma un grado sopra (la sovrapposizione fra gradi del riferimento);
+  `qualita` sull'`OggettoAttivo`, default onesto = save vecchi intatti.
+Misura di chiusura (stessa `misura_run`, 40 seed): **combatti 3/40 → 7/40,
+fuga20 11/40 (28%)** — la spina intera + discesa (prof. 2) è un esito
+regolare, non un colpo di fortuna; `scappa` resta 0/40 (vincere richiede
+combattere). Restano da ratificare (§B del piano): scaling per piano delle
+box, moltiplicatore benefactor, canale consumabili (dichiarato, non
+progettato), qualità nel nome/vista.
+
+Il passo ora è la RIFINITURA: il giocatore vero sceglie gli scontri e usa i
+vicoli — le run manuali arrivano più in là della politica; leve residue in
+canna: `K_RANGO_DANNO` 0.4→0.3 (con `test_ttk` come rete), fasce del canale
+mosse, margine di fuga. Tutte da console (`calibra.bat`) con `misura_run.bat`
+come oracolo del prima/dopo.
 
 Più avanti, sull'asse mappa: la **generazione a chunk «stile sudoku»** (zone
 enormi per costruzione lazy: griglia di chunk seeded per cella, vincoli di zona
