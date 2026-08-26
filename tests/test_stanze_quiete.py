@@ -30,6 +30,7 @@ from tests.contenuti_sintetici import piano_territoriale, stagione_sintetica
 
 def _arma_mondo(seed: int = 7) -> BusEventi:
     from main import _stagione_a_attiva
+    from motore import segna_visitata
 
     crea_profondita()
     crea_seme(seed)
@@ -39,6 +40,9 @@ def _arma_mondo(seed: int = 7) -> BusEventi:
     ))
     crea_protagonista(destrezza=10, punti_vita=30, id_dominio="carl")
     avvia_territorio(1)
+    # Stanza RIVELATA: qui si testano quiete e downtime, non la soglia
+    # (dove il dado ora tace per design — pacing 2026-08-26).
+    segna_visitata()
     return BusEventi()
 
 
@@ -69,6 +73,26 @@ def test_fattore_imboscata_segue_il_tipo(mondo_isolato) -> None:
     assert fattore_imboscata_stanza() == float(STANZE_MOLT_IMBOSCATA_CORRIDOIO)
     mappa.piano.tipi.pop(stanza)
     assert fattore_imboscata_stanza() == 1.0
+
+
+def test_l_agguato_non_coglie_sulla_soglia(mondo_isolato) -> None:
+    """Pacing 2026-08-26 (screenshot: agguato all'ingresso + mob di stanza =
+    catena di scontri e due prose incollate): nella stanza NON ancora
+    rivelata il dado-imboscata tace — il reveal È l'evento di quel tick.
+    Rivelata, il dado torna a mordere."""
+    _arma_mondo()
+    _e, mappa = mappa_corrente()
+    vergine = next(
+        s for s in sorted(mappa.piano.adiacenze) if s not in mappa.visitate
+    )
+    mappa.stanza_corrente = vergine
+    assert fattore_imboscata_stanza() == 0.0, (
+        "sulla soglia il dado tace: prima la stanza si guarda"
+    )
+    mappa.visitate.add(vergine)
+    assert fattore_imboscata_stanza() > 0.0, (
+        "rivelata (e non quieta), il downtime torna a rischiare"
+    )
 
 
 class _RngContatore(random.Random):

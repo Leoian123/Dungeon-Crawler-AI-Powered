@@ -147,9 +147,14 @@ STILE_CINEMA = "\n".join([
     "corretto a mano, una fila di sedie fissate al soffitto, un premio impolverato. "
     "Chi c'era prima ha lasciato tracce; il lore si annusa, non si recita.",
     "[stile] I MOMENTI CHIAVE — il primo ingresso in una stanza, l'apertura e la "
-    "chiusura di uno scontro — meritano respiro cinematografico: 250-400 parole, "
-    "scena piena. I turni di routine (un'azione, un passaggio) restano asciutti: "
-    "poche frasi dense, l'azione contestualizzata, avanti.",
+    "chiusura di uno scontro — meritano respiro cinematografico: 180-300 parole, "
+    "scena piena ma senza una frase di troppo. I turni di routine (un'azione, un "
+    "passaggio) restano asciutti: poche frasi dense, l'azione contestualizzata, "
+    "avanti.",
+    "[stile] Ogni scena sa DOVE si trova e PERCHÉ il crawler è lì: la zona ha "
+    "un nome e un mestiere (il fascicolo li porta — usali), e la stanza è di "
+    "QUEL posto, mai intercambiabile. Un lettore che apre a caso deve capire "
+    "in due frasi in che punto della discesa siamo.",
     "[stile] La voce del Sistema, quando serve, è UNA riga: annuncio da speaker, "
     "entusiasmo da televendita, gelo da ufficio reclami. Non narra: presenta.",
     "[stile] Lo stato del protagonista si racconta dal corpo, mai dalla scheda: "

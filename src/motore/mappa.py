@@ -159,12 +159,19 @@ def stanza_quieta(tipo: TipoStanza | None = None) -> bool:
 
 def fattore_imboscata_stanza() -> float:
     """Il moltiplicatore del dado-imboscata per la stanza corrente: 0 nei luoghi
-    quieti (design), la foglia §11 nei corridoi (passaggio esposto), 1 altrove.
-    Il tiro resta del motore (`tira_dado_evento`): qui solo il contesto spaziale."""
+    quieti (design), 0 nella stanza NON ANCORA RIVELATA (pacing 2026-08-26:
+    l'agguato sulla soglia produceva la catena agguato→mob-di-stanza e due
+    prose incollate — il REVEAL è l'evento di quel tick; l'imboscata
+    appartiene al downtime e al backtracking, mai alla soglia), la foglia §11
+    nei corridoi (passaggio esposto), 1 altrove. Il tiro resta del motore
+    (`tira_dado_evento`): qui solo il contesto spaziale."""
     from .calibrazione import STANZE_MOLT_IMBOSCATA_CORRIDOIO
 
     tipo = tipo_stanza_corrente()
     if stanza_quieta(tipo):
+        return 0.0
+    m = mappa_corrente()
+    if m is not None and m[1].stanza_corrente not in m[1].visitate:
         return 0.0
     if tipo is TipoStanza.CORRIDOIO:
         return float(STANZE_MOLT_IMBOSCATA_CORRIDOIO)

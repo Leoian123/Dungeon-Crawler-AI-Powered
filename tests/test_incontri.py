@@ -34,6 +34,8 @@ from main import costruisci_sessione
 
 
 def _arma_run(seed: int = 7) -> None:
+    from motore import segna_visitata
+
     crea_profondita()
     crea_seme(seed)
     crea_tempo_piano()
@@ -41,6 +43,9 @@ def _arma_run(seed: int = 7) -> None:
     crea_protagonista(destrezza=10, punti_vita=30, id_dominio="carl")
     avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE,
               sempre_attivi=[SistemaTempoPiano()])
+    # La stanza si RIVELA prima di qualunque downtime (pacing 2026-08-26: il
+    # dado-imboscata tace nella stanza non ancora rivelata).
+    segna_visitata()
 
 
 class _Bus:
