@@ -152,6 +152,7 @@ class FamigliaAttiva:
 @dataclass(frozen=True)
 class AffissoAttivo:
     nome: str
+    descrizione: str = ""            # la nota autorale dell'elemento (§B-4)
     res_contro: str | None = None
     res_fascia: str | None = None
     modificatori: tuple[tuple[str, str], ...] = ()
@@ -179,6 +180,13 @@ class OggettoAttivo:
     tipo: str                       # armatura | arma | accessorio
     grado: str
     descrizione: str = ""
+    # La QUALITÀ del conio (nodo B2): il ventaglio dentro il grado —
+    # scarto | onesto | pregiato. Default "onesto" = comportamento storico
+    # (i save e gli asset scritti prima del ventaglio non cambiano di un byte).
+    qualita: str = "onesto"
+    # L'EFFETTO del consumabile (canale B, vocabolario chiuso del contratto):
+    # "" = non è un consumabile. Additivo con default: save vecchi intatti.
+    effetto: str = ""
     slot: str | None = None
     categoria: str | None = None
     taglia: str = "media"

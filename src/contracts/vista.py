@@ -232,6 +232,11 @@ class FattiScontro(BaseModel):
     hp_persi: int
     nemico: str = ""
     fuga: bool = False  # disimpegno riuscito a scontro aperto (FNC §4)
+    # Il CUSTODE di zona IN PERSONA era fra i nemici battuti (fotografia del
+    # motore all'apertura dello scontro, trasportata da `CombatResolved`): la
+    # garanzia di drop del boss si aggancia a QUESTO fatto, mai alla stanza —
+    # l'imboscata vinta in stanza-boss non è il custode (breaker 2026-08-26).
+    custode: bool = False
     # I MOMENTI salienti (primo sangue, status, colpo di grazia): stringhe
     # deterministiche raccolte dall'istanza sul bus — l'AI non inventa cosa è
     # successo, lo VESTE (Fase 5). Default () = retro-compatibile.

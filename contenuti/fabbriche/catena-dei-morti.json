@@ -19,10 +19,10 @@
     {"nome": "di Borant", "descrizione": "Fornitura ufficiale dello show: massiccia, sponsorizzata, con la garanzia scaduta.", "modificatori": [{"stat": "forza", "fascia": "lieve"}]}
   ],
   "affissi": [
-    {"nome": "Fumante", "res_contro": "fuoco", "res_fascia": "lieve"},
-    {"nome": "Marcio", "res_contro": "veleno", "res_fascia": "marcata"},
-    {"nome": "Blindato", "res_contro": "mischia", "res_fascia": "lieve"},
-    {"nome": "Lucidato", "modificatori": [{"stat": "fortuna", "fascia": "marcata"}]},
-    {"nome": "Sgraffignato", "modificatori": [{"stat": "destrezza", "fascia": "marcata"}]}
+    {"nome": "Fumante", "descrizione": "Tiene addosso un tepore di brace che il fuoco riconosce e lascia stare.", "res_contro": "fuoco", "res_fascia": "lieve"},
+    {"nome": "Marcio", "descrizione": "L'odore è un problema di chi ti cammina accanto; il veleno non è più un problema tuo.", "res_contro": "veleno", "res_fascia": "marcata"},
+    {"nome": "Blindato", "descrizione": "Piastrine fitte come squame di pesce vecchio: la mischia ci si spunta sopra.", "res_contro": "mischia", "res_fascia": "lieve"},
+    {"nome": "Lucidato", "descrizione": "Uno smalto che non serve a niente, tranne che a piegare la fortuna dalla tua parte.", "modificatori": [{"stat": "fortuna", "fascia": "marcata"}]},
+    {"nome": "Sgraffignato", "descrizione": "Già rubato almeno una volta: ha imparato a muoversi in fretta e a non farsi domande.", "modificatori": [{"stat": "destrezza", "fascia": "marcata"}]}
   ]
 }

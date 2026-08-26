@@ -354,6 +354,50 @@ def test_zaino_indossa_e_togli_dal_browser(host) -> None:
     assert client.get("/api/partita/zaino").json()["fonti"][0]["indossata"] is False
 
 
+def test_zaino_tipato_e_il_bottone_usa(host) -> None:
+    """§B-4 + canale B via API: lo zaino trasporta il DATO (tipo, grado,
+    fattura, effetto — mai sniffing sul nome), «Usa» beve il consumabile
+    (fonte fuori, `OggettoUsato` tipato nel post-evento) e il rifiuto del
+    motore (HP pieni) NON consuma."""
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = _narra(client, apertura["versione"])
+
+    _metti_nello_zaino("tonico-di-latta")
+    [voce] = client.get("/api/partita/zaino").json()["fonti"]
+    assert (voce["tipo"], voce["effetto"]) == ("consumabile", "cura")
+    assert voce["grado"] == "bronzo" and voce["indossato"] is False
+    assert voce["etichetta"], "l'etichetta diegetica non è mai vuota"
+
+    # HP pieni: il motore rifiuta, la pozione resta (niente feel-bad).
+    r = client.post(
+        "/api/partita/usa",
+        json={"fonte": "tonico-di-latta", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 200
+    corpo = r.json()
+    assert len(client.get("/api/partita/zaino").json()["fonti"]) == 1
+
+    # Ferito: l'uso applica, la fonte esce, l'evento arriva TIPATO.
+    from motore.scheda import protagonista
+
+    protagonista()[2].punti_vita = 1
+    r = client.post(
+        "/api/partita/usa",
+        json={"fonte": "tonico-di-latta", "versione": corpo["versione"]},
+    )
+    assert r.status_code == 200
+    corpo = r.json()
+    assert client.get("/api/partita/zaino").json()["fonti"] == []
+    tipi = {
+        e["tipo"]
+        for p in corpo["post"] if p["genere"] == "evento"
+        for e in p["eventi"]
+    }
+    assert "OggettoUsato" in tipi
+    assert protagonista()[2].punti_vita > 1, "la cura è passata dal motore"
+
+
 def test_equip_rifiuta_fonte_non_posseduta(host) -> None:
     client, _stato = host
     apertura = _crea(client)

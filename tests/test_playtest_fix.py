@@ -59,9 +59,13 @@ def test_applica_status_dice_se_nuovo(mondo_isolato) -> None:
 
 # --- Fix: il custode battuto non lascia mai a mani vuote --------------------------
 
-def test_drop_garantito_sul_custode(run_pulita, tmp_path, monkeypatch) -> None:
+def test_drop_garantito_sul_custode(run_pulita, tmp_path) -> None:
+    """La garanzia è del CUSTODE IN PERSONA (`FattiScontro.custode`), mai
+    della stanza: il breaker 2026-08-26 aveva promosso l'edge per-stanza a
+    bancomat (imboscate vinte in stanza-boss = drop garantiti a ripetizione)."""
     import random
 
+    from contracts import FattiScontro
     from main import costruisci_sessione
     from motore import assicura_zaino, registra_boss_sconfitto, stanza_boss_di, zona_corrente
 
@@ -86,17 +90,73 @@ def test_drop_garantito_sul_custode(run_pulita, tmp_path, monkeypatch) -> None:
     pent = protagonista()[0]
     prima = len(assicura_zaino(pent).fonti)
 
-    sessione._deposita_bottino()  # stanza ordinaria, chance persa → niente
+    # Vittoria ordinaria (non è il custode), chance persa → niente.
+    sessione._fatti_scontro = FattiScontro(vittoria=True, turni=1, hp_persi=0)
+    sessione._deposita_bottino()
     assert len(assicura_zaino(pent).fonti) == prima
 
+    # ANTI-BANCOMAT: stanza-boss, custode GIÀ battuto, vittoria d'imboscata
+    # (`custode=False`) → la stanza non regala niente, la chance si tira come
+    # ovunque (e qui è persa).
     mappa.stanza_corrente = stanza_boss_di(zona, mappa.piano)
     segna_visitata()
     registra_boss_sconfitto()
-    sessione._deposita_bottino()  # il custode è battuto: garantito
+    sessione._fatti_scontro = FattiScontro(vittoria=True, turni=1, hp_persi=0)
+    sessione._deposita_bottino()
+    assert len(assicura_zaino(pent).fonti) == prima, (
+        "la stanza-boss non è un bancomat: senza il custode nello scontro, "
+        "nessuna garanzia"
+    )
+
+    # La vittoria SUL custode: garantito.
+    sessione._fatti_scontro = FattiScontro(
+        vittoria=True, turni=1, hp_persi=0, custode=True,
+    )
+    sessione._deposita_bottino()
     assert len(assicura_zaino(pent).fonti) == prima + 1, (
         "il momento-boss non finisce a mani vuote"
     )
     sessione.esci()
+
+
+def test_custode_in_scontro_fotografa_il_mob_non_la_stanza(mondo_isolato) -> None:
+    """La fotografia all'apertura (`StatoCombattimento.custode_presente`):
+    True SOLO se il mob DELLA stanza-boss, a boss non ancora battuto, è fra
+    gli arruolati — l'imboscata nella stessa stanza non è mai il custode."""
+    from contracts import EntitaGenerata, Grado
+    from motore import (
+        registra_boss_sconfitto,
+        registra_mob,
+        stanza_boss_di,
+        zona_corrente,
+    )
+    from motore.combattimento import _custode_in_scontro
+    from motore.narrazione import istanzia_entita
+
+    # Senza territorio (harness nudo): degrado a False, mai un crash.
+    assert _custode_in_scontro([1, 2]) is False
+
+    _arma_mondo()
+    segna_visitata()
+    assert _custode_in_scontro([1]) is False  # partenza: non è la stanza-boss
+
+    _e, mappa = mappa_corrente()
+    mappa.stanza_corrente = stanza_boss_di(zona_corrente(), mappa.piano)
+    segna_visitata()
+    ent = istanzia_entita(
+        EntitaGenerata(archetipo="slime", grado=Grado.BRONZO, blocchi=[],
+                       nome="Custode", descrizione="fermo al varco"),
+        livello=1,
+    )
+    registra_mob(ent)
+    assert _custode_in_scontro([ent]) is True, "il custode in persona"
+    assert _custode_in_scontro([ent + 999]) is False, (
+        "l'imboscata in stanza-boss non è il custode"
+    )
+    registra_boss_sconfitto()
+    assert _custode_in_scontro([ent]) is False, (
+        "a custode battuto la stanza non promuove più nessuno"
+    )
 
 
 # --- Fix: la valvola «Aspetta» (la tenaglia del veleno si apre) -------------------

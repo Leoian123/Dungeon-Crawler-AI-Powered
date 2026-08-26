@@ -42,6 +42,7 @@ from motore import (
     SistemaDeathCheck,
     SistemaDiscesa,
     SistemaAttraversamento,
+    SistemaConsumabili,
     SistemaEquip,
     SistemaMovimento,
     SistemaRinforzi,
@@ -145,6 +146,9 @@ class Guscio:
             # accodato marciva nel World per sempre).
             solo_narrazione=[
                 SistemaMovimento(), SistemaDiscesa(self.bus), SistemaEquip(),
+                # Canale B: l'uso dei consumabili — stesso phase-gate
+                # dell'equip (in combattimento l'intento resta in coda).
+                SistemaConsumabili(self.bus),
                 # Territorio (2026-08-10): il passaggio di zona è un intento con
                 # un solo proprietario, gemello della discesa.
                 SistemaAttraversamento(self.bus),

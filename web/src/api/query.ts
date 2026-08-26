@@ -312,6 +312,15 @@ export function useTogli() {
   );
 }
 
+/** Usa un consumabile (canale B): il motore arbitra — il rifiuto (HP pieni,
+ *  niente da purgare) non consuma e lo zaino resta invariato. */
+export function useUsa() {
+  return useMutazioneTurno(
+    ({ fonte, versione }: { fonte: string; versione: number }) =>
+      api.usa(fonte, versione),
+  );
+}
+
 /** La bacheca sovra-run: i necrologi proiettati dal ledger degli esiti. */
 export function useBacheca() {
   return useQuery({ queryKey: ["bacheca"], queryFn: api.bacheca });

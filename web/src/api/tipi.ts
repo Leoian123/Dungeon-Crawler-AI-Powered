@@ -143,6 +143,10 @@ export interface EquipVista {
   nome: string;
   categoria: string;
   descrizione: string;
+  /** Dato di vestizione (§B-4): "" = non detto (storici, pre-ventaglio). */
+  grado: string;
+  /** scarto | pregiato | "" — l'onesto tace, come in cronaca. */
+  qualita: string;
 }
 
 /** L'avanzamento dentro la run. CONTRATTO VUOTO per ora: nessuna fonte di XP
@@ -178,12 +182,24 @@ export interface SchedaVista {
   zaino: string[];
 }
 
-/** Una voce dell'inventario: fonte di dominio + etichetta diegetica (la
- *  vestizione del Guardaroba vince sul catalogo) + stato indossata. */
+/** Una voce dell'inventario (SPECULARE a `OggettoVista` del backend, §B-4):
+ *  il dato — tipo, grado, fattura, effetto — arriva TIPATO dal motore; la UI
+ *  veste (badge, bottone «Usa»), mai deduce dal nome. L'etichetta diegetica
+ *  (Guardaroba) vince sul catalogo per il display. */
 export interface VoceZaino {
   fonte: string;
   etichetta: string;
   indossata: boolean;
+  nome: string;
+  /** armatura | arma | accessorio | consumabile | "" */
+  tipo: string;
+  grado: string;
+  /** scarto | pregiato | "" — l'onesto tace. */
+  qualita: string;
+  /** Solo consumabili: la chiave del vocabolario chiuso (cura, …). */
+  effetto: string;
+  descrizione: string;
+  indossato: boolean;
 }
 
 export interface RispostaZaino {

@@ -7,6 +7,20 @@ box per categoria e grado) e a volte è una beffa dichiarata. Le box si
 aprono **solo nelle SAFE ROOM** (ratifica 2026-08-26: il bagno è privacy,
 la safe room è il rifugio attrezzato — è lì che si scartano i regali).
 
+> **Disaccoppiamento (ratifica 2026-08-26).** Obiettivi e vittoria della run
+> NON si toccano: la run è vinta SE E SOLO SE si raggiunge il DICIOTTESIMO
+> piano (configurazione futura; il terminale attuale è un segnaposto MVP).
+> Gli obiettivi sono TITOLI: ricompense per IMPRESE SIGNIFICATIVE compiute
+> durante la discesa — la discesa di un piano è progressione, mai un finale.
+> Vocabolario esteso di conseguenza: `custode`, `senza_graffi`,
+> `grado_nemico_minimo` (fatti fotografati dal motore all'apertura dello
+> scontro e trasportati da `CombatResolved`) e `soglia` (le SERIE: l'impresa
+> vale alla N-esima occorrenza; contatori persistenti in `ObiettiviRun`).
+> `custode` identifica il custode IN PERSONA fra gli arruolati (breaker
+> 2026-08-26), mai la stanza: un'imboscata vinta in stanza-boss non è il
+> custode — né per il titolo, né per la garanzia di drop (`FattiScontro.
+> custode`, stesso fatto: il bancomat per-stanza è chiuso).
+
 > **Nota IP (vincolante).** Il riferimento di meccanica e registro è il
 > romanzo; i TESTI del catalogo sono **originali al 100%**: mai righe, nomi
 > di obiettivo o battute del libro nel repo. Il registro si imita, il testo
@@ -49,7 +63,10 @@ la safe room è il rifugio attrezzato — è lì che si scartano i regali).
 `{"evento": "combat_risolto", "vittoria": true, "hp_persi_max": 0}`),
 `ricompensa` (`{"box": {"categoria": "...", "grado": "bronzo|…"}}` oppure
 `{"beffa": "testo"}` — la beffa è una ricompensa dichiarata, non un campo
-vuoto), `ripetibile: false` (default: una volta per run).
+vuoto), `ripetibile: false` (default: una volta per run). Lucchetto
+anti-stampante (breaker 2026-08-26): `ripetibile: true` **con box** è
+rifiutato dal contratto — ogni ri-sblocco sarebbe una box, farm infinito per
+un refuso d'authoring; il ripetibile premia con una beffa.
 
 **`ObiettivoRaggiunto`** (contracts, evento di dominio): `slug`, `titolo`,
 `testo`, `ricompensa_testo` — la notifica viaggia TIPATA sul bus; gli host

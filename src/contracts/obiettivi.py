@@ -61,6 +61,16 @@ class TriggerObiettivo(BaseModel):
     fuga: bool | None = None        # combat_risolto
     interrotto: bool | None = None  # riposo_concluso
     tier: str | None = None         # zona_attraversata
+    # I fatti da IMPRESA (titoli mid-run, ratifica 2026-08-26: gli obiettivi
+    # sono ricompense per imprese significative DURANTE la run — mai
+    # accoppiati alla vittoria della run, che è un'altra storia):
+    custode: bool | None = None         # combat_risolto: il custode di zona
+    senza_graffi: bool | None = None    # combat_risolto: nemmeno un HP perso
+    grado_nemico_minimo: Grado | None = None  # combat_risolto: rango ≥ soglia
+    # La SERIE (sistema-titoli): l'impresa vale alla N-esima occorrenza delle
+    # condizioni (es. la decima vittoria). None = immediata. Con `ripetibile`
+    # il titolo suona a OGNI multiplo della soglia.
+    soglia: int | None = Field(default=None, ge=2)
 
 
 class BoxRicompensa(BaseModel):
@@ -117,3 +127,17 @@ class AchievementAsset(BaseModel):
     trigger: TriggerObiettivo
     ricompensa: RicompensaObiettivo
     ripetibile: bool = False
+
+    @model_validator(mode="after")
+    def _niente_stampante(self) -> "AchievementAsset":
+        """Un ripetibile che paga una BOX sarebbe una stampante di loot (ogni
+        ri-sblocco = una box: farm infinito per un refuso d'authoring —
+        breaker 2026-08-26). Il ripetibile premia con una beffa; una box
+        ripetibile, se mai la si vorrà, andrà ratificata rimuovendo questo
+        lucchetto, non aggirata."""
+        if self.ripetibile and self.ricompensa.box is not None:
+            raise ValueError(
+                "obiettivo ripetibile con box: la fabbrica diventerebbe una "
+                "stampante di loot — usa una beffa, o ripetibile: false"
+            )
+        return self

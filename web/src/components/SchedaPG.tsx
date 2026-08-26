@@ -107,6 +107,12 @@ function Equipaggiamento({ equip }: { equip: EquipVista[] }) {
               e.nome ? "text-torcia/90" : "text-pergamena/50"
             }`}
           >
+            {/* La fattura si annuncia (scarto ▽ / pregiato ✦), l'onesto tace;
+                il grado colora il nome — dato §B-4, vestizione qui. */}
+            {e.qualita === "pregiato" && <span className="text-torcia">✦ </span>}
+            {e.qualita === "scarto" && (
+              <span className="text-pergamena/35">▽ </span>
+            )}
             {e.nome || e.categoria}
           </span>
         </div>

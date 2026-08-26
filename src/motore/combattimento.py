@@ -157,6 +157,11 @@ class StatoCombattimento:
     crollo: int = 0                # danno inevitabile corrente dell'escalation (cresce oltre la soglia)
     fuga_richiesta: bool = False   # il prossimo turno del protagonista tenta la FUGA (FNC §4)
     mossa_richiesta: str | None = None  # la mossa SCELTA dal giocatore per il suo prossimo turno
+    # FOTOGRAFIE all'apertura (nodo O, titoli mid-run): i fatti da impresa si
+    # catturano quando i nemici sono ancora leggibili — alla chiusura sono morti.
+    hp_iniziali_prot: int = 0      # per `senza_graffi` sull'esito
+    grado_massimo: str = ""        # il grado più alto fra i nemici ("" = scalari)
+    custode_presente: bool = False  # il custode di zona IN PERSONA è nello scontro
 
 
 # --- Iniziativa (G-3): destrezza desc, tiebreak su chiave stabile seeded -------
@@ -613,8 +618,16 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
                 break  # nessuna azione disponibile/pagabile: il turno finisce
 
         # Condizione di vittoria: nessun nemico vivo → torna in narrazione.
+        # L'esito porta i FATTI DA IMPRESA (nodo O, titoli mid-run): grado del
+        # nemico più alto, custode in persona battuto, vittoria senza graffi —
+        # fotografati all'apertura, letti qui e mai dedotti.
         if not _nemici_vivi():
-            self.bus.pubblica(CombatResolved(entita=attivo, vittoria=True))
+            self.bus.pubblica(CombatResolved(
+                entita=attivo, vittoria=True,
+                grado_nemico=stato.grado_massimo,
+                custode=stato.custode_presente,
+                senza_graffi=scheda.punti_vita >= stato.hp_iniziali_prot > 0,
+            ))
 
     def _risolvi_fuga(self, attivo: int, stato: StatoCombattimento) -> None:
         """La fuga in tre corsie: **pulita**, **col colpo d'opportunità**, **negata**.
@@ -659,7 +672,10 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
             _pent, _marker, pscheda = protagonista()
             if not pscheda.vivo or pscheda.punti_vita <= 0:
                 return
-        self.bus.pubblica(CombatResolved(entita=attivo, vittoria=False, fuga=True))
+        self.bus.pubblica(CombatResolved(
+            entita=attivo, vittoria=False, fuga=True,
+            grado_nemico=stato.grado_massimo,
+        ))
 
     @staticmethod
     def _scala_ricariche(entita: int) -> None:
@@ -908,6 +924,32 @@ class SistemaCrollo(SistemaSoloCombattimento):
             self.bus.pubblica(CrolloDungeon(danno=stato.crollo))
 
 
+def _custode_in_scontro(arruolate) -> bool:
+    """Vero se fra gli ARRUOLATI c'è il custode di zona IN PERSONA: stanza-boss,
+    boss non ancora battuto, e il mob DELLA stanza è dentro lo scontro. Il
+    fatto si fotografa all'apertura (alla chiusura il custode è smontato) e
+    identifica il MOB, mai la stanza: un'imboscata vinta nella stanza-boss non
+    è il custode — né per il titolo «taglia sul custode» né per la garanzia di
+    drop (il bancomat del breaker 2026-08-26). Lettura tollerante: gli harness
+    senza territorio non devono esplodere — il degrado è False, mai un crash."""
+    try:
+        from .mappa import mob_corrente
+        from .territorio import (
+            boss_sconfitto,
+            stanza_corrente_e_del_boss,
+            zona_corrente,
+        )
+
+        zona = zona_corrente()
+        if (zona is None or not stanza_corrente_e_del_boss()
+                or boss_sconfitto(zona)):
+            return False
+        mob = mob_corrente()
+        return mob is not None and mob in arruolate
+    except Exception:
+        return False
+
+
 # --- Ciclo di vita delle entità di combattimento (effimere) -------------------
 
 def collega_combattimento(bus) -> list[tuple[type, object]]:
@@ -956,6 +998,19 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
             for ent, comb in esper.get_component(Combattente)
         ]
         stato.ordine = calcola_iniziativa(combattenti)
+        # Le fotografie da impresa (nodo O): HP d'ingresso del protagonista e
+        # grado massimo dei nemici materializzati (per rango; gli scalari
+        # senza EntitaMob non contano — "" resta il degrado onesto).
+        stato.hp_iniziali_prot = _pscheda.punti_vita
+        from .catalogo import RANGO_GRADO
+
+        gradi = [
+            em.grado for _ent, (em, _n) in esper.get_components(EntitaMob, Nemico)
+        ]
+        stato.grado_massimo = (
+            max(gradi, key=RANGO_GRADO.__getitem__).value if gradi else ""
+        )
+        stato.custode_presente = _custode_in_scontro(piano.arruolate)
 
     def _smonta(_evento: CombatResolved) -> None:
         # Il ciclo di vita dipende da COME il nemico è entrato in scontro (FNC §6.3):

@@ -53,6 +53,11 @@ class ObiettivoAttivo:
     fuga: bool | None = None
     interrotto: bool | None = None
     tier: str | None = None
+    # I fatti da IMPRESA (titoli mid-run):
+    custode: bool | None = None
+    senza_graffi: bool | None = None
+    grado_nemico_minimo: str = ""   # "" = nessun vincolo di rango
+    soglia: int = 0                 # 0 = immediata; N = alla N-esima occorrenza
     box_categoria: str = ""         # "" = niente box
     box_grado: str = ""
     beffa: str = ""
@@ -77,6 +82,9 @@ class ObiettiviRun:
     sbloccati: list[str] = field(default_factory=list)
     non_letti: list[str] = field(default_factory=list)
     box: list[BoxChiusa] = field(default_factory=list)
+    # I CONTATORI delle serie (titoli a soglia): occorrenze delle condizioni
+    # per slug — persistenti, si azzerano allo sblocco (il ripetibile riparte).
+    conteggi: dict[str, int] = field(default_factory=dict)
 
 
 def _attivo_da_asset(asset: AchievementAsset) -> ObiettivoAttivo:
@@ -90,6 +98,13 @@ def _attivo_da_asset(asset: AchievementAsset) -> ObiettivoAttivo:
         fuga=asset.trigger.fuga,
         interrotto=asset.trigger.interrotto,
         tier=asset.trigger.tier,
+        custode=asset.trigger.custode,
+        senza_graffi=asset.trigger.senza_graffi,
+        grado_nemico_minimo=(
+            asset.trigger.grado_nemico_minimo.value
+            if asset.trigger.grado_nemico_minimo is not None else ""
+        ),
+        soglia=asset.trigger.soglia or 0,
         box_categoria=box.categoria.value if box is not None else "",
         box_grado=box.grado.value if box is not None else "",
         beffa=asset.ricompensa.beffa,
@@ -135,7 +150,7 @@ _BINDING: dict[str, type] = {
     EventoTrigger.RIPOSO_CONCLUSO.value: RiposoConcluso,
 }
 
-_CONDIZIONI = ("vittoria", "fuga", "interrotto", "tier")
+_CONDIZIONI = ("vittoria", "fuga", "interrotto", "tier", "custode", "senza_graffi")
 
 
 class OsservatoreObiettivi:
@@ -167,19 +182,44 @@ class OsservatoreObiettivi:
                 continue
             if not self._condizioni_vere(obiettivo, evento):
                 continue
+            # La SERIE (titoli a soglia): l'impresa vale alla N-esima
+            # occorrenza; il contatore persiste col save e si azzera allo
+            # sblocco (il ripetibile riparte da zero: ogni multiplo suona).
+            if obiettivo.soglia > 1:
+                conte = comp.conteggi.get(obiettivo.slug, 0) + 1
+                comp.conteggi[obiettivo.slug] = conte
+                if conte < obiettivo.soglia:
+                    continue
+                comp.conteggi[obiettivo.slug] = 0
             self._sblocca(comp, obiettivo)
 
     @staticmethod
     def _condizioni_vere(obiettivo: ObiettivoAttivo, evento: object) -> bool:
+        sentinella = object()
         for nome in _CONDIZIONI:
             atteso = getattr(obiettivo, nome)
             if atteso is None:
                 continue
             # Il fatto deve ESISTERE sull'evento ed essere uguale: una
             # condizione su un campo che l'evento non trasporta è falsa.
-            sentinella = object()
             reale = getattr(evento, nome, sentinella)
             if reale is sentinella or reale != atteso:
+                return False
+        if obiettivo.grado_nemico_minimo:
+            # Rango ≥ soglia (la mappa Grado→rango è del motore, mai dell'AI):
+            # un evento senza grado ("" = scalari) non è mai un'impresa di rango.
+            from contracts import Grado
+
+            from .catalogo import RANGO_GRADO
+
+            reale = getattr(evento, "grado_nemico", sentinella)
+            if reale is sentinella or not reale:
+                return False
+            try:
+                rango = RANGO_GRADO[Grado(reale)]
+            except (KeyError, ValueError):
+                return False
+            if rango < RANGO_GRADO[Grado(obiettivo.grado_nemico_minimo)]:
                 return False
         return True
 
@@ -275,6 +315,33 @@ _TIPI_PER_CATEGORIA: dict[str, tuple[str, ...] | None] = {
 }
 
 
+def _grado_conio_scalato(grado_box: str) -> str:
+    """Lo SCALING PER TERRITORIO delle box (ratifica §B-1, 2026-08-26 — la
+    regola del riferimento: stessa box, piano profondo = contenuto migliore).
+    Il conio non scende mai sotto il MINIMO della finestra-loot di dove ti
+    trovi — la stessa finestra dei drop (`finestra_gradi_loot`: il bottino
+    insegue il territorio). Una box di grado già alto resta sua; aprire tardi
+    PAGA, ed è una scelta del giocatore, non un exploit (il conio resta
+    deterministico per-box nella timeline in cui apri). Lettura tollerante:
+    senza territorio/piano il grado stampato sulla box è legge."""
+    try:
+        from contracts import Grado
+
+        from .catalogo import RANGO_GRADO
+        from .piano import livello_corrente
+        from .territorio import finestra_gradi_loot
+
+        finestra = finestra_gradi_loot(livello_corrente())
+        if not finestra:
+            return grado_box
+        minimo = min(finestra, key=RANGO_GRADO.__getitem__)
+        if RANGO_GRADO[minimo] > RANGO_GRADO[Grado(grado_box)]:
+            return minimo.value
+    except Exception:
+        pass
+    return grado_box
+
+
 def prossima_box() -> BoxChiusa | None:
     """La prossima box in coda (FIFO: la prima guadagnata è la prima aperta).
     Sola lettura: comporre il menu non consuma niente."""
@@ -312,9 +379,10 @@ def apri_prossima_box(bus) -> object | None:
     if tipo_stanza_corrente() is not TipoStanza.SAFE_ROOM:
         return None
     box = comp.box[0]
+    grado_conio = _grado_conio_scalato(box.grado)
     rng = random.Random(f"{master_seed()}:box:{box.id}")
     attivo = conia_procedurale(
-        rng, box.grado, tipi_base=_TIPI_PER_CATEGORIA.get(box.categoria),
+        rng, grado_conio, tipi_base=_TIPI_PER_CATEGORIA.get(box.categoria),
     )
     if attivo is None:
         return None  # fabbrica assente o categoria non onorabile: la box resta
@@ -323,7 +391,8 @@ def apri_prossima_box(bus) -> object | None:
     assicura_coniati(pent).voci.append(attivo)
     assicura_zaino(pent).fonti.append(attivo.slug)
     bus.pubblica(BoxAperta(
-        categoria=box.categoria, grado=box.grado,
+        categoria=box.categoria, grado=grado_conio,
         nome=attivo.nome, fonte=attivo.slug,
+        qualita=getattr(attivo, "qualita", "onesto"),
     ))
     return attivo

@@ -90,6 +90,29 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
     danno arma dal grado, resistenze dalle fasce."""
     tipo = o.tipo
     nome = o.nome
+    # Il dato di vestizione (§B-4) viaggia sul pezzo vivo: la vista mostra
+    # grado e fattura senza ricalcoli. Sul pezzo l'ONESTO tace ("" come il
+    # non-detto degli asset autorati): il badge di fattura esiste solo per
+    # scarto e pregiato — la stessa disciplina della cronaca. Così le due
+    # forme (asset con enum, attivo congelato) traducono IDENTICO.
+    qualita = getattr(o, "qualita", "") or ""
+    vestizione = {
+        "grado": o.grado.value if hasattr(o.grado, "value") else str(o.grado),
+        "qualita": "" if qualita == "onesto" else qualita,
+        "descrizione": getattr(o, "descrizione", "") or "",
+    }
+    if tipo == "consumabile":
+        # Canale B: il consumabile non è un pezzo d'equip — è monouso, e
+        # `equipaggia()` lo rifiuta per costruzione (non è fra i suoi tipi).
+        from .consumabili import Consumabile
+
+        effetto = getattr(o, "effetto", "") or ""
+        return Consumabile(
+            fonte=o.slug, nome=nome,
+            effetto=effetto.value if hasattr(effetto, "value") else effetto,
+            grado=o.grado.value if hasattr(o.grado, "value") else str(o.grado),
+            descrizione=getattr(o, "descrizione", ""),
+        )
     mods = _modificatori_vivi(o)
     resistenze = _resistenze_vive(o)
     if tipo == "armatura":
@@ -102,11 +125,12 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
             mitigazione_cent=o.mitigazione_cent,
             modificatori=mods,
             resistenze=resistenze,
+            **vestizione,
         )
     if tipo == "arma":
         danno = o.danno_base
         if danno is None:
-            danno = DANNO_ARMA_PER_GRADO[Grado(o.grado).value]
+            danno = DANNO_ARMA_PER_GRADO[_grado_arma_effettivo(o)]
         return Arma(
             fonte=o.slug,
             taglia=_valore_enum(o.taglia, Taglia),
@@ -114,6 +138,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
             danno_base=danno,
             modificatori=mods,
             resistenze=resistenze,
+            **vestizione,
         )
     return Accessorio(
         fonte=o.slug,
@@ -122,6 +147,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
         modificatori=mods,
         resistenze=resistenze,
         mosse=tuple(o.mosse),
+        **vestizione,
     )
 
 
@@ -182,6 +208,24 @@ def _coniati_correnti():
         yield from coniati.voci
 
 
+def _grado_arma_effettivo(o) -> str:
+    """Il grado con cui l'ARMA pesca il suo danno §11 (nodo B2): la qualità
+    del conio lo sposta di UN passo — scarto un grado sotto (floor bronzo),
+    pregiato un grado sopra (cap celestiale). È la sovrapposizione del
+    ventaglio: una lama pregiata d'argento colpisce come un'ORO onesta.
+    Oggetti senza qualità (asset autorati, save vecchi) = onesto: invariati."""
+    from .catalogo import RANGO_GRADO
+
+    ordinati = [g.value for g in sorted(RANGO_GRADO, key=RANGO_GRADO.__getitem__)]
+    indice = ordinati.index(Grado(o.grado).value)
+    qualita = getattr(o, "qualita", "onesto")
+    if qualita == "scarto":
+        indice = max(0, indice - 1)
+    elif qualita == "pregiato":
+        indice = min(len(ordinati) - 1, indice + 1)
+    return ordinati[indice]
+
+
 def attivo_da_asset(ogg) -> OggettoAttivo:
     """OggettoAsset (Pydantic, enum) → `OggettoAttivo` (congelato, jsonable)."""
     return OggettoAttivo(
@@ -195,6 +239,7 @@ def attivo_da_asset(ogg) -> OggettoAttivo:
         danno_base=ogg.danno_base,
         modificatori=tuple((m.stat.value, m.fascia.value) for m in ogg.modificatori),
         mosse=tuple(ogg.mosse),
+        effetto=ogg.effetto.value if ogg.effetto is not None else "",
     )
 
 
@@ -206,6 +251,11 @@ def catalogo_oggetti_correnti() -> dict[str, object]:
     from .design import stagione_corrente
 
     catalogo = dict(CATALOGO_OGGETTI)
+    # Canale B: il dato demo dei consumabili entra nel catalogo della run (e
+    # quindi nel giro dei drop dal pool) — import locale, niente ciclo.
+    from .consumabili import CATALOGO_CONSUMABILI
+
+    catalogo.update(CATALOGO_CONSUMABILI)
     stagione = stagione_corrente()
     if stagione is not None:
         for attivo in getattr(stagione, "oggetti", ()):
@@ -278,4 +328,9 @@ def grado_oggetto(fonte: str) -> str:
     for attivo in _coniati_correnti():
         if attivo.slug == fonte:
             return attivo.grado
+    from .consumabili import CATALOGO_CONSUMABILI
+
+    demo = CATALOGO_CONSUMABILI.get(fonte)
+    if demo is not None:
+        return demo.grado
     return Grado.BRONZO.value

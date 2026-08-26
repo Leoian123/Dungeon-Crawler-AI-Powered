@@ -19,6 +19,7 @@ costruzione.
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -244,19 +245,34 @@ class ModificatoreDati(BaseModel):
     fascia: Fascia
 
 
+class EffettoConsumabile(str, Enum):
+    """Vocabolario CHIUSO degli effetti di un consumabile (canale B, ratifica
+    2026-08-26): l'asset NOMINA l'effetto, i numeri li deriva il motore
+    (§11 per grado — `CONSUMABILE.CURA_PCT.*`, `CONSUMABILE.MANA_PCT.*`).
+    Un effetto nuovo è un membro qui + una riga nell'esecutore del motore
+    (pattern SPEC_STATUS: il buco è un KeyError all'import, mai un numero
+    inventato altrove)."""
+
+    CURA = "cura"                  # HP: quota del massimo, per grado
+    RISTORO_MANA = "ristoro_mana"  # mana: quota del massimo, per grado
+    ANTIDOTO = "antidoto"          # purga gli status DANNOSI (mai gli innati)
+
+
 class OggettoAsset(_Asset):
     """Un OGGETTO come asset di libreria: il canale del loot (ADR-2 ridotto).
 
-    Tre forme in un solo tipo (`tipo` discrimina): armatura (slot esclusivo +
-    categoria), arma (mount unico), accessorio (multiset aperto, può concedere
-    mosse). I `modificatori` sono FASCE (mai numeri); `mitigazione_cent` e
-    `danno_base` sono i numeri LEGALI dell'authoring umano (pattern
-    `ProfiloArchetipoDati`) — `None` = derivati dal motore (categoria→mitigazione,
-    grado→danno) — e il lint di banda del motore li tiene in scala."""
+    Quattro forme in un solo tipo (`tipo` discrimina): armatura (slot esclusivo
+    + categoria), arma (mount unico), accessorio (multiset aperto, può concedere
+    mosse), CONSUMABILE (monouso: nomina un `effetto` dal vocabolario chiuso,
+    mai numeri — canale B, 2026-08-26). I `modificatori` sono FASCE (mai
+    numeri); `mitigazione_cent` e `danno_base` sono i numeri LEGALI
+    dell'authoring umano (pattern `ProfiloArchetipoDati`) — `None` = derivati
+    dal motore (categoria→mitigazione, grado→danno) — e il lint di banda del
+    motore li tiene in scala."""
 
     nome: str = Field(min_length=1)
     descrizione: str = ""
-    tipo: Literal["armatura", "arma", "accessorio"]
+    tipo: Literal["armatura", "arma", "accessorio", "consumabile"]
     grado: Grado                          # il tier di loot: qualità e budget del drop
     slot: SlotEquip | None = None         # armatura: obbligatorio (∈ SLOT_ARMATURA)
     categoria: CategoriaArmatura | None = None
@@ -266,6 +282,7 @@ class OggettoAsset(_Asset):
     modificatori: list[ModificatoreDati] = Field(default_factory=list, max_length=4)
     mitigazione_cent: int | None = Field(default=None, ge=0)
     danno_base: int | None = Field(default=None, ge=0)
+    effetto: EffettoConsumabile | None = None            # solo consumabili
 
     @model_validator(mode="after")
     def _coerente_per_tipo(self) -> "OggettoAsset":
@@ -285,6 +302,16 @@ class OggettoAsset(_Asset):
                 raise ValueError(f"oggetto {self.slug}: sede/mosse sono solo dell'accessorio")
         if self.tipo != "arma" and self.danno_base is not None:
             raise ValueError(f"oggetto {self.slug}: danno_base è solo dell'arma")
+        if self.tipo == "consumabile":
+            if self.effetto is None:
+                raise ValueError(f"oggetto {self.slug}: un consumabile vuole l'effetto")
+            if self.modificatori:
+                raise ValueError(
+                    f"oggetto {self.slug}: i modificatori sono dell'indossabile — "
+                    "un consumabile agisce una volta, non si porta addosso"
+                )
+        elif self.effetto is not None:
+            raise ValueError(f"oggetto {self.slug}: l'effetto è solo del consumabile")
         _senza_duplicati([m.stat for m in self.modificatori], "modificatori (stat)")
         _senza_duplicati(self.mosse, "mosse")
         return self
@@ -328,11 +355,15 @@ class ParteFamiglia(BaseModel):
 
 class ParteAffisso(BaseModel):
     """L'AFFISSO (l'"elemento"/tratto di BL3): un aggettivo nel nome
-    («Fumante …») + resistenza tipata a fascia e/o un modificatore."""
+    («Fumante …») + resistenza tipata a fascia e/o un modificatore.
+    `descrizione` è la NOTA autorale dell'elemento — la riga che il
+    compositore delle descrizioni tesse nel pezzo coniato (§B-4): il testo
+    è dato d'asset, mai generato dal motore."""
 
     model_config = _FROZEN
 
     nome: str = Field(min_length=1)
+    descrizione: str = ""
     res_contro: TipoDanno | None = None       # resistenza elementale...
     res_fascia: Fascia | None = None          # ...con l'intensità a fascia
     modificatori: list[ModificatoreDati] = Field(default_factory=list, max_length=1)

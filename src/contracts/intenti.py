@@ -106,6 +106,21 @@ class PlayerEquipaggia(IntentoEsplorazione):
 
 
 @dataclass(frozen=True)
+class PlayerUsaOggetto(IntentoEsplorazione):
+    """Il giocatore USA un consumabile che possiede (canale B, 2026-08-26).
+
+    Specchio di `PlayerEquipaggia`: `fonte` è l'id di dominio durevole, il
+    canale è l'INVENTARIO (mai un menu di scena — un'opzione per pozione
+    affollerebbe la scena), e l'uso è SOLO in NARRAZIONE via phase-gate
+    strutturale (`SistemaConsumabili` nel bucket solo-narrazione: in
+    combattimento l'intento resta in coda). L'uso in scontro — con costo AP
+    e cooldown, come nel riferimento — è DICHIARATO post-MVP: cambierebbe il
+    bilanciamento del TTK e va misurato, non improvvisato."""
+
+    fonte: str
+
+
+@dataclass(frozen=True)
 class PlayerToglie(IntentoEsplorazione):
     """Il giocatore si toglie un oggetto equipaggiato (ADR-1 D3).
 

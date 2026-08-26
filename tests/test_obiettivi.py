@@ -42,6 +42,10 @@ def _asset(
     vittoria: bool | None = True,
     fuga: bool | None = None,
     tier: str | None = None,
+    custode: bool | None = None,
+    senza_graffi: bool | None = None,
+    grado_nemico_minimo: Grado | None = None,
+    soglia: int | None = None,
     box: tuple[str, str] | None = ("armi", "bronzo"),
     beffa: str = "",
     ripetibile: bool = False,
@@ -59,7 +63,9 @@ def _asset(
             "qualcuno aveva già scommesso contro di te."
         ),
         trigger=TriggerObiettivo(
-            evento=evento, vittoria=vittoria, fuga=fuga, tier=tier
+            evento=evento, vittoria=vittoria, fuga=fuga, tier=tier,
+            custode=custode, senza_graffi=senza_graffi,
+            grado_nemico_minimo=grado_nemico_minimo, soglia=soglia,
         ),
         ricompensa=ricompensa,
         ripetibile=ripetibile,
@@ -83,6 +89,16 @@ def test_la_ricompensa_non_e_mai_vuota_e_muta() -> None:
     RicompensaObiettivo(
         box=BoxRicompensa(categoria=CategoriaBox.ARMI, grado=Grado.BRONZO)
     )
+
+
+def test_il_ripetibile_con_box_e_rifiutato() -> None:
+    """Il lucchetto anti-stampante (breaker 2026-08-26): un obiettivo
+    ripetibile che paga una BOX sarebbe farm infinito per un refuso di
+    authoring — il contratto lo rifiuta alla nascita. Con la beffa resta
+    legittimo (metà del registro comico)."""
+    with pytest.raises(ValidationError):
+        _asset("stampante", ripetibile=True)  # box di default: rifiutato
+    _asset("bis", ripetibile=True, box=None, beffa="Di nuovo. Bravo.")  # ok
 
 
 # --- Lo sblocco sul fatto -------------------------------------------------------
@@ -334,7 +350,6 @@ def test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
         not o.etichetta.startswith("Apri box") for o in snap.opzioni
     ), "a coda vuota l'opzione sparisce"
     sessione.esci()
-    return coniato.slug
 
 
 def test_l_apertura_e_deterministica_per_replay(run_pulita, tmp_path) -> None:
@@ -492,3 +507,82 @@ def test_il_tasto_o_elenca_gli_obiettivi() -> None:
             assert len(rl.lines) > prima, "O scrive l'elenco nel log"
 
     asyncio.run(run())
+
+
+# --- Titoli mid-run (ratifica 2026-08-26): i fatti da impresa -------------------
+
+def _mondo_con_catalogo(assets):
+    """Osservatore su bus fresco + catalogo montato: i fatti si pubblicano a
+    mano (l'arricchimento del motore è provato dal sito di pubblicazione;
+    qui si prova la VALUTAZIONE)."""
+    from contracts import BusEventi
+    from motore.scheda import crea_protagonista
+
+    bus = BusEventi()
+    crea_protagonista(destrezza=10, punti_vita=30)
+    monta_obiettivi(assets)
+    osservatore = attiva_osservatore(bus)
+    raccolti: list[ObiettivoRaggiunto] = []
+    bus.registra(ObiettivoRaggiunto, raccolti.append)
+    return bus, osservatore, raccolti
+
+
+def test_i_fatti_da_impresa(mondo_isolato: str) -> None:
+    """Custode, senza-graffi e rango minimo: scattano SOLO sul fatto vero —
+    la vittoria ordinaria non è un'impresa."""
+    bus, osservatore, raccolti = _mondo_con_catalogo((
+        _asset("taglia", custode=True, box=None, beffa="Il varco ricorda."),
+        _asset("pelle-intatta", senza_graffi=True, box=None, beffa="Noia."),
+        _asset("rango", grado_nemico_minimo=Grado.ORO, box=None, beffa="Oh."),
+    ))
+    # Vittoria ordinaria: nessuna impresa.
+    bus.pubblica(CombatResolved(entita=0, vittoria=True))
+    assert raccolti == []
+    # Vittoria d'impresa: custode + senza graffi + leggendario (≥ oro).
+    bus.pubblica(CombatResolved(
+        entita=0, vittoria=True, custode=True, senza_graffi=True,
+        grado_nemico="leggendario",
+    ))
+    assert sorted(n.slug for n in raccolti) == ["pelle-intatta", "rango", "taglia"]
+    # L'argento NON è ≥ oro; e il grado assente ("" = scalari) non è mai rango.
+    raccolti.clear()
+    bus.pubblica(CombatResolved(
+        entita=0, vittoria=True, grado_nemico="argento",
+    ))
+    assert raccolti == []
+    osservatore.chiudi()
+
+
+def test_la_serie_conta_azzera_e_persiste(mondo_isolato: str) -> None:
+    """Il titolo a SOGLIA: vale alla N-esima occorrenza, il contatore si
+    azzera allo sblocco (il ripetibile suona a ogni multiplo)."""
+    bus, osservatore, raccolti = _mondo_con_catalogo((
+        _asset("terzetto", soglia=3, box=None, beffa="Tre. Contiamo insieme."),
+        _asset("bis-continuo", soglia=2, ripetibile=True, box=None,
+               beffa="Di nuovo. E ancora."),
+    ))
+    for _ in range(4):
+        bus.pubblica(CombatResolved(entita=0, vittoria=True))
+    slugs = [n.slug for n in raccolti]
+    assert slugs.count("terzetto") == 1, "la soglia 3 suona alla terza, una volta"
+    assert slugs.count("bis-continuo") == 2, "il ripetibile a soglia 2 suona a 2 e 4"
+    comp = obiettivi_correnti()
+    assert comp.conteggi["terzetto"] == 0, "azzerato allo sblocco"
+    assert comp.conteggi["bis-continuo"] == 0
+    # Un quinto fatto: il terzetto (non ripetibile) resta muto anche a
+    # contatore ripartito — la guardia degli sbloccati vince.
+    bus.pubblica(CombatResolved(entita=0, vittoria=True))
+    assert [n.slug for n in raccolti].count("terzetto") == 1
+    osservatore.chiudi()
+
+
+def test_il_catalogo_ha_i_titoli_da_impresa() -> None:
+    """Il catalogo di sistema copre i fatti nuovi: custode, rango, senza
+    graffi e almeno una serie a soglia."""
+    from main import catalogo_obiettivi
+
+    catalogo = {a.slug: a for a in catalogo_obiettivi()}
+    assert catalogo["taglia-sul-custode"].trigger.custode is True
+    assert catalogo["fuori-categoria"].trigger.grado_nemico_minimo is Grado.ORO
+    assert catalogo["senza-un-graffio"].trigger.senza_graffi is True
+    assert catalogo["lavoro-in-serie"].trigger.soglia == 10

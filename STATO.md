@@ -669,8 +669,22 @@ VERO; la box esce dalla coda solo a conio riuscito. Default-on: ogni
 sessione monta il catalogo di sistema (`obiettivi=()` esplicito = run
 pulita). Host (O4): notifiche ★ in cronaca tipata, elenco velato-finché-
 chiuso (`obiettivi_vista`), arretrate drenate-una-volta al load (§O-5),
-tasto `o` in TUI. RESTA O5 (cross-run col pattern ledger; «primi al mondo»
-solo col server) e il travaso al lab per la SPA (colonna notifiche, elenco).
+tasto `o` in TUI. DISACCOPPIAMENTO ratificato (2026-08-26): obiettivi =
+TITOLI per imprese mid-run, mai legati alla vittoria di run (che sarà SOLO
+il 18° piano, non ancora configurato — il terminale attuale è segnaposto);
+vocabolario esteso coi fatti da impresa su `CombatResolved` (custode,
+senza_graffi, grado_nemico fotografati all'apertura) + SERIE a `soglia` con
+contatori persistenti; catalogo a 20 voci (4 titoli nuovi). BREAKER
+2026-08-26 (giro avversariale giocato): anti-scum delle box regge (esci =
+salva-ed-esci; crash-scum inutile, stesso pezzo dallo stream per-box);
+chiusi i tre trovati — `custode` ora identifica il custode IN PERSONA fra
+gli arruolati (mai la stanza), la garanzia di drop del boss segue lo stesso
+fatto (`FattiScontro.custode` — il bancomat per-stanza a minacce vive è
+chiuso), e il contratto rifiuta `ripetibile` con box (stampante di loot).
+RESTA O5
+(cross-run col pattern ledger; «primi al mondo» solo col server); il
+travaso al lab della SPA è FATTO (commit a21a38b) — questo arricchimento
+andrà travasato al prossimo giro.
 
 ### 2.2 Combattimento
 
@@ -945,11 +959,54 @@ vittoria FURTIVA in tana, 5 zone, ~20 riposi). Il ramo «`CARL.hp` che cresce
 col piano» è ESCLUSO dai dati: la spina resta a profondità 1, il muro è dentro
 il piano 1 — la progressione è l'equip, come da design.
 
-Il passo ora è la RIFINITURA: 8% con combatti-tutto è un pavimento (il
-giocatore vero sceglie gli scontri e usa i vicoli — le run manuali arrivano
-più in là della politica); leve residue in canna: `K_RANGO_DANNO` 0.4→0.3
-(con `test_ttk` come rete), fasce del canale mosse, margine di fuga. Tutte da
-console (`calibra.bat`) con `misura_run.bat` come oracolo del prima/dopo.
+**Nodo B (2026-08-26, bilanciamento oggetti dal dataset di riferimento —
+piano in docs/bilanciamento-oggetti.md, modello estratto da docs/Fine Tuning
+Oggetti, curve e regole MAI nomi: la nota IP vale anche qui).** Due leve
+strutturali, misurate in stack:
+- **B1, la review-armi**: il layer impugnato è SVEGLIO — `atk_eff` somma il
+  `danno_base` dell'arma indossata (i mob senza manifest non si muovono:
+  il loro scaling resta `K_RANGO_DANNO`); la curva `OGGETTO.DANNO_ARMA.*` è
+  convessa, derivata da `K_RANGO_HP` (2/3/5/6/8/9): l'offesa da equip insegue
+  i pool come la difesa già faceva. Era la radice del muro provincia/paese
+  misurato dal power-play del 2026-08-26.
+- **B2, la qualità del conio**: il ventaglio DENTRO il grado
+  (scarto/onesto/pregiato, vocabolario motore, mai AI-facing) pescato in coda
+  allo stream (i draw storici non si spostano) con pesi §11 per grado derivati
+  dal dataset (`LOOT.QUALITA.*`); scarto = zero affissi + arma un grado sotto
+  (il junk di consolazione dei tier bassi), pregiato = un affisso in più +
+  arma un grado sopra (la sovrapposizione fra gradi del riferimento);
+  `qualita` sull'`OggettoAttivo`, default onesto = save vecchi intatti.
+Misura di chiusura (stessa `misura_run`, 40 seed): **combatti 3/40 → 7/40,
+fuga20 11/40 (28%)** — la spina intera + discesa (prof. 2) è un esito
+regolare, non un colpo di fortuna; `scappa` resta 0/40 (vincere richiede
+combattere). Ratifiche §B fatte: **scaling per territorio delle box** (il
+conio non scende sotto il minimo della finestra-loot corrente — aprire tardi
+paga, scelta non exploit; `BoxAperta.grado` = grado coniato) e **il dato agli
+host** (`OggettoTrovato` porta grado+qualità, `BoxAperta` la qualità, cronaca
+con la fattura — la vestizione SPA è del lab, al prossimo travaso). **Canale
+CONSUMABILI FATTO** (ratifica 2026-08-26): `OggettoAsset` tipo "consumabile"
++ `EffettoConsumabile` chiuso (cura/ristoro_mana/antidoto), quote del massimo
+per grado (§11), monouso via inventario (`sessione.usa` → `PlayerUsaOggetto`
+→ `SistemaConsumabili` solo-narrazione: in scontro l'intento resta in coda),
+rifiuto-non-consuma, antidoto mai sugli innati, `OggettoUsato` tipato in
+cronaca, dato demo (3 pezzi) nel giro dei drop; post-MVP dichiarati: uso in
+combattimento (muove il TTK), consumabili da fabbrica/box, ×N ai tier alti.
+**Vestizione §B-4 chiusa** (2026-08-26): pezzi vivi con grado/fattura/
+descrizione, `EquipVista` li espone, porta nuova `zaino_vista()` →
+`OggettoVista` (inventario tipato: tipo, grado, fattura, effetto, indossato
+— badge e bottone «Usa» della SPA nascono da qui); il nome resta pulito; le
+descrizioni si COMPONGONO (voce di fattura da pool autorali pescata seeded +
+manifattura della famiglia + nota d'elemento `ParteAffisso.descrizione`,
+campo nuovo d'asset con le note della catena-dei-morti scritte) — mai un
+prefisso fisso, mai testo generato a runtime. Restano dichiarate:
+moltiplicatore benefactor (quando esisteranno box sponsor), joke item come
+contenuto autorale.
+
+Il passo ora è la RIFINITURA: il giocatore vero sceglie gli scontri e usa i
+vicoli — le run manuali arrivano più in là della politica; leve residue in
+canna: `K_RANGO_DANNO` 0.4→0.3 (con `test_ttk` come rete), fasce del canale
+mosse, margine di fuga. Tutte da console (`calibra.bat`) con `misura_run.bat`
+come oracolo del prima/dopo.
 
 Più avanti, sull'asse mappa: la **generazione a chunk «stile sudoku»** (zone
 enormi per costruzione lazy: griglia di chunk seeded per cella, vincoli di zona

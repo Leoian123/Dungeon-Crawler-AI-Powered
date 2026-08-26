@@ -90,6 +90,12 @@ from .modificatori import (
     applica_resistenza,
     rimuovi_resistenza_per_fonte,
 )
+from .consumabili import (
+    CATALOGO_CONSUMABILI,
+    Consumabile,
+    SistemaConsumabili,
+    usa_consumabile,
+)
 from .corredo import Corredo
 from .equip import (
     CATALOGO_OGGETTI,
@@ -546,6 +552,10 @@ __all__ = [
     "SistemaEquip",
     "Zaino",
     "Guardaroba",
+    "CATALOGO_CONSUMABILI",
+    "Consumabile",
+    "SistemaConsumabili",
+    "usa_consumabile",
     "assicura_guardaroba",
     "guardaroba_attivo",
     "assicura_zaino",

@@ -648,18 +648,19 @@ def crea_app(stato: StatoHost) -> FastAPI:
 
     @app.get("/api/partita/zaino")
     async def zaino() -> dict:
-        """L'inventario per la UI: fonte + etichetta diegetica (la vestizione
-        del Guardaroba vince sul catalogo) + stato indossata. Sola lettura."""
+        """L'inventario TIPATO (§B-4): tipo, grado, fattura, effetto e
+        descrizione arrivano dal motore (`zaino_vista`) — badge e bottone
+        «Usa» nascono da qui, mai da sniffing sul nome. L'etichetta diegetica
+        (Guardaroba) veste il nome; `indossata` resta per compatibilità."""
         sessione = _sessione()
-        indossate = set(sessione.fonti_indossate())
         return {
             "fonti": [
                 {
-                    "fonte": fonte,
-                    "etichetta": etichetta_oggetto(fonte),
-                    "indossata": fonte in indossate,
+                    **riga.model_dump(mode="json"),
+                    "etichetta": etichetta_oggetto(riga.fonte),
+                    "indossata": riga.indossato,
                 }
-                for fonte in sessione.scheda().zaino
+                for riga in sessione.zaino_vista()
             ]
         }
 
@@ -699,6 +700,19 @@ def crea_app(stato: StatoHost) -> FastAPI:
         sessione = _guardia_equip(ric)
         async with stato.lock:
             snap = sessione.equipaggia(ric.fonte)
+            eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
+            nuovi = stato.registra_turno(snap, eventi=eventi, messaggio=None)
+        return _risposta_turno(nuovi)
+
+    @app.post("/api/partita/usa")
+    async def usa(ric: RichiestaEquip) -> dict:
+        """Canale B: beve/lancia un consumabile posseduto. Stesse guardie
+        dell'equip (narrazione, fonte nello zaino); il rifiuto del motore
+        (sei già intero, niente da purgare) NON consuma e la cronaca tace —
+        la UI se ne accorge dallo zaino invariato."""
+        sessione = _guardia_equip(ric)
+        async with stato.lock:
+            snap = sessione.usa(ric.fonte)
             eventi = stato.cronaca.preleva_tipata() if stato.cronaca else []
             nuovi = stato.registra_turno(snap, eventi=eventi, messaggio=None)
         return _risposta_turno(nuovi)

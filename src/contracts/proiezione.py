@@ -126,6 +126,29 @@ class EquipVista(BaseModel):
     nome: str = ""        # "" = slot vuoto (nessun oggetto equipaggiato)
     categoria: str = ""   # la chiave di geometria §11 che muove le derivate
     descrizione: str = ""
+    # Il dato di vestizione (§B-4): grado e fattura del pezzo indossato —
+    # l'host li VESTE (badge, colori), mai li deduce dal nome. "" = non detto.
+    grado: str = ""
+    qualita: str = ""
+
+
+class OggettoVista(BaseModel):
+    """UNA riga dello ZAINO per l'host (§B-4: il dato vive nel backend, la
+    UI veste): tipo, grado, fattura, effetto — tutto ciò che serve a un
+    inventario per mostrare badge e offrire le azioni giuste (indossa/togli
+    per l'equipaggiabile, «usa» per il consumabile), senza dedurre nulla dal
+    nome e senza un secondo canale."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fonte: str
+    nome: str
+    tipo: str = ""        # armatura | arma | accessorio | consumabile | ""
+    grado: str = ""       # "" = non detto (storici)
+    qualita: str = ""     # scarto | onesto | pregiato | "" (pre-ventaglio)
+    effetto: str = ""     # solo consumabili: la chiave del vocabolario chiuso
+    descrizione: str = ""
+    indossato: bool = False
 
 
 class SkillVista(BaseModel):

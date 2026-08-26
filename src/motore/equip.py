@@ -98,6 +98,12 @@ class PezzoArmatura:
     modificatori: tuple[Modificatore, ...] = ()
     resistenze: tuple[ResistenzaMod, ...] = ()
     swappable: int = 0
+    # Il DATO di vestizione (§B-4): grado, fattura e descrizione viaggiano sul
+    # pezzo vivo così la vista li mostra senza ricalcoli. "" = non detto
+    # (storici, save pre-ventaglio): i default tengono tutto retro-compatibile.
+    grado: str = ""
+    qualita: str = ""
+    descrizione: str = ""
 
 
 @dataclass(frozen=True)
@@ -117,6 +123,9 @@ class Arma:
     modificatori: tuple[Modificatore, ...] = ()
     resistenze: tuple[ResistenzaMod, ...] = ()
     swappable: int = 0
+    grado: str = ""          # dato di vestizione (§B-4), "" = non detto
+    qualita: str = ""
+    descrizione: str = ""
 
 
 @dataclass(frozen=True)
@@ -135,6 +144,9 @@ class Accessorio:
     modificatori: tuple[Modificatore, ...] = ()
     resistenze: tuple[ResistenzaMod, ...] = ()
     swappable: int = 0
+    grado: str = ""          # dato di vestizione (§B-4), "" = non detto
+    qualita: str = ""
+    descrizione: str = ""
     # Mosse CONCESSE dall'oggetto (chiavi del catalogo chiuso, mai comportamento). È il
     # canale che rende possibile «un oggetto che gioca d'azzardo nel suo component»
     # (Gr2 §5.2): l'oggetto non porta la casualità, porta la *mossa* che la dichiara —

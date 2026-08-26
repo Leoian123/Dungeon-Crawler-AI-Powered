@@ -88,6 +88,15 @@ function VoceEvento({ tipo, testo }: { tipo: string; testo: string }) {
       </div>
     );
   }
+  if (tipo === "OggettoUsato") {
+    // Canale B: il consumabile usato — l'effetto è già applicato dal motore,
+    // il testo arriva composto («Usi Tonico di Latta: +12 HP.»).
+    return (
+      <div className="mx-auto w-fit max-w-full rounded border border-muschio/50 bg-muschio/10 px-4 py-1.5 text-center font-hud text-sm text-muschio shadow-[0_0_12px_rgba(74,222,128,0.15)]">
+        {testo}
+      </div>
+    );
+  }
   if (tipo === "TransizioneZona" || tipo === "DiscesaPiano") {
     return (
       <div className="mx-auto w-fit max-w-full rounded border border-show/50 bg-show/5 px-4 py-1.5 text-center font-hud text-sm text-show shadow-[0_0_14px_rgba(34,211,238,0.18)]">

@@ -75,11 +75,13 @@ from contracts import (
     BoxAperta,
     ObiettivoRaggiunto,
     OggettoTrovato,
+    OggettoUsato,
     PlayerDiscende,
     PlayerEquipaggia,
     PlayerAttraversa,
     PlayerSiMuove,
     PlayerToglie,
+    PlayerUsaOggetto,
     OpzioneVista,
     PlayerChoseOption,
     Grado,
@@ -882,7 +884,12 @@ def _equip_di(entita: int) -> tuple[EquipVista, ...]:
         categoria = (
             indossato.taglia.value if slot is SlotEquip.ARMA else indossato.categoria.value
         )
-        return EquipVista(slot=slot, nome=indossato.nome, categoria=categoria)
+        return EquipVista(
+            slot=slot, nome=indossato.nome, categoria=categoria,
+            grado=getattr(indossato, "grado", ""),
+            qualita=getattr(indossato, "qualita", ""),
+            descrizione=getattr(indossato, "descrizione", ""),
+        )
 
     return tuple(_riga(slot) for slot in SlotEquip)
 
@@ -926,6 +933,7 @@ class IstanzaCombattimento:
         self._conclusa = False
         self._vittoria = False
         self._fuga = False
+        self._custode = False
         # I MOMENTI salienti (Fase 5): stringhe deterministiche dal bus — primo
         # sangue, status applicati, colpo di grazia. L'AI del resoconto li VESTE,
         # non li inventa (risolvi prima, narra dopo).
@@ -962,6 +970,9 @@ class IstanzaCombattimento:
         self._conclusa = True
         self._vittoria = bool(getattr(evento, "vittoria", False))
         self._fuga = bool(getattr(evento, "fuga", False))
+        # Il fatto-custode viaggia sull'esito (fotografia del motore): vale
+        # solo da VINTO — la garanzia di drop è del custode battuto.
+        self._custode = self._vittoria and bool(getattr(evento, "custode", False))
         if self._vittoria and self._ultimo_colpo:
             # Fuori dal cap: la chiusura si racconta sempre.
             momento = f"colpo di grazia: {self._ultimo_colpo}"
@@ -1036,6 +1047,7 @@ class IstanzaCombattimento:
             hp_persi=max(0, self._hp_iniziali - hp_ora),
             nemico=self.nemico,
             fuga=self._fuga,
+            custode=self._custode,
             momenti=tuple(self._momenti),
         )
 
@@ -1660,7 +1672,11 @@ class SessioneGioco:
                 assicura_coniati(pent).voci.append(attivo)
                 assicura_zaino(pent).fonti.append(attivo.slug)
                 self._ultimo_drop = None
-                self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
+                self.bus.pubblica(OggettoTrovato(
+                    nome=attivo.nome, fonte=attivo.slug,
+                    grado=attivo.grado,
+                    qualita=getattr(attivo, "qualita", ""),
+                ))
                 if (self.memoria_lunga is not None
                         and rango_grado(_Grado(grado)) >= rango_grado(_Grado.ORO)):
                     from contracts import DocumentoMemoria, TipoDocumento
@@ -1906,6 +1922,38 @@ class SessioneGioco:
         comp = equip_attivo(pent)
         return comp.fonti() if comp is not None else ()
 
+    def zaino_vista(self) -> tuple["OggettoVista", ...]:
+        """L'inventario TIPATO (§B-4: il dato vive qui, l'host veste): una
+        riga per fonte nello Zaino con tipo, grado, fattura, effetto e
+        descrizione — i badge della SPA e il bottone «Usa» nascono da qui,
+        mai da uno sniffing sul nome."""
+        from contracts import OggettoVista
+        from motore import (
+            Accessorio, Arma, Consumabile, PezzoArmatura,
+            catalogo_oggetti_correnti, fonti_zaino,
+        )
+
+        self._guardia_aperta()
+        pent, _marker, _scheda = protagonista()
+        catalogo = catalogo_oggetti_correnti()
+        indossate = set(self.fonti_indossate())
+        tipi = ((Consumabile, "consumabile"), (Arma, "arma"),
+                (PezzoArmatura, "armatura"), (Accessorio, "accessorio"))
+        righe = []
+        for fonte in fonti_zaino(pent):
+            ogg = catalogo.get(fonte)
+            righe.append(OggettoVista(
+                fonte=fonte,
+                nome=getattr(ogg, "nome", "") or fonte,
+                tipo=next((t for cls, t in tipi if isinstance(ogg, cls)), ""),
+                grado=getattr(ogg, "grado", "") or "",
+                qualita=getattr(ogg, "qualita", "") or "",
+                effetto=getattr(ogg, "effetto", "") or "",
+                descrizione=getattr(ogg, "descrizione", "") or "",
+                indossato=fonte in indossate,
+            ))
+        return tuple(righe)
+
     def _provider_offline(self) -> bool:
         """Vero se il GM è il copione offline (FakeProvider e derivati): il
         conio non ha un modello da chiamare — il drop resta sincrono dal pool
@@ -2004,22 +2052,24 @@ class SessioneGioco:
         assicura_coniati(pent).voci.append(attivo)
         assicura_zaino(pent).fonti.append(attivo.slug)
         self._ultimo_drop = (attivo.slug, grado)
-        self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
+        self.bus.pubblica(OggettoTrovato(
+            nome=attivo.nome, fonte=attivo.slug,
+            grado=attivo.grado, qualita=getattr(attivo, "qualita", ""),
+        ))
 
     def _drop_del_custode(self) -> bool:
-        """Vero se la vittoria appena chiusa è quella sul CUSTODE della zona
-        (stanza-boss ∧ custode segnato battuto) e la garanzia §11 è accesa.
-        Edge dichiarato: una vittoria successiva nella stessa stanza-boss (il
-        custode è già battuto) risulterebbe garantita anch'essa — accettato,
-        il caso è raro e la stanza non rigenera nemici propri."""
+        """Vero se la vittoria appena chiusa ha battuto il CUSTODE in persona
+        (fatto fotografato dal motore all'apertura dello scontro, trasportato
+        da `CombatResolved` → `FattiScontro.custode`) e la garanzia §11 è
+        accesa. MAI la stanza: il vecchio keying (stanza-boss ∧ boss battuto)
+        aveva l'edge dichiarato «vittoria successiva garantita anch'essa» — che
+        il breaker 2026-08-26 ha promosso a bancomat (imboscate vinte in
+        stanza-boss a minacce vive = drop garantiti a ripetizione). Chiuso."""
         from motore import calibrazione as _cal
-        from motore import boss_sconfitto, stanza_corrente_e_del_boss, zona_corrente
 
         if not int(getattr(_cal, "BOSS_DROP_GARANTITO", 0)):
             return False
-        zona = zona_corrente()
-        return (zona is not None and stanza_corrente_e_del_boss()
-                and boss_sconfitto(zona))
+        return self._fatti_scontro is not None and self._fatti_scontro.custode
 
     def _deposita_da_pool(self, grado: str) -> None:
         """Il deposito DETERMINISTICO dal pool (storico + congelati + coniati):
@@ -2041,8 +2091,10 @@ class SessioneGioco:
         zaino.fonti.append(fonte)
         oggetto = catalogo[fonte]
         self._ultimo_drop = (fonte, grado_oggetto(fonte))
+        # Dal pool storico: il grado si conosce, la qualità no ("" = non detto).
         self.bus.pubblica(OggettoTrovato(
             nome=getattr(oggetto, "nome", "") or fonte, fonte=fonte,
+            grado=grado_oggetto(fonte),
         ))
 
     def _scarica_drop_pendente(self) -> None:
@@ -2074,6 +2126,16 @@ class SessioneGioco:
         mai operazione inversa — ADR-1 D1)."""
         self._guardia_aperta()
         self.coda.accoda(PlayerToglie(fonte=fonte))
+        return self.avanza()
+
+    def usa(self, fonte: str) -> SnapshotVista:
+        """Porta dei CONSUMABILI (canale B): Zaino → effetto, via l'intento
+        tipizzato servito da `SistemaConsumabili` nel bucket di narrazione —
+        stesso phase-gate dell'equip (in combattimento l'intento resta in
+        coda). A successo la fonte esce dallo zaino e `OggettoUsato` va in
+        cronaca; il rifiuto (sei intero, niente da purgare) non consuma."""
+        self._guardia_aperta()
+        self.coda.accoda(PlayerUsaOggetto(fonte=fonte))
         return self.avanza()
 
     def salva(self) -> str:
@@ -2757,6 +2819,15 @@ def _riga_turno_saltato(e: object) -> str:
     return "Sei stordito: salti il turno!" if nome == "" else f"{nome} è stordito: salta il turno."
 
 
+def _nota_fattura(e: object) -> str:
+    """La fattura del ventaglio (nodo B2), quando l'evento la dice: scarto e
+    pregiato si annunciano accanto al nome, l'onesto (e il non-detto) tace."""
+    return {
+        "scarto": " — fattura di scarto",
+        "pregiato": " — fattura pregiata",
+    }.get(getattr(e, "qualita", ""), "")
+
+
 def _riga_risolto(e: object) -> str:
     if getattr(e, "fuga", False):
         return "Ti disimpegni: fuga riuscita, lo scontro si dissolve."
@@ -2823,8 +2894,12 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
             "piano": "la TANA. Qualcuno sta contando fino a dieci.",
         }.get(getattr(e, "tier", ""), "una zona nuova del piano."))),
     (OggettoTrovato, lambda e: (
-        f"✦ Bottino: {getattr(e, 'nome', '') or getattr(e, 'fonte', '?')} "
-        f"(nello zaino).")),
+        f"✦ Bottino: {getattr(e, 'nome', '') or getattr(e, 'fonte', '?')}"
+        f"{_nota_fattura(e)} (nello zaino).")),
+    # Canale B: il consumabile usato — l'effetto è già applicato dal motore,
+    # la cronaca annuncia il dettaglio composto.
+    (OggettoUsato, lambda e: (
+        f"◉ Usi {getattr(e, 'nome', '?')}: {getattr(e, 'dettaglio', '') or 'fatto'}.")),
     (TurnoSaltato, _riga_turno_saltato),
     (CombatResolved, _riga_risolto),
     # Nodo O2: la box si apre (solo nei luoghi quieti) — il conio è già fatto,
@@ -2832,7 +2907,7 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (BoxAperta, lambda e: (
         f"◇ La Box {getattr(e, 'categoria', '?').capitalize()} di "
         f"{getattr(e, 'grado', '?').capitalize()} si apre: "
-        f"{getattr(e, 'nome', '?')} (nello zaino).")),
+        f"{getattr(e, 'nome', '?')}{_nota_fattura(e)} (nello zaino).")),
     # Nodo O: la notifica di sistema. Testo e ricompensa sono GIÀ composti dal
     # motore (dato autorale, deterministico): la cronaca li affianca e basta.
     (ObiettivoRaggiunto, lambda e: (
@@ -3056,6 +3131,7 @@ def _fabbrica_a_attiva(fabbrica) -> "FabbricaAttiva | None":
         affissi=tuple(
             AffissoAttivo(
                 nome=a.nome,
+                descrizione=a.descrizione,
                 res_contro=a.res_contro.value if a.res_contro is not None else None,
                 res_fascia=a.res_fascia.value if a.res_fascia is not None else None,
                 modificatori=tuple(

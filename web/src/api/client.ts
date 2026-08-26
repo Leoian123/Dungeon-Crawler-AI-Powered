@@ -89,6 +89,8 @@ export const api = {
     richiesta<RispostaTurno>("/api/partita/equipaggia", post({ fonte, versione })),
   togli: (fonte: string, versione: number) =>
     richiesta<RispostaTurno>("/api/partita/togli", post({ fonte, versione })),
+  usa: (fonte: string, versione: number) =>
+    richiesta<RispostaTurno>("/api/partita/usa", post({ fonte, versione })),
   bacheca: () => richiesta<RispostaBacheca>("/api/bacheca"),
   wikiVoci: () => richiesta<{ voci: VoceWikiVista[] }>("/api/wiki/voci"),
   wikiProposte: () =>

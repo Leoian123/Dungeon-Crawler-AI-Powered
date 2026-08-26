@@ -1,0 +1,9 @@
+{
+  "slug": "fuori-categoria",
+  "versione": 1,
+  "tags": ["combattimento", "titolo"],
+  "titolo": "Fuori categoria",
+  "testo": "Hai vinto contro un avversario di rango Oro o superiore. Il tabellone delle quote ha avuto un piccolo infarto.",
+  "trigger": {"evento": "combat_risolto", "vittoria": true, "grado_nemico_minimo": "oro"},
+  "ricompensa": {"box": {"categoria": "armi", "grado": "argento"}}
+}

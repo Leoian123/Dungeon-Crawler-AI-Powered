@@ -50,6 +50,11 @@ class CombatResolved(EventoDominio):
     entita: Entita
     vittoria: bool
     fuga: bool = False
+    # I FATTI DA IMPRESA (nodo O, titoli mid-run) — fotografati dal motore
+    # all'apertura dello scontro, mai dedotti a valle:
+    grado_nemico: str = ""     # il grado più alto fra i nemici ("" = scalari)
+    custode: bool = False      # lo scontro era nella stanza del custode di zona
+    senza_graffi: bool = False # vittoria senza aver perso un solo HP
 
 
 @dataclass(frozen=True)
@@ -150,10 +155,15 @@ class OggettoTrovato(EventoDominio):
     """Bottino a fine scontro vinto: il canale del loot parla in cronaca.
 
     `fonte` è l'id di dominio durevole (quello di Zaino/equip); `nome` è il
-    diegetico da mostrare. La TABELLA dei drop è contenuto; questo è il canale."""
+    diegetico da mostrare. La TABELLA dei drop è contenuto; questo è il canale.
+    `grado` e `qualita` (nodo B, ratifica §B-4: il dato vive nel backend, gli
+    host lo VESTONO) viaggiano quando il motore li conosce — "" = non detto
+    (drop dal pool storico, eventi scritti prima del ventaglio)."""
 
     nome: str
     fonte: str
+    grado: str = ""
+    qualita: str = ""
 
 
 @dataclass(frozen=True)
@@ -182,16 +192,34 @@ class MortePersonaggio(EventoDominio):
 
 
 @dataclass(frozen=True)
+class OggettoUsato(EventoDominio):
+    """Un consumabile è stato usato (canale B): il fatto compiuto per la
+    cronaca — l'effetto l'ha GIÀ applicato il motore (numeri §11 per grado).
+    `dettaglio` è il risultato composto («+12 HP», «il veleno svanisce»):
+    l'host lo mostra, mai lo ricalcola. L'uso rifiutato (sei già intero,
+    niente da purgare) NON è un fatto: non passa di qui."""
+
+    nome: str
+    fonte: str
+    effetto: str
+    dettaglio: str = ""
+
+
+@dataclass(frozen=True)
 class BoxAperta(EventoDominio):
     """Una box degli obiettivi si è aperta (nodo O2, solo nei luoghi quieti):
     il conio è del motore (fabbrica, stream isolato per-box — replay-safe),
     l'evento è il fatto compiuto per cronaca e showrunner. `fonte` è l'id di
-    dominio dell'oggetto coniato (Zaino/equip), `nome` il diegetico."""
+    dominio dell'oggetto coniato (Zaino/equip), `nome` il diegetico. `grado`
+    è il grado CONIATO (con lo scaling per territorio, ratifica §B-1, può
+    superare quello stampato sulla box); `qualita` è la fattura del ventaglio
+    (nodo B2, "" = evento scritto prima del ventaglio)."""
 
     categoria: str
     grado: str
     nome: str
     fonte: str
+    qualita: str = ""
 
 
 @dataclass(frozen=True)

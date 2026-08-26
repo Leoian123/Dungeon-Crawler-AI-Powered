@@ -28,6 +28,7 @@ from .eventi import (
     DisimpegnoScena,
     TransizioneZona,
     OggettoTrovato,
+    OggettoUsato,
     StatusApplicato,
     StatusSvanito,
     RiposoConcluso,
@@ -44,6 +45,7 @@ from .intenti import (
     PlayerDiscende,
     PlayerEquipaggia,
     PlayerToglie,
+    PlayerUsaOggetto,
 )
 from .schema import (
     ArchetipoId,
@@ -141,6 +143,7 @@ from .contenuti import (
     BudgetDesign,
     EffettoDati,
     FabbricaAsset,
+    EffettoConsumabile,
     MobAsset,
     ModificatoreDati,
     MossaAsset,
@@ -164,6 +167,7 @@ from .contenuti import (
 from .hub import CrawlerVista
 from .proiezione import (
     EquipVista,
+    OggettoVista,
     ProgressioneVista,
     SchedaProiezione,
     SchedaVista,
@@ -240,6 +244,7 @@ __all__ = [
     "DisimpegnoScena",
     "TransizioneZona",
     "OggettoTrovato",
+    "OggettoUsato",
     "StatusApplicato",
     "StatusSvanito",
     "TurnoSaltato",
@@ -255,6 +260,7 @@ __all__ = [
     "PlayerDiscende",
     "PlayerEquipaggia",
     "PlayerToglie",
+    "PlayerUsaOggetto",
     "Taglia",
     "CategoriaArmatura",
     "CategoriaPng",
@@ -290,6 +296,7 @@ __all__ = [
     "SchedaVista",
     "SkillVista",
     "EquipVista",
+    "OggettoVista",
     "SlotEquip",
     "SLOT_ARMATURA",
     "SLOT_IMPUGNATI",
@@ -308,6 +315,7 @@ __all__ = [
     "ModificatoreDati",
     "MossaAsset",
     "OggettoAsset",
+    "EffettoConsumabile",
     "PianoAsset",
     "ProfiloArchetipoDati",
     "PianoRisolto",

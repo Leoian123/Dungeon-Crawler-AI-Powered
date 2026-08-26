@@ -661,6 +661,44 @@ _PESO_GRADO_DEFAULT = {
     "bronzo": 3, "argento": 4, "oro": 4, "platino": 3, "leggendario": 1, "celestiale": 1,
 }
 
+# Danno base dell'arma per grado (nodo B1, review-armi 2026-08-26): curva
+# CONVESSA round(2·(1+K_RANGO_HP·(rango−1))) col K di default (0.7) — l'arma
+# attesa insegue la crescita del pool del suo grado, così l'offesa da equip
+# scala come la difesa già faceva (fascia×rango, MOLT_COSTITUZIONE).
+_DANNO_ARMA_DEFAULT = {
+    "bronzo": 2, "argento": 3, "oro": 5, "platino": 6, "leggendario": 8, "celestiale": 9,
+}
+
+# LA QUALITÀ DEL CONIO (nodo B2) — il ventaglio DENTRO il grado, vocabolario
+# del motore (mai AI-facing): scarto (il junk di consolazione), onesto (il
+# comportamento storico), pregiato (la sovrapposizione col grado sopra).
+# I pesi per grado sono DERIVATI dal dataset di riferimento (docs/Fine Tuning
+# Oggetti, conteggi Bad/Mid/Good per tier): il pavimento-scarto vive nei tier
+# bassi, sparisce al platino/leggendario, RITORNA al celestiale (il rischio
+# catastrofico del riferimento).
+QUALITA_CONIO = ("scarto", "onesto", "pregiato")
+
+# CONSUMABILI (canale B, 2026-08-26): l'effetto è vocabolario chiuso del
+# contratto (`EffettoConsumabile`), il NUMERO è qui — quota del MASSIMO
+# (deriva con la crescita del pool via gear: una pozione di bronzo resta
+# utile quando gli HP salgono, come il «almeno il 50%» del riferimento).
+_CURA_PCT_DEFAULT = {
+    "bronzo": 0.35, "argento": 0.45, "oro": 0.55,
+    "platino": 0.7, "leggendario": 0.85, "celestiale": 1.0,
+}
+_MANA_PCT_DEFAULT = {
+    "bronzo": 0.5, "argento": 0.6, "oro": 0.7,
+    "platino": 0.8, "leggendario": 0.9, "celestiale": 1.0,
+}
+_QUALITA_PESI_DEFAULT: dict[str, dict[str, int]] = {
+    "bronzo": {"scarto": 8, "onesto": 7, "pregiato": 8},
+    "argento": {"scarto": 4, "onesto": 8, "pregiato": 12},
+    "oro": {"scarto": 1, "onesto": 12, "pregiato": 22},
+    "platino": {"scarto": 0, "onesto": 12, "pregiato": 11},
+    "leggendario": {"scarto": 0, "onesto": 5, "pregiato": 17},
+    "celestiale": {"scarto": 2, "onesto": 3, "pregiato": 12},
+}
+
 
 # Le fasce delle mosse-asset (T3a): il numero vive QUI, l'asset nomina la fascia.
 _FASCIA_COSTO_DEFAULT = {"gratuita": 0, "economica": 2, "standard": 4, "costosa": 7}
@@ -750,10 +788,12 @@ def _oggetti_defs() -> tuple[Param, ...]:
         ))
     for indice, grado in enumerate(Grado, start=1):
         out.append(Param(
-            f"OGGETTO.DANNO_ARMA.{grado.value}", indice,
+            f"OGGETTO.DANNO_ARMA.{grado.value}", _DANNO_ARMA_DEFAULT[grado.value],
             f"Danno base di un'arma di grado {grado.value.upper()} senza valore "
-            "esplicito nell'asset (dormiente finché la review-armi non decide "
-            "il layer impugnato).",
+            "esplicito nell'asset. SVEGLIO dalla review-armi (nodo B1, "
+            "2026-08-26): entra in `atk_eff` quando l'arma è impugnata. Curva "
+            "CONVESSA derivata da K_RANGO_HP — l'arma attesa insegue il pool "
+            "atteso del suo grado: round(2·(1+K_RANGO_HP·(rango−1))).",
             CAT_OGGETTI, "intero ≥0", "int", "HP",
         ))
         out.append(Param(
@@ -762,6 +802,29 @@ def _oggetti_defs() -> tuple[Param, ...]:
             "(dentro la finestra dei gradi della profondità): i bassi sono il "
             "pane, gli alti la festa.",
             CAT_OGGETTI, "intero ≥0", "int",
+        ))
+        for qualita in QUALITA_CONIO:
+            out.append(Param(
+                f"LOOT.QUALITA.{grado.value}.{qualita}",
+                _QUALITA_PESI_DEFAULT[grado.value][qualita],
+                f"Peso della qualità {qualita.upper()} in un conio di grado "
+                f"{grado.value.upper()} (nodo B2, ventaglio dal dataset di "
+                "riferimento). Scarto = zero affissi e arma un grado sotto; "
+                "pregiato = un affisso in più e arma un grado sopra. "
+                "Tutti a zero = solo onesto (comportamento storico).",
+                CAT_OGGETTI, "intero ≥0", "int",
+            ))
+        out.append(Param(
+            f"CONSUMABILE.CURA_PCT.{grado.value}", _CURA_PCT_DEFAULT[grado.value],
+            f"Quota del MASSIMO HP curata da un consumabile CURA di grado "
+            f"{grado.value.upper()} (canale B): la pozione scala col pool, "
+            "come nel riferimento.", CAT_OGGETTI, "0 – 1", "float",
+        ))
+        out.append(Param(
+            f"CONSUMABILE.MANA_PCT.{grado.value}", _MANA_PCT_DEFAULT[grado.value],
+            f"Quota del MASSIMO mana ripristinata da un consumabile "
+            f"RISTORO_MANA di grado {grado.value.upper()} (canale B).",
+            CAT_OGGETTI, "0 – 1", "float",
         ))
     return tuple(out)
 
@@ -926,6 +989,19 @@ DANNO_ARMA_PER_GRADO: dict[str, int] = {
 }
 LOOT_PESO_GRADO: dict[str, int] = {
     g.value: valore(f"LOOT.PESO_GRADO.{g.value}") for g in Grado
+}
+# Pesi del ventaglio di qualità per grado (nodo B2) — generati da enum × tupla:
+# un grado o una qualità nuovi senza foglia = KeyError all'import.
+LOOT_QUALITA_PESI: dict[str, dict[str, int]] = {
+    g.value: {q: valore(f"LOOT.QUALITA.{g.value}.{q}") for q in QUALITA_CONIO}
+    for g in Grado
+}
+# Consumabili (canale B): quote del massimo per grado, generate dall'enum.
+CONSUMABILE_CURA_PCT: dict[str, float] = {
+    g.value: valore(f"CONSUMABILE.CURA_PCT.{g.value}") for g in Grado
+}
+CONSUMABILE_MANA_PCT: dict[str, float] = {
+    g.value: valore(f"CONSUMABILE.MANA_PCT.{g.value}") for g in Grado
 }
 
 # Fasce delle mosse-asset (T3a) — generate dagli enum del contratto.
