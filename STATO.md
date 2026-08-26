@@ -674,7 +674,14 @@ TITOLI per imprese mid-run, mai legati alla vittoria di run (che sarà SOLO
 il 18° piano, non ancora configurato — il terminale attuale è segnaposto);
 vocabolario esteso coi fatti da impresa su `CombatResolved` (custode,
 senza_graffi, grado_nemico fotografati all'apertura) + SERIE a `soglia` con
-contatori persistenti; catalogo a 20 voci (4 titoli nuovi). RESTA O5
+contatori persistenti; catalogo a 20 voci (4 titoli nuovi). BREAKER
+2026-08-26 (giro avversariale giocato): anti-scum delle box regge (esci =
+salva-ed-esci; crash-scum inutile, stesso pezzo dallo stream per-box);
+chiusi i tre trovati — `custode` ora identifica il custode IN PERSONA fra
+gli arruolati (mai la stanza), la garanzia di drop del boss segue lo stesso
+fatto (`FattiScontro.custode` — il bancomat per-stanza a minacce vive è
+chiuso), e il contratto rifiuta `ripetibile` con box (stampante di loot).
+RESTA O5
 (cross-run col pattern ledger; «primi al mondo» solo col server); il
 travaso al lab della SPA è FATTO (commit a21a38b) — questo arricchimento
 andrà travasato al prossimo giro.

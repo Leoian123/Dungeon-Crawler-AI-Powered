@@ -161,6 +161,7 @@ class StatoCombattimento:
     # catturano quando i nemici sono ancora leggibili — alla chiusura sono morti.
     hp_iniziali_prot: int = 0      # per `senza_graffi` sull'esito
     grado_massimo: str = ""        # il grado più alto fra i nemici ("" = scalari)
+    custode_presente: bool = False  # il custode di zona IN PERSONA è nello scontro
 
 
 # --- Iniziativa (G-3): destrezza desc, tiebreak su chiave stabile seeded -------
@@ -618,13 +619,13 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
 
         # Condizione di vittoria: nessun nemico vivo → torna in narrazione.
         # L'esito porta i FATTI DA IMPRESA (nodo O, titoli mid-run): grado del
-        # nemico più alto (fotografato all'apertura), stanza del custode,
-        # vittoria senza graffi — dati del motore, letti qui e mai dedotti.
+        # nemico più alto, custode in persona battuto, vittoria senza graffi —
+        # fotografati all'apertura, letti qui e mai dedotti.
         if not _nemici_vivi():
             self.bus.pubblica(CombatResolved(
                 entita=attivo, vittoria=True,
                 grado_nemico=stato.grado_massimo,
-                custode=_e_stanza_del_custode(),
+                custode=stato.custode_presente,
                 senza_graffi=scheda.punti_vita >= stato.hp_iniziali_prot > 0,
             ))
 
@@ -923,14 +924,28 @@ class SistemaCrollo(SistemaSoloCombattimento):
             self.bus.pubblica(CrolloDungeon(danno=stato.crollo))
 
 
-def _e_stanza_del_custode() -> bool:
-    """Vero se lo scontro vive nella stanza del CUSTODE di zona (il fatto per
-    il titolo «taglia sul custode»). Lettura tollerante: gli harness senza
-    territorio non devono esplodere — il degrado è False, mai un crash."""
+def _custode_in_scontro(arruolate) -> bool:
+    """Vero se fra gli ARRUOLATI c'è il custode di zona IN PERSONA: stanza-boss,
+    boss non ancora battuto, e il mob DELLA stanza è dentro lo scontro. Il
+    fatto si fotografa all'apertura (alla chiusura il custode è smontato) e
+    identifica il MOB, mai la stanza: un'imboscata vinta nella stanza-boss non
+    è il custode — né per il titolo «taglia sul custode» né per la garanzia di
+    drop (il bancomat del breaker 2026-08-26). Lettura tollerante: gli harness
+    senza territorio non devono esplodere — il degrado è False, mai un crash."""
     try:
-        from .territorio import stanza_corrente_e_del_boss
+        from .mappa import mob_corrente
+        from .territorio import (
+            boss_sconfitto,
+            stanza_corrente_e_del_boss,
+            zona_corrente,
+        )
 
-        return bool(stanza_corrente_e_del_boss())
+        zona = zona_corrente()
+        if (zona is None or not stanza_corrente_e_del_boss()
+                or boss_sconfitto(zona)):
+            return False
+        mob = mob_corrente()
+        return mob is not None and mob in arruolate
     except Exception:
         return False
 
@@ -995,6 +1010,7 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
         stato.grado_massimo = (
             max(gradi, key=RANGO_GRADO.__getitem__).value if gradi else ""
         )
+        stato.custode_presente = _custode_in_scontro(piano.arruolate)
 
     def _smonta(_evento: CombatResolved) -> None:
         # Il ciclo di vita dipende da COME il nemico è entrato in scontro (FNC §6.3):

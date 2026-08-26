@@ -91,6 +91,16 @@ def test_la_ricompensa_non_e_mai_vuota_e_muta() -> None:
     )
 
 
+def test_il_ripetibile_con_box_e_rifiutato() -> None:
+    """Il lucchetto anti-stampante (breaker 2026-08-26): un obiettivo
+    ripetibile che paga una BOX sarebbe farm infinito per un refuso di
+    authoring — il contratto lo rifiuta alla nascita. Con la beffa resta
+    legittimo (metà del registro comico)."""
+    with pytest.raises(ValidationError):
+        _asset("stampante", ripetibile=True)  # box di default: rifiutato
+    _asset("bis", ripetibile=True, box=None, beffa="Di nuovo. Bravo.")  # ok
+
+
 # --- Lo sblocco sul fatto -------------------------------------------------------
 
 def test_la_vittoria_sblocca_e_deposita_la_box(mondo_isolato: str) -> None:
@@ -340,7 +350,6 @@ def test_la_box_si_apre_solo_in_quiete_e_conia_la_categoria(
         not o.etichetta.startswith("Apri box") for o in snap.opzioni
     ), "a coda vuota l'opzione sparisce"
     sessione.esci()
-    return coniato.slug
 
 
 def test_l_apertura_e_deterministica_per_replay(run_pulita, tmp_path) -> None:

@@ -127,3 +127,17 @@ class AchievementAsset(BaseModel):
     trigger: TriggerObiettivo
     ricompensa: RicompensaObiettivo
     ripetibile: bool = False
+
+    @model_validator(mode="after")
+    def _niente_stampante(self) -> "AchievementAsset":
+        """Un ripetibile che paga una BOX sarebbe una stampante di loot (ogni
+        ri-sblocco = una box: farm infinito per un refuso d'authoring —
+        breaker 2026-08-26). Il ripetibile premia con una beffa; una box
+        ripetibile, se mai la si vorrà, andrà ratificata rimuovendo questo
+        lucchetto, non aggirata."""
+        if self.ripetibile and self.ricompensa.box is not None:
+            raise ValueError(
+                "obiettivo ripetibile con box: la fabbrica diventerebbe una "
+                "stampante di loot — usa una beffa, o ripetibile: false"
+            )
+        return self

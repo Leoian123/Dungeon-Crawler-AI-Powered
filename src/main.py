@@ -926,6 +926,7 @@ class IstanzaCombattimento:
         self._conclusa = False
         self._vittoria = False
         self._fuga = False
+        self._custode = False
         # I MOMENTI salienti (Fase 5): stringhe deterministiche dal bus — primo
         # sangue, status applicati, colpo di grazia. L'AI del resoconto li VESTE,
         # non li inventa (risolvi prima, narra dopo).
@@ -962,6 +963,9 @@ class IstanzaCombattimento:
         self._conclusa = True
         self._vittoria = bool(getattr(evento, "vittoria", False))
         self._fuga = bool(getattr(evento, "fuga", False))
+        # Il fatto-custode viaggia sull'esito (fotografia del motore): vale
+        # solo da VINTO — la garanzia di drop è del custode battuto.
+        self._custode = self._vittoria and bool(getattr(evento, "custode", False))
         if self._vittoria and self._ultimo_colpo:
             # Fuori dal cap: la chiusura si racconta sempre.
             momento = f"colpo di grazia: {self._ultimo_colpo}"
@@ -1036,6 +1040,7 @@ class IstanzaCombattimento:
             hp_persi=max(0, self._hp_iniziali - hp_ora),
             nemico=self.nemico,
             fuga=self._fuga,
+            custode=self._custode,
             momenti=tuple(self._momenti),
         )
 
@@ -2007,19 +2012,18 @@ class SessioneGioco:
         self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
 
     def _drop_del_custode(self) -> bool:
-        """Vero se la vittoria appena chiusa è quella sul CUSTODE della zona
-        (stanza-boss ∧ custode segnato battuto) e la garanzia §11 è accesa.
-        Edge dichiarato: una vittoria successiva nella stessa stanza-boss (il
-        custode è già battuto) risulterebbe garantita anch'essa — accettato,
-        il caso è raro e la stanza non rigenera nemici propri."""
+        """Vero se la vittoria appena chiusa ha battuto il CUSTODE in persona
+        (fatto fotografato dal motore all'apertura dello scontro, trasportato
+        da `CombatResolved` → `FattiScontro.custode`) e la garanzia §11 è
+        accesa. MAI la stanza: il vecchio keying (stanza-boss ∧ boss battuto)
+        aveva l'edge dichiarato «vittoria successiva garantita anch'essa» — che
+        il breaker 2026-08-26 ha promosso a bancomat (imboscate vinte in
+        stanza-boss a minacce vive = drop garantiti a ripetizione). Chiuso."""
         from motore import calibrazione as _cal
-        from motore import boss_sconfitto, stanza_corrente_e_del_boss, zona_corrente
 
         if not int(getattr(_cal, "BOSS_DROP_GARANTITO", 0)):
             return False
-        zona = zona_corrente()
-        return (zona is not None and stanza_corrente_e_del_boss()
-                and boss_sconfitto(zona))
+        return self._fatti_scontro is not None and self._fatti_scontro.custode
 
     def _deposita_da_pool(self, grado: str) -> None:
         """Il deposito DETERMINISTICO dal pool (storico + congelati + coniati):
