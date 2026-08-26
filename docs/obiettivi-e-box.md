@@ -26,6 +26,31 @@ la safe room è il rifugio attrezzato — è lì che si scartano i regali).
 > di obiettivo o battute del libro nel repo. Il registro si imita, il testo
 > no. (Rischio IP già a registro in STATO: questo sistema non lo aggrava.)
 
+> **Golden standard meccanico (taratura 2026-08-26).** Il dataset
+> `docs/Dataset/Achievement` (58 achievement del canone, censiti per
+> `tipo_trigger` e tier di ricompensa) è il riferimento per NON sbagliare i
+> trigger. Le regole estratte, ora lucchettate in
+> `test_il_catalogo_rispetta_il_golden_standard`:
+> 1. **niente annunci a raffica**: nel canone i ripetibili sono 2 su 58 ed
+>    entrambi su eventi rari — da noi un ripetibile su un fatto frequente
+>    (vittoria, riposo, varco) vuole una `soglia` (Applausi 5, Cliente
+>    abituale 5, Maratoneta 3);
+> 2. **il trigger dice quello che il titolo promette**: Cliente abituale
+>    conta i riposi COMPLETI (`interrotto: false`) — prima suonava anche
+>    quando l'imboscata ti svegliava;
+> 3. **canali separati** (regola esplicita del canone: il loot dei boss passa
+>    dalla Boss Box keyed al rango, mai dall'achievement): Taglia sul custode
+>    è una beffa — il custode paga già col drop garantito;
+> 4. **i traguardi di percorso obbligato non pagano** (scale, gilde, primo
+>    level-up = beffe nel canone): da noi le beffe dei "primi" (caffè,
+>    cianfrusaglie, fuga) seguono la regola; le box di zona/discesa restano
+>    scelte di ECONOMIA dichiarate (sono la progressione, in assenza di XP);
+> 5. le kill pagano solo QUALIFICATE (senza graffi, fuori categoria — mai la
+>    kill semplice) e le soglie numeriche pagano dal medio tier in su.
+> Trigger canonici non ancora rappresentabili (prima volta d'equip, soglie
+> d'accumulo inventario, eventi di trappola/caduta) restano dichiarati:
+> vocabolario da estendere quando esisterà il fatto sul bus.
+
 ## Il principio (le linee rosse applicate)
 
 - **Il trigger è un FATTO del motore**: gli obiettivi ascoltano il bus

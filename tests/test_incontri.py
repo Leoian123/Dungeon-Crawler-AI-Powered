@@ -67,6 +67,48 @@ def test_compositore_deterministico_e_isolato(mondo_isolato) -> None:
     assert nome_nemico_incontro(a) == ma.nome
 
 
+def test_l_imboscata_non_pesca_il_mob_di_stanza(mondo_isolato) -> None:
+    """Screenshot 2026-08-26: l'agguato all'ingresso pescava lo stesso nome del
+    mob che PRESIDIA la stanza — il GM diceva «non si rialza» e il menu
+    rioffriva Combatti con lo stesso Fante (un morto apparentemente risorto).
+    Con l'esclusione: su molti tick campionati, l'imboscata non porta MAI il
+    nome del presidiante quando la tabella ha alternative."""
+    from motore import avvia_territorio, mob_di_stanza, zona_corrente
+    from motore.mappa import mappa_corrente
+    from motore.piano import TempoPiano, livello_corrente
+    from main import _stagione_a_attiva
+    from motore import crea_stagione
+    from tests.contenuti_sintetici import piano_territoriale, stagione_sintetica
+
+    crea_profondita()
+    crea_seme(7)
+    crea_tempo_piano()
+    crea_stagione(_stagione_a_attiva(stagione_sintetica(
+        piani=[piano_territoriale(1)], slug="s-agguato",
+    )))
+    crea_protagonista(destrezza=10, punti_vita=30, id_dominio="carl")
+    avvia_territorio(1)
+
+    m = mappa_corrente()[1]
+    presidiante = mob_di_stanza(
+        livello_corrente(), zona_corrente(), m.stanza_corrente
+    )
+    assert presidiante is not None, "l'harness territoriale deve avere il copione"
+
+    tempo = esper.get_component(TempoPiano)[0][1]
+    nomi_agguato = set()
+    for tick in range(24):
+        tempo.tick = tick  # stream d'imboscata diverso per ogni tick
+        incontro = componi_imboscata_scena()
+        nomi_agguato.add(nome_nemico_incontro(incontro))
+    assert len(nomi_agguato) > 1, (
+        "campione degenere: la tabella sintetica deve avere alternative"
+    )
+    assert presidiante.nome not in nomi_agguato, (
+        "l'imboscata non deve mai avere il nome del mob che presidia la stanza"
+    )
+
+
 def test_fast_forward_innesca_l_imboscata(mondo_isolato, monkeypatch) -> None:
     _arma_run()
     monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)

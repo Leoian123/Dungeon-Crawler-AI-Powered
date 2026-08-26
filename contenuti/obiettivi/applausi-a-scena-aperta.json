@@ -1,10 +1,10 @@
 {
   "slug": "applausi-a-scena-aperta",
-  "versione": 1,
-  "tags": ["combattimento"],
+  "versione": 2,
+  "tags": ["combattimento", "serie"],
   "titolo": "Applausi a scena aperta",
-  "testo": "Un altro scontro chiuso in piedi. Lo show comincia a montarti un promo.",
-  "trigger": {"evento": "combat_risolto", "vittoria": true},
+  "testo": "Cinque scontri chiusi in piedi. Lo show ha abbastanza materiale per montarti un promo.",
+  "trigger": {"evento": "combat_risolto", "vittoria": true, "soglia": 5},
   "ricompensa": {"beffa": "Vincere è il tuo mestiere, e il mestiere non si premia. Continua pure."},
   "ripetibile": true
 }

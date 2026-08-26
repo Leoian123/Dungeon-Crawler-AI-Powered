@@ -40,6 +40,35 @@ def _rng_imboscata(tick: int) -> random.Random:
     return random.Random(f"{master_seed()}:imboscata:{tick}")
 
 
+def _nome_mob_di_stanza() -> str:
+    """Il nome del mob che presidia (o presidierà) la stanza CORRENTE: vivo in
+    scena se già rivelato, altrimenti la derivazione del copione
+    (`mob_di_stanza` — l'agguato all'ingresso arriva PRIMA del reveal).
+    Lettura tollerante: harness senza mappa/territorio → "" (nessuna
+    esclusione), mai un crash."""
+    try:
+        from .mappa import mappa_corrente, mob_corrente
+        from .mob import EntitaMob
+
+        ent = mob_corrente()
+        if ent is not None:
+            em = esper.try_component(ent, EntitaMob)
+            if em is not None and em.nome:
+                return em.nome
+        from .territorio import mob_di_stanza, zona_corrente
+
+        m = mappa_corrente()
+        zona = zona_corrente()
+        if m is None or zona is None:
+            return ""
+        atteso = mob_di_stanza(
+            livello_corrente(), zona, m[1].stanza_corrente
+        )
+        return atteso.nome if atteso is not None else ""
+    except Exception:
+        return ""
+
+
 def componi_imboscata_scena(escludi_nome: str = "") -> int:
     """Compone l'incontro dell'imboscata e ritorna l'entità-incontro.
 
@@ -69,15 +98,24 @@ def componi_imboscata_scena(escludi_nome: str = "") -> int:
 
     tregua = nomi_in_tregua()
 
+    # I nomi da NON ripescare: il nemico appena ucciso (playtest 2026-08-12) e
+    # il mob che PRESIDIA la stanza corrente (screenshot 2026-08-26: l'agguato
+    # all'ingresso pescava lo stesso Fante della stanza — il GM diceva «non si
+    # rialza» e il menu rioffriva Combatti con lo stesso nome, un morto
+    # apparentemente risorto). Stessa disciplina: UNA ri-pescata seeded.
+    esclusi = {n for n in (escludi_nome, _nome_mob_di_stanza()) if n}
+
     piano = design_piano_corrente()
     # Col territorio l'agguato pesca dalla TABELLA DI SPAWN della zona corrente
     # (pesata per frequenza, stessa disciplina del copione); mai un boss.
     from .territorio import pesca_spawn
 
     dalla_tabella = pesca_spawn(rng, escludi=tregua)
-    if (dalla_tabella is not None and escludi_nome
-            and dalla_tabella.nome == escludi_nome):
-        ripescato = pesca_spawn(rng, escludi=tregua)  # una sola ri-pescata, stesso stream
+    if dalla_tabella is not None and dalla_tabella.nome in esclusi:
+        # UNA ri-pescata, stesso stream, con l'esclusione DURA (la disciplina
+        # della tregua): a tabella monovoce ritorna None e resta il pescato —
+        # è il dungeon a essere monotono, non il dado.
+        ripescato = pesca_spawn(rng, escludi=frozenset(tregua) | frozenset(esclusi))
         dalla_tabella = ripescato or dalla_tabella
     if dalla_tabella is not None:
         mob = dalla_tabella
@@ -90,7 +128,11 @@ def componi_imboscata_scena(escludi_nome: str = "") -> int:
             riferimento=mob.slug,
         )
     elif piano is not None and any(m.nome not in tregua for m in piano.cast):
-        mob = rng.choice([m for m in piano.cast if m.nome not in tregua])
+        candidati = [m for m in piano.cast if m.nome not in tregua]
+        # Stessa esclusione sul ramo-cast (grazioso: a candidati esauriti
+        # resta la lista piena — il dungeon monotono, non un crash).
+        filtrati = [m for m in candidati if m.nome not in esclusi]
+        mob = rng.choice(filtrati or candidati)
         eg = EntitaGenerata(
             archetipo=mob.archetipo,
             grado=mob.grado,

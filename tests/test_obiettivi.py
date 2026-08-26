@@ -388,6 +388,40 @@ def test_il_catalogo_ufficiale_carica_e_regge_il_lint() -> None:
     ), "il postumo fa parte dello show"
 
 
+def test_il_catalogo_rispetta_il_golden_standard() -> None:
+    """Le regole MECCANICHE dal dataset di riferimento (docs/Dataset/
+    Achievement, taratura 2026-08-26 — 58 achievement del canone censiti per
+    `tipo_trigger` e ricompensa):
+    1. un RIPETIBILE su un fatto frequente vuole una SOGLIA — il canone non
+       annuncia mai a raffica (2 ripetibili su 58, entrambi eventi rari); lo
+       screenshot del bug: «Un altro scontro» PRIMA del «primo avversario»;
+    2. il riposo che premia l'abitudine conta i riposi COMPLETI
+       (interrotto=false) — il trigger errato suonava quando l'imboscata ti
+       svegliava: il contrario dell'abitudine;
+    3. canali separati (regola esplicita del canone: «il loot dei boss passa
+       dalla Boss Box keyed al rango, mai dall'achievement»): la vittoria sul
+       CUSTODE non paga una box — il custode paga già col drop garantito."""
+    from main import catalogo_obiettivi
+
+    catalogo = catalogo_obiettivi()
+    assert catalogo, "catalogo di sistema vuoto"
+    per_slug = {a.slug: a for a in catalogo}
+    for a in catalogo:
+        if a.ripetibile:
+            assert a.trigger.soglia is not None, (
+                f"{a.slug}: ripetibile senza soglia = annuncio a raffica "
+                "(golden standard, regola 1)"
+            )
+    cliente = per_slug["cliente-abituale"]
+    assert cliente.trigger.interrotto is False, (
+        "l'abitudine conta i riposi completi (regola 2)"
+    )
+    taglia = per_slug["taglia-sul-custode"]
+    assert taglia.ricompensa.box is None, (
+        "canali separati: il custode paga col drop garantito (regola 3)"
+    )
+
+
 def test_il_loader_e_lasco_sul_rotto_e_duro_sul_drift(tmp_path) -> None:
     """Un file corrotto si salta (il catalogo non muore per una voce); un
     file VALIDO col nome sbagliato è drift d'authoring e non entra."""

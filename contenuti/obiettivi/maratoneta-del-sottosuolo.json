@@ -1,10 +1,10 @@
 {
   "slug": "maratoneta-del-sottosuolo",
-  "versione": 1,
-  "tags": ["territorio"],
+  "versione": 2,
+  "tags": ["territorio", "serie"],
   "titolo": "Maratoneta del sottosuolo",
-  "testo": "Un altro confine alle spalle. Il territorio non finisce, ma apprezziamo l'ottimismo.",
-  "trigger": {"evento": "zona_attraversata"},
+  "testo": "Tre confini alle spalle. Il territorio non finisce, ma apprezziamo l'ottimismo.",
+  "trigger": {"evento": "zona_attraversata", "soglia": 3},
   "ricompensa": {"beffa": "Camminare è gratis. Anche per noi."},
   "ripetibile": true
 }

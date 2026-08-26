@@ -681,7 +681,16 @@ chiusi i tre trovati — `custode` ora identifica il custode IN PERSONA fra
 gli arruolati (mai la stanza), la garanzia di drop del boss segue lo stesso
 fatto (`FattiScontro.custode` — il bancomat per-stanza a minacce vive è
 chiuso), e il contratto rifiuta `ripetibile` con box (stampante di loot).
-RESTA O5
+TARATURA DA GOLDEN STANDARD (2026-08-26, `docs/Dataset/Achievement` — 58
+achievement del canone censiti per tipo_trigger): regole lucchettate in
+`test_il_catalogo_rispetta_il_golden_standard` — ripetibile ⇒ soglia
+(Applausi 5, Cliente abituale 5 + `interrotto: false`, Maratoneta 3: chiuso
+il rumore e l'«Un altro scontro» alla PRIMA vittoria dello screenshot),
+canali separati (Taglia sul custode → beffa: il custode paga col drop
+garantito); e fix imboscata-déjà-vu (l'agguato non pesca mai il nome del mob
+che presidia la stanza corrente — ri-pescata con esclusione dura). RESTA
+cosmetico: le righe «Nuovo obiettivo» precedono «Hai vinto lo scontro» in
+cronaca (pubblicazione annidata nel dispatch di CombatResolved). RESTA O5
 (cross-run col pattern ledger; «primi al mondo» solo col server); il
 travaso al lab della SPA è FATTO (commit a21a38b) — questo arricchimento
 andrà travasato al prossimo giro.

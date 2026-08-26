@@ -1,9 +1,9 @@
 {
   "slug": "taglia-sul-custode",
-  "versione": 1,
+  "versione": 2,
   "tags": ["combattimento", "titolo", "custode"],
   "titolo": "Taglia sul custode",
   "testo": "Hai abbattuto il custode di una zona nella sua stessa stanza. Il varco è tuo, e da qualche parte un impresario sta stracciando un contratto.",
   "trigger": {"evento": "combat_risolto", "vittoria": true, "custode": true},
-  "ricompensa": {"box": {"categoria": "avventuriero", "grado": "argento"}}
+  "ricompensa": {"beffa": "La taglia l'ha già incassata il custode, alla consegna: controllati le tasche."}
 }

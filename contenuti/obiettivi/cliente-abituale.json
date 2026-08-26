@@ -1,10 +1,10 @@
 {
   "slug": "cliente-abituale",
-  "versione": 1,
-  "tags": ["riposo"],
+  "versione": 2,
+  "tags": ["riposo", "serie"],
   "titolo": "Cliente abituale",
-  "testo": "Ti sei riposato di nuovo. La direzione ha annotato le tue preferenze: materasso duro, aspettativa di vita morbida.",
-  "trigger": {"evento": "riposo_concluso"},
+  "testo": "Cinque riposi portati a termine. La direzione ha annotato le tue preferenze: materasso duro, aspettativa di vita morbida.",
+  "trigger": {"evento": "riposo_concluso", "interrotto": false, "soglia": 5},
   "ricompensa": {"beffa": "I punti fedeltà non esistono. La fedeltà nemmeno."},
   "ripetibile": true
 }
