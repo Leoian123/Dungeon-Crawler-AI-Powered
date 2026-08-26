@@ -3,6 +3,8 @@
 // stato (Zustand), niente router. Verità remota in TanStack Query (snapshot
 // sostituito in blocco, C-4), segnali live via SSE.
 
+import { useState } from "react";
+
 import { useSse } from "./api/useSse";
 import {
   partitaAssente,
@@ -30,8 +32,15 @@ import {
 } from "./components/Pannelli";
 import { PannelloParty } from "./components/SchedaPG";
 import { PannelloZaino } from "./components/Zaino";
-import { PannelloObiettivi } from "./components/Obiettivi";
+import { AlboObiettivi, ChipObiettivi } from "./components/Obiettivi";
 import { ThreadForum } from "./components/ThreadForum";
+
+// STANDARD di architettura della Partita (2026-08-26): la sidebar è il
+// CRUSCOTTO DI STATO VIVO — solo ciò che serve a decidere la prossima azione
+// (scheda, zaino operativo, chip di stato). Ogni CONSULTAZIONE (elenchi
+// lunghi: l'albo obiettivi) è una VISTA SECONDARIA con la sua superficie
+// piena, mai un riquadro in più appeso alla colonna.
+type VistaPartita = "diario" | "albo";
 
 function Partita({ stato }: { stato: StatoPartita }) {
   useSse(true);
@@ -40,6 +49,7 @@ function Partita({ stato }: { stato: StatoPartita }) {
   const salva = useSalva();
   const esci = useEsci();
   const progresso = useGioco((s) => s.progresso);
+  const [vista, setVista] = useState<VistaPartita>("diario");
   const terminata = stato.morto || stato.vittoria;
   const bloccata =
     terminata || stato.occupato || progresso !== null || narrazione.isPending;
@@ -50,7 +60,24 @@ function Partita({ stato }: { stato: StatoPartita }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm italic text-pergamena/60">{stato.gm}</span>
+        <div className="flex items-center gap-3">
+          <nav className="flex gap-1 rounded border border-pergamena/20 p-0.5">
+            {(["diario", "albo"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setVista(v)}
+                className={`rounded px-3 py-0.5 font-hud text-xs font-bold uppercase tracking-wider transition ${
+                  vista === v
+                    ? "bg-torcia/20 text-torcia"
+                    : "text-pergamena/50 hover:text-pergamena/80"
+                }`}
+              >
+                {v}
+              </button>
+            ))}
+          </nav>
+          <span className="text-sm italic text-pergamena/60">{stato.gm}</span>
+        </div>
         <div className="flex gap-2">
           <button
             disabled={salvataggioVietato}
@@ -78,10 +105,15 @@ function Partita({ stato }: { stato: StatoPartita }) {
             versione={stato.versione}
             bloccato={bloccata || stato.fase === "combattimento"}
           />
-          {/* L'elenco velato arriva dal backend: qui si mostra e basta. */}
-          <PannelloObiettivi />
+          {/* Stato vivo, non elenco: l'albo pieno è la vista secondaria. */}
+          <ChipObiettivi apri={() => setVista("albo")} />
         </aside>
 
+        {vista === "albo" ? (
+          <main className="min-w-0 flex-1">
+            <AlboObiettivi />
+          </main>
+        ) : (
         <div className="flex min-w-0 flex-1 flex-col gap-4">
           <BannerFase fase={stato.fase} />
           {stato.fase === "combattimento" && stato.snapshot && (
@@ -126,6 +158,7 @@ function Partita({ stato }: { stato: StatoPartita }) {
             )}
           </footer>
         </div>
+        )}
       </div>
     </div>
   );
