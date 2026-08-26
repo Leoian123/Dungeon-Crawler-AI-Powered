@@ -72,6 +72,7 @@ from contracts import (
     IntentoEsplorazione,
     MessaggioGM,
     MortePersonaggio,
+    ObiettivoRaggiunto,
     OggettoTrovato,
     PlayerDiscende,
     PlayerEquipaggia,
@@ -178,6 +179,7 @@ from motore import (
     travasa,
 )
 from motore.fantasmi import consuma_fantasma_corrente, monta_fantasmi
+from motore.obiettivi import attiva_osservatore, monta_obiettivi
 from provider import FakeProvider
 
 # Il menu di combattimento NON è più una costante: lo compone `IstanzaCombattimento`
@@ -1194,6 +1196,10 @@ class SessioneGioco:
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
+        # Obiettivi (nodo O): l'osservatore ascolta il bus DI QUESTA sessione
+        # (per-guscio: muore col suo bus) e valuta il catalogo della run
+        # corrente — se non è montato, ogni fatto è un no-op.
+        self._osservatore_obiettivi = attiva_osservatore(self.bus)
 
     def _segna_prosa(self, tipo: TipoProsa) -> None:
         """Dichiara un battito dovuto (idempotente per tipo: un'apertura sola per
@@ -1212,6 +1218,7 @@ class SessioneGioco:
         n_stanze: int | None = None,
         stagione: StagioneAttiva | None = None,
         fantasmi: tuple = (),
+        obiettivi: tuple = (),
     ) -> "SessioneGioco":
         """Nuova run: il protagonista NASCE al confine guscio→run. L'uuid identifica
         lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta.
@@ -1232,6 +1239,8 @@ class SessioneGioco:
         # Il set di fantasmi si congela SUBITO dopo la nascita del World (stesso
         # confine della stagione): da qui in poi è dato di run, save incluso.
         monta_fantasmi(fantasmi)
+        # Il catalogo obiettivi (nodo O): stesso confine, stesso freeze.
+        monta_obiettivi(obiettivi)
         _registra_sessione_attiva(sessione)  # il run-World è suo
         sessione.coda = sessione.guscio.coda
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
@@ -2782,6 +2791,12 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
         f"(nello zaino).")),
     (TurnoSaltato, _riga_turno_saltato),
     (CombatResolved, _riga_risolto),
+    # Nodo O: la notifica di sistema. Testo e ricompensa sono GIÀ composti dal
+    # motore (dato autorale, deterministico): la cronaca li affianca e basta.
+    (ObiettivoRaggiunto, lambda e: (
+        f"★ Nuovo obiettivo: {getattr(e, 'titolo', '?')}! "
+        f"{getattr(e, 'testo', '')} "
+        f"Ricompensa: {getattr(e, 'ricompensa_testo', '')}")),
     (MortePersonaggio, _riga_morte),
     (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
     (DiscesaPiano, _riga_discesa),
@@ -3212,6 +3227,7 @@ def costruisci_sessione(
     provider=None,
     stagione: Stagione | StagioneRisolta | str | None = None,
     fantasmi: tuple = (),
+    obiettivi: tuple = (),
 ) -> SessioneGioco:
     """Cabla contenuto+provider → `SessioneGioco.nuova`. Senza `directory` la run
     vive in una tempdir usa-e-getta (demo/test).
@@ -3253,6 +3269,7 @@ def costruisci_sessione(
         n_stanze=n_stanze,
         stagione=_stagione_a_attiva(risolta),
         fantasmi=fantasmi,
+        obiettivi=obiettivi,
     )
 
 

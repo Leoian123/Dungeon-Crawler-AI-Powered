@@ -54,10 +54,12 @@ vuoto), `ripetibile: false` (default: una volta per run).
 `testo`, `ricompensa_testo` — la notifica viaggia TIPATA sul bus; gli host
 la rendono col loro registro, mai ricostruendola dal testo.
 
-**`BoxChiusa`** (possesso): entra nello zaino con slug
-`box-{categoria}-{grado}-{suffisso}`; non equipaggiabile; l'azione «Apri
-box» (nuovo `TipoAzione.APRI_BOX`, composto dal motore solo in quiete)
-conia e deposita, con cronaca tipata `BoxAperta`.
+**`BoxChiusa`** (possesso): vive in `ObiettiviRun.box` — NON nello Zaino
+(quello è il canale dell'equipaggiabile: una box lì inquinerebbe il flusso
+equip). Id deterministico `{slug}#{n}`: sarà la chiave dello stream di
+conio. L'azione «Apri box» (nuovo `TipoAzione.APRI_BOX`, composto dal
+motore solo in quiete) conia e deposita nello zaino l'OGGETTO, con cronaca
+tipata.
 
 **`ObiettiviRun`** (componente World, persistente): gli slug sbloccati —
 il dedup degli unlock e la colonna-notifiche al load.

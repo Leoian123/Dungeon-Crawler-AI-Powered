@@ -32,6 +32,7 @@ from ..fase import FaseCorrente
 from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
 from ..fantasmi import FantasmiAttivi
+from ..obiettivi import ObiettiviRun
 from ..piano import ProfonditaPiano, TempoPiano
 from ..scheda import ActionPoint, Mana, Protagonista, Scheda
 from ..territorio import StatoTerritorio
@@ -66,6 +67,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     # I fantasmi delle run altrui (sovra-run, Fase D): set congelato all'ingresso
     # + il flag `consumato` — una traccia narrata non torna al reload.
     FantasmiAttivi: "fantasmi",
+    # Obiettivi e Box (nodo O): catalogo congelato + sbloccati + non letti +
+    # box chiuse — lo sblocco non si ripete al reload, le box sopravvivono.
+    ObiettiviRun: "obiettivi",
     Corredo: "corredo",
     # Lo Zaino è POSSESSO (fonti di dominio): attraversa il save.
     Zaino: "zaino",

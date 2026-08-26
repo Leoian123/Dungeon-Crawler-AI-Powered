@@ -182,6 +182,20 @@ class MortePersonaggio(EventoDominio):
 
 
 @dataclass(frozen=True)
+class ObiettivoRaggiunto(EventoDominio):
+    """La NOTIFICA DI SISTEMA di un obiettivo sbloccato (nodo O): il dungeon
+    ti guarda e commenta. Lo sblocco l'ha deciso l'osservatore del motore su
+    un fatto del bus (mai l'LLM); il testo è dato autorale deterministico.
+    `ricompensa_testo` è già composto («Una Box … di …» o la beffa): l'host
+    lo MOSTRA, mai lo ricostruisce."""
+
+    slug: str
+    titolo: str
+    testo: str
+    ricompensa_testo: str
+
+
+@dataclass(frozen=True)
 class AnomalyTriggered(EventoDominio):
     """Reveal di un'anomalia: il motore l'ha tirata (seeded) e la pubblica perché lo
     showrunner la narri (F §4.3, FNC §5.5, §8).
