@@ -51,6 +51,7 @@ def _costruisci_app(sessione):
             Binding("z", "zaino", "Zaino"),
             Binding("c", "scheda", "Scheda"),
             Binding("b", "bacheca", "Bacheca"),
+            Binding("o", "obiettivi", "Obiettivi"),
             Binding("s", "salva", "Salva"),
             Binding("q", "quit", "Esci"),
         ]
@@ -89,6 +90,15 @@ def _costruisci_app(sessione):
             # La pipeline racconta i suoi stadi: la barra dà riferimenti al giocatore.
             self.sessione.on_avanzamento = self._su_avanzamento
             snap = await self._con_attesa(self.sessione.prossima_narrazione())
+            # Le notifiche-obiettivo ARRETRATE (fase O4, §O-5): sblocchi di
+            # sessioni passate mai mostrati — si scrivono al boot come appena
+            # accaduti, poi la coda è vuota (il live passa dalla cronaca).
+            rl = self.query_one("#log", RichLog)
+            for notifica in self.sessione.drena_notifiche_obiettivi():
+                rl.write(
+                    f"[b]★ Nuovo obiettivo: {notifica.titolo}![/b] "
+                    f"{notifica.testo} Ricompensa: {notifica.ricompensa_testo}"
+                )
             await self._mostra(snap, [])
             # Anche il PRIMO turno può aprire uno scontro (imboscata del dado-evento):
             # il trailer è dovuto già qui, non solo dopo una scelta del giocatore.
@@ -192,6 +202,11 @@ def _costruisci_app(sessione):
                 snap = await self._con_attesa(self.sessione.prossima_narrazione())
             await self._mostra(snap, righe)
             await self._drena_prosa()
+            # Drenaggio SILENZIOSO delle notifiche-obiettivo: il live è appena
+            # passato dalla cronaca (★); qui si svuota la coda così un load
+            # futuro mostra solo il mai-visto (§O-5).
+            if not self._morto:
+                self.sessione.drena_notifiche_obiettivi()
             if snap.scena_aperta and not self._in_scena:
                 # PARLAMENTA riuscito: la scena è aperta — l'input raccoglie
                 # BATTUTE finché il motore non la chiude (o il giocatore tronca).
@@ -284,6 +299,27 @@ def _costruisci_app(sessione):
             ) or "niente"
             zaino = ", ".join(etichetta_oggetto(f) for f in s.zaino) or "vuoto"
             rl.write(f"Indosso: {indosso}  ·  Zaino: {zaino}  [dim](Z per gestirlo)[/]")
+
+        def action_obiettivi(self) -> None:
+            """L'elenco obiettivi nel log (fase O4): sbloccati in chiaro,
+            chiusi velati — e il promemoria delle box in coda."""
+            if self._occupato:
+                return
+            rl = self.query_one("#log", RichLog)
+            elenco = self.sessione.obiettivi_vista()
+            if not elenco:
+                rl.write("[dim]Nessun obiettivo in catalogo per questa run.[/]")
+                return
+            fatti = sum(1 for v in elenco if v.sbloccato)
+            rl.write(f"[b]— OBIETTIVI {fatti}/{len(elenco)} —[/b]")
+            for vista in elenco:
+                if vista.sbloccato:
+                    rl.write(f"  ✓ [b]{vista.titolo}[/b] — {vista.testo}")
+                else:
+                    rl.write(f"  · {vista.titolo} [dim](ancora velato)[/]")
+            box = self.sessione.box_in_coda()
+            if box:
+                rl.write(f"[dim]Box in coda: {box} — si aprono in safe room.[/]")
 
         def action_bacheca(self) -> None:
             """La bacheca dei caduti (sovra-run B) nel log: i necrologi

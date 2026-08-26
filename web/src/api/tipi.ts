@@ -190,6 +190,24 @@ export interface RispostaZaino {
   fonti: VoceZaino[];
 }
 
+/** Una riga dell'elenco obiettivi (nodo O4), SPECULARE a ObiettivoVista: il
+ *  dato arriva GIÀ velato dal backend — titolo sempre, `testo` e
+ *  `ricompensa_testo` vuoti finché `sbloccato` è false. Il client mostra,
+ *  mai deduce. */
+export interface ObiettivoVista {
+  slug: string;
+  titolo: string;
+  testo: string;
+  sbloccato: boolean;
+  ricompensa_testo: string;
+}
+
+/** GET /api/partita/obiettivi: l'elenco + le box che aspettano una safe room. */
+export interface RispostaObiettivi {
+  obiettivi: ObiettivoVista[];
+  box_in_coda: number;
+}
+
 /** Un necrologio della bacheca sovra-run: PROIEZIONE del ledger degli esiti
  *  (composizione deterministica dai fatti — l'AI al più veste, mai inventa). */
 export interface NecrologioCrawler {

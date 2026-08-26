@@ -620,6 +620,28 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         downtime = _lettura_tollerante("recupero", _c_e_da_recuperare, True)
     if downtime:
         opzioni.append(OpzioneScena(tipo=TipoAzione.RIPOSA, etichetta="Riposa"))
+    # APRI BOX (nodo O2): SOLO in SAFE ROOM (ratifica 2026-08-26 — il bagno è
+    # privacy, la safe room è il rifugio attrezzato), SOLO se c'è una box in
+    # coda e la fabbrica può onorarla — l'opzione compare quando è VERA.
+    def _etichetta_box() -> str:
+        from .fabbrica import fabbrica_attiva
+        from .obiettivi import prossima_box
+
+        if tipo_stanza_corrente() is not TipoStanza.SAFE_ROOM:
+            return ""
+        box = prossima_box()
+        if box is None or fabbrica_attiva() is None:
+            return ""
+        return (
+            f"Apri box — {box.categoria.capitalize()} "
+            f"di {box.grado.capitalize()}"
+        )
+
+    etichetta_box = _lettura_tollerante("box", _etichetta_box, "")
+    if etichetta_box:
+        opzioni.append(
+            OpzioneScena(tipo=TipoAzione.APRI_BOX, etichetta=etichetta_box)
+        )
     # ASPETTA (la valvola di J §6, playtest 2026-08-12): un tick secco per far
     # scorrere gli status. Composta quando è VERA — e coi DANNOSI addosso è
     # l'unica voce di downtime (il veleno blocca Riposa, non Aspetta).

@@ -12,6 +12,7 @@ import type {
   PropostaWikiVista,
   RispostaBacheca,
   RispostaCrawlers,
+  RispostaObiettivi,
   RispostaThread,
   RispostaTurno,
   RispostaZaino,
@@ -83,6 +84,7 @@ export const api = {
       post({ testo, versione }),
     ),
   zaino: () => richiesta<RispostaZaino>("/api/partita/zaino"),
+  obiettivi: () => richiesta<RispostaObiettivi>("/api/partita/obiettivi"),
   equipaggia: (fonte: string, versione: number) =>
     richiesta<RispostaTurno>("/api/partita/equipaggia", post({ fonte, versione })),
   togli: (fonte: string, versione: number) =>

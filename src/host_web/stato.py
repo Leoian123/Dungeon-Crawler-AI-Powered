@@ -179,6 +179,23 @@ class StatoHost:
             for i, messaggio in enumerate(messaggi)
         ]
 
+    def accoda_arretrati(self, righe: list[tuple[str, str]]) -> None:
+        """Accoda al thread UN post-evento di righe ARRETRATE (nodo O4: gli
+        obiettivi sbloccati mai mostrati, drenati al caricamento). Stessa
+        forma tipata della cronaca (`RigaEvento`), ZERO generi nuovi; nessun
+        bump di versione né pubblicazione: avviene prima che un client si
+        abboni, come `ricostruisci_thread`."""
+        if not righe:
+            return
+        self.thread.append(
+            PostThread(
+                id=len(self.thread), genere="evento",
+                eventi=tuple(
+                    RigaEvento(tipo=tipo, testo=testo) for tipo, testo in righe
+                ),
+            )
+        )
+
     def chiudi(self) -> None:
         """Deregistra tutto dal bus (process-global: gli handler non devono
         sopravvivere all'host — stessa disciplina di `CronacaBus.chiudi`)."""

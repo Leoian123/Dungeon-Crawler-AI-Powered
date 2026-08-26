@@ -185,6 +185,10 @@ class TipoAzione(SchemaSnello, str, Enum):
     # (`puo_passare_turno`: narrazione ∧ nessuno unsafe — i DANNOSI non la
     # bloccano: serve proprio a far scorrere il veleno al sicuro).
     PASSA = "passa"
+    # `APRI_BOX` (nodo O2): aprire una box degli obiettivi. Di scena come
+    # RIPOSA: la compone il motore SOLO quando è vera (luogo quieto + box in
+    # attesa + fabbrica che può onorarla) — l'AI può nominarla, mai concederla.
+    APRI_BOX = "apri_box"
     # `PARLAMENTA` (asse social, 2026-08-16): aprire bocca invece di aprire lo
     # scontro. Di scena come le altre: la compone il motore quando è VERA —
     # un PNG INTERPELLABILE in stanza (categoria che rompe il divieto del

@@ -72,6 +72,8 @@ from contracts import (
     IntentoEsplorazione,
     MessaggioGM,
     MortePersonaggio,
+    BoxAperta,
+    ObiettivoRaggiunto,
     OggettoTrovato,
     PlayerDiscende,
     PlayerEquipaggia,
@@ -178,6 +180,7 @@ from motore import (
     travasa,
 )
 from motore.fantasmi import consuma_fantasma_corrente, monta_fantasmi
+from motore.obiettivi import attiva_osservatore, monta_obiettivi
 from provider import FakeProvider
 
 # Il menu di combattimento NON è più una costante: lo compone `IstanzaCombattimento`
@@ -1194,6 +1197,10 @@ class SessioneGioco:
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
+        # Obiettivi (nodo O): l'osservatore ascolta il bus DI QUESTA sessione
+        # (per-guscio: muore col suo bus) e valuta il catalogo della run
+        # corrente — se non è montato, ogni fatto è un no-op.
+        self._osservatore_obiettivi = attiva_osservatore(self.bus)
 
     def _segna_prosa(self, tipo: TipoProsa) -> None:
         """Dichiara un battito dovuto (idempotente per tipo: un'apertura sola per
@@ -1212,6 +1219,7 @@ class SessioneGioco:
         n_stanze: int | None = None,
         stagione: StagioneAttiva | None = None,
         fantasmi: tuple = (),
+        obiettivi: tuple = (),
     ) -> "SessioneGioco":
         """Nuova run: il protagonista NASCE al confine guscio→run. L'uuid identifica
         lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta.
@@ -1232,6 +1240,8 @@ class SessioneGioco:
         # Il set di fantasmi si congela SUBITO dopo la nascita del World (stesso
         # confine della stagione): da qui in poi è dato di run, save incluso.
         monta_fantasmi(fantasmi)
+        # Il catalogo obiettivi (nodo O): stesso confine, stesso freeze.
+        monta_obiettivi(obiettivi)
         _registra_sessione_attiva(sessione)  # il run-World è suo
         sessione.coda = sessione.guscio.coda
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
@@ -1861,6 +1871,32 @@ class SessioneGioco:
         self._sincronizza_scena()
         return self._snapshot_corrente()
 
+    def obiettivi_vista(self) -> tuple:
+        """L'elenco obiettivi per l'host (`ObiettivoVista`, fase O4): velato
+        finché chiuso, pieno a sblocco avvenuto."""
+        self._guardia_aperta()
+        from motore.obiettivi import elenco_vista
+
+        return elenco_vista()
+
+    def box_in_coda(self) -> int:
+        """Quante box aspettano una safe room (per l'host: il promemoria)."""
+        self._guardia_aperta()
+        from motore.obiettivi import obiettivi_correnti
+
+        comp = obiettivi_correnti()
+        return len(comp.box) if comp is not None else 0
+
+    def drena_notifiche_obiettivi(self) -> tuple:
+        """Le notifiche ARRETRATE (`ObiettivoRaggiunto` già composti): l'host
+        le mostra al load come se fossero appena accadute, poi la coda è
+        vuota. Dopo ogni turno il drenaggio è SILENZIOSO (il live è già
+        passato dalla cronaca): a un load resta solo il mai-mostrato."""
+        self._guardia_aperta()
+        from motore.obiettivi import drena_non_letti
+
+        return drena_non_letti()
+
     def fonti_indossate(self) -> tuple[str, ...]:
         """Le fonti INDOSSO (dal manifest), per l'host dell'inventario: `EquipVista`
         mostra la geometria per slot ma non porta la fonte, e il toggle
@@ -2444,6 +2480,15 @@ class SessioneGioco:
             # tick spesi via fast-forward, recupero da foglie §11, evento in cronaca.
             riposa(self.bus)
             return
+        if azione.tipo is TipoAzione.APRI_BOX:
+            # ⚠️ Ramo ESPLICITO (la stessa mina). L'apertura è del motore:
+            # conio vincolato su stream isolato per-box, deposito in
+            # coniati+zaino, evento in cronaca. Zero tick: il tempo l'hai
+            # già pagato arrivando al sicuro.
+            from motore.obiettivi import apri_prossima_box
+
+            apri_prossima_box(self.bus)
+            return
         if azione.tipo is TipoAzione.PASSA:
             # «Aspetta» (J §6, playtest 2026-08-12): UN tick secco — gli status
             # tickano, il dado tira. È la valvola della tenaglia del veleno:
@@ -2782,6 +2827,18 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
         f"(nello zaino).")),
     (TurnoSaltato, _riga_turno_saltato),
     (CombatResolved, _riga_risolto),
+    # Nodo O2: la box si apre (solo nei luoghi quieti) — il conio è già fatto,
+    # la cronaca annuncia il pezzo.
+    (BoxAperta, lambda e: (
+        f"◇ La Box {getattr(e, 'categoria', '?').capitalize()} di "
+        f"{getattr(e, 'grado', '?').capitalize()} si apre: "
+        f"{getattr(e, 'nome', '?')} (nello zaino).")),
+    # Nodo O: la notifica di sistema. Testo e ricompensa sono GIÀ composti dal
+    # motore (dato autorale, deterministico): la cronaca li affianca e basta.
+    (ObiettivoRaggiunto, lambda e: (
+        f"★ Nuovo obiettivo: {getattr(e, 'titolo', '?')}! "
+        f"{getattr(e, 'testo', '')} "
+        f"Ricompensa: {getattr(e, 'ricompensa_testo', '')}")),
     (MortePersonaggio, _riga_morte),
     (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
     (DiscesaPiano, _riga_discesa),
@@ -3212,6 +3269,7 @@ def costruisci_sessione(
     provider=None,
     stagione: Stagione | StagioneRisolta | str | None = None,
     fantasmi: tuple = (),
+    obiettivi: tuple | None = None,
 ) -> SessioneGioco:
     """Cabla contenuto+provider → `SessioneGioco.nuova`. Senza `directory` la run
     vive in una tempdir usa-e-getta (demo/test).
@@ -3253,6 +3311,9 @@ def costruisci_sessione(
         n_stanze=n_stanze,
         stagione=_stagione_a_attiva(risolta),
         fantasmi=fantasmi,
+        # None = il catalogo di SISTEMA (default: il dungeon ti guarda sempre);
+        # () esplicito = nessun obiettivo (harness e misure restano puliti).
+        obiettivi=catalogo_obiettivi() if obiettivi is None else obiettivi,
     )
 
 
@@ -3358,6 +3419,34 @@ def fantasmi_locali(
         if esito.terminale is _T.SCONFITTA:
             fantasmi.append(FantasmaRun.da_esito(esito))
     return tuple(fantasmi)
+
+
+def catalogo_obiettivi(ufficiali: Path | None = None) -> tuple:
+    """Il catalogo di SISTEMA degli obiettivi (nodo O3): `contenuti/obiettivi/
+    *.json`, validati dal contratto e LINTATI (slug == nome file: il rename
+    silenzioso è la via classica del drift). Lasco sul file rotto — si salta,
+    il catalogo non muore per una voce — ma il lint sullo slug è DURO: un
+    file valido col nome sbagliato è un errore d'authoring, non un incidente.
+    Ordinamento per slug: il congelamento per-run è deterministico."""
+    import json as _json
+
+    from contracts import AchievementAsset
+
+    base = (ufficiali or DIRECTORY_CONTENUTI) / "obiettivi"
+    if not base.exists():
+        return ()
+    raccolti = []
+    for percorso in sorted(base.glob("*.json")):
+        try:
+            asset = AchievementAsset.model_validate(
+                _json.loads(percorso.read_text(encoding="utf-8"))
+            )
+        except Exception:
+            continue  # voce rotta: si salta, mai un crash del catalogo
+        if asset.slug != percorso.stem:
+            continue  # slug ≠ file: drift d'authoring, la voce non entra
+        raccolti.append(asset)
+    return tuple(raccolti)
 
 
 def proposte_wiki(directory: Path | None = None) -> list[dict]:

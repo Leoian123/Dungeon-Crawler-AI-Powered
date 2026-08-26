@@ -20,6 +20,8 @@ from .eventi import (
     CombatResolved,
     EffettoStatus,
     MortePersonaggio,
+    BoxAperta,
+    ObiettivoRaggiunto,
     AnomalyTriggered,
     CrolloDungeon,
     DiscesaPiano,
@@ -116,6 +118,15 @@ from .wiki import (
     WikiMaster,
     WikiSlice,
 )
+from .obiettivi import (
+    AchievementAsset,
+    BoxRicompensa,
+    CategoriaBox,
+    EventoTrigger,
+    ObiettivoVista,
+    RicompensaObiettivo,
+    TriggerObiettivo,
+)
 from .esito import (
     ClassificaGiorno,
     EsitoRun,
@@ -179,6 +190,14 @@ from .vista import (
 from .provider import Provider, TCandidato
 
 __all__ = [
+    # obiettivi e box (nodo O)
+    "AchievementAsset",
+    "BoxRicompensa",
+    "CategoriaBox",
+    "EventoTrigger",
+    "ObiettivoVista",
+    "RicompensaObiettivo",
+    "TriggerObiettivo",
     # strato sovra-run (Fase A; B/C/D preparati, non consumati)
     "ClassificaGiorno",
     "EsitoRun",
@@ -213,6 +232,8 @@ __all__ = [
     "CombatResolved",
     "EffettoStatus",
     "MortePersonaggio",
+    "BoxAperta",
+    "ObiettivoRaggiunto",
     "AnomalyTriggered",
     "CrolloDungeon",
     "DiscesaPiano",

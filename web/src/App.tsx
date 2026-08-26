@@ -30,6 +30,7 @@ import {
 } from "./components/Pannelli";
 import { PannelloParty } from "./components/SchedaPG";
 import { PannelloZaino } from "./components/Zaino";
+import { PannelloObiettivi } from "./components/Obiettivi";
 import { ThreadForum } from "./components/ThreadForum";
 
 function Partita({ stato }: { stato: StatoPartita }) {
@@ -77,6 +78,8 @@ function Partita({ stato }: { stato: StatoPartita }) {
             versione={stato.versione}
             bloccato={bloccata || stato.fase === "combattimento"}
           />
+          {/* L'elenco velato arriva dal backend: qui si mostra e basta. */}
+          <PannelloObiettivi />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">

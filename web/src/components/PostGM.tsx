@@ -68,6 +68,18 @@ export function PostGM({ id, messaggio }: { id: number; messaggio: MessaggioGM }
  *  sniffing dei prefissi nel testo: il bottino è un riquadro-achievement, il
  *  varco un banner, il resto log di sistema. */
 function VoceEvento({ tipo, testo }: { tipo: string; testo: string }) {
+  if (tipo === "ObiettivoRaggiunto" || tipo === "BoxAperta") {
+    // La notifica di sistema (nodo O): il testo arriva GIÀ composto dal
+    // backend (cronaca tipata o arretrata al load) — qui solo la cornice.
+    return (
+      <div className="mx-auto w-fit max-w-full rounded border-2 border-torcia/70 bg-torcia/15 px-4 py-2 text-center shadow-[0_0_20px_rgba(245,158,11,0.35)]">
+        <span className="etichetta-hud block text-torcia">
+          {tipo === "ObiettivoRaggiunto" ? "Nuovo obiettivo" : "Box aperta"}
+        </span>
+        <span className="font-hud text-sm text-pergamena/90">{testo}</span>
+      </div>
+    );
+  }
   if (tipo === "OggettoTrovato") {
     return (
       <div className="mx-auto w-fit max-w-full rounded border-2 border-torcia/60 bg-torcia/10 px-4 py-2 text-center shadow-[0_0_16px_rgba(245,158,11,0.25)]">

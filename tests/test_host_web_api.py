@@ -582,6 +582,146 @@ def test_scarta_toglie_dalla_coda_senza_toccare_il_canone(host_wiki) -> None:
     assert doppio.json()["codice"] == "proposta_assente"
 
 
+# --- Obiettivi e Box (nodo O4, 2026-08-26): l'elenco velato e le arretrate ------
+# Il catalogo di sistema è DEFAULT-ON (`costruisci_sessione(obiettivi=None)`):
+# l'host lo espone velato (il velo lo mette il motore), il live passa dalla
+# cronaca tipata, e al load restano SOLO gli sblocchi mai mostrati.
+
+def _vinci_via_api(client: TestClient, versione: int) -> dict:
+    """La vittoria guidata (stesso giro di test_combattimento_end_to_end):
+    Combatti, poi Attacca fino alla chiusura. Con seed=1 la vittoria offline
+    è deterministica."""
+    corpo = _narra(client, versione)
+    indice = _indice_opzione(corpo["snapshot"], "Combatti")
+    corpo = client.post(
+        "/api/partita/opzioni", json={"indice": indice, "versione": corpo["versione"]}
+    ).json()
+    guardia = 0
+    while corpo["fase"] == "combattimento" and not corpo["morto"] and guardia < 100:
+        indice = _indice_opzione(corpo["snapshot"], "Attacca")
+        corpo = client.post(
+            "/api/partita/opzioni",
+            json={"indice": indice, "versione": corpo["versione"]},
+        ).json()
+        guardia += 1
+    assert corpo["fase"] == "narrazione" and not corpo["morto"]
+    return corpo
+
+
+def _righe_obiettivo(client: TestClient) -> list[dict]:
+    """Le righe-evento `ObiettivoRaggiunto` presenti nel thread corrente."""
+    thread = client.get("/api/partita/thread").json()
+    return [
+        e
+        for p in thread["post"] if p["genere"] == "evento"
+        for e in p["eventi"] if e["tipo"] == "ObiettivoRaggiunto"
+    ]
+
+
+def test_obiettivi_velati_poi_pieni_dopo_la_vittoria(host) -> None:
+    """GET /api/partita/obiettivi: il catalogo default-on arriva VELATO (il
+    velo è del motore: titolo sempre, testo/ricompensa solo a sblocco); dopo
+    la vittoria guidata il Debutto si apre PIENO, la box entra in coda e lo
+    sblocco live è passato dalla cronaca tipata."""
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = client.get("/api/partita/obiettivi").json()
+    assert corpo["obiettivi"], "il catalogo di sistema è default-on"
+    assert all(o["titolo"] for o in corpo["obiettivi"]), "il titolo si vede sempre"
+    assert all(
+        o["testo"] == "" and o["ricompensa_testo"] == ""
+        for o in corpo["obiettivi"] if not o["sbloccato"]
+    ), "il velo è integrale sugli obiettivi chiusi"
+    per_slug = {o["slug"]: o for o in corpo["obiettivi"]}
+    assert per_slug["debutto-in-societa"]["sbloccato"] is False
+
+    corpo_turno = _vinci_via_api(client, apertura["versione"])
+    assert corpo_turno["fase"] == "narrazione"
+
+    corpo = client.get("/api/partita/obiettivi").json()
+    debutto = {o["slug"]: o for o in corpo["obiettivi"]}["debutto-in-societa"]
+    assert debutto["sbloccato"] is True
+    assert debutto["testo"], "a sblocco avvenuto il testo si mostra"
+    assert debutto["ricompensa_testo"].startswith("Hai ricevuto una Box"), (
+        "la ricompensa è GIÀ composta dal motore, l'host mostra e basta"
+    )
+    assert corpo["box_in_coda"] >= 1, "il Debutto premia con una box (armi/bronzo)"
+    # Il live è passato dalla cronaca tipata: la SPA lo veste dal TIPO.
+    assert any(
+        "Debutto" in e["testo"] for e in _righe_obiettivo(client)
+    ), "lo sblocco live entra nel thread come riga-evento tipata"
+
+
+def test_al_load_lo_sblocco_gia_mostrato_non_raddoppia(host) -> None:
+    """Il drenaggio SILENZIOSO post-turno svuota i non-letti mentre il live
+    passa dalla cronaca: al load (nuovo → vinci → esci → carica) la coda
+    arretrata è vuota e il thread ricostruito NON ripete lo sblocco —
+    l'oracolo onesto è il non-doppione. Lo stato però PERSISTE: la vista
+    torna piena."""
+    client, _stato = host
+    apertura = _crea(client)
+    uuid = apertura["crawler"]["uuid"]
+    corpo = _vinci_via_api(client, apertura["versione"])
+    assert any("Debutto" in e["testo"] for e in _righe_obiettivo(client))
+
+    r = client.post("/api/partita/esci", json={"versione": corpo["versione"]})
+    assert r.status_code == 200
+    r = client.post("/api/partita", json={"carica": {"uuid": uuid}})
+    assert r.status_code == 201
+    assert not [
+        e for e in _righe_obiettivo(client) if "Debutto" in e["testo"]
+    ], "già mostrato in run: al load non deve raddoppiare"
+    corpo = client.get("/api/partita/obiettivi").json()
+    debutto = {o["slug"]: o for o in corpo["obiettivi"]}["debutto-in-societa"]
+    assert debutto["sbloccato"] is True and debutto["testo"], (
+        "lo sblocco è persistito col save: la vista riparte piena"
+    )
+
+
+def _sblocco_mai_mostrato(slug: str) -> None:
+    """Uno sblocco 'di contrabbando' direttamente nel componente (trucco dei
+    test motore, via World attivo): simula una superficie che non ha mai
+    drenato la notifica — es. un host chiuso prima del turno successivo."""
+    from motore.obiettivi import obiettivi_correnti
+
+    comp = obiettivi_correnti()
+    assert comp is not None
+    comp.sbloccati.append(slug)
+    comp.non_letti.append(slug)
+
+
+def test_l_arretrata_vera_entra_nel_thread_al_load_una_volta_sola(host) -> None:
+    """Uno sblocco MAI mostrato (non-letto persistito col save) al load
+    diventa una riga-evento tipata nel thread, composta come la cronaca
+    (★ …), come se fosse appena accaduto; il drenaggio è UNA volta — un
+    secondo giro esci→carica non la ripete."""
+    client, _stato = host
+    apertura = _crea(client)
+    uuid = apertura["crawler"]["uuid"]
+    corpo = _narra(client, apertura["versione"])
+    _sblocco_mai_mostrato("bis")
+    r = client.post("/api/partita/esci", json={"versione": corpo["versione"]})
+    assert r.status_code == 200
+
+    r = client.post("/api/partita", json={"carica": {"uuid": uuid}})
+    assert r.status_code == 201
+    arretrate = [e for e in _righe_obiettivo(client) if "Bis" in e["testo"]]
+    assert len(arretrate) == 1
+    assert arretrate[0]["testo"].startswith("★ Nuovo obiettivo: Bis!"), (
+        "l'arretrata è composta come la cronaca live"
+    )
+    assert "Ricompensa:" in arretrate[0]["testo"]
+
+    versione = client.get("/api/partita").json()["versione"]
+    r = client.post("/api/partita/esci", json={"versione": versione})
+    assert r.status_code == 200
+    r = client.post("/api/partita", json={"carica": {"uuid": uuid}})
+    assert r.status_code == 201
+    assert not [
+        e for e in _righe_obiettivo(client) if "Bis" in e["testo"]
+    ], "il drenaggio arretrato è UNA volta: il secondo load non la ripete"
+
+
 def test_la_cronaca_viaggia_tipata(host) -> None:
     """Bonifica 2026-08-20: il TIPO dell'evento è dato del backend (nome della
     classe, lo stesso dell'SSE) — il client sceglie il registro visivo dal

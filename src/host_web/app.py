@@ -170,6 +170,18 @@ async def _drena_prosa(sessione) -> list:
         prose.append(battito)
 
 
+def _riga_obiettivo(evento: object) -> str:
+    """La riga di cronaca di un `ObiettivoRaggiunto` ARRETRATO (nodo O4):
+    STESSA composizione della cronaca tipata del motore (main) — al load la
+    notifica appare come se fosse appena accaduta, identica al live. Testo e
+    ricompensa sono GIÀ composti dal motore: qui solo la cornice."""
+    return (
+        f"★ Nuovo obiettivo: {getattr(evento, 'titolo', '?')}! "
+        f"{getattr(evento, 'testo', '')} "
+        f"Ricompensa: {getattr(evento, 'ricompensa_testo', '')}"
+    )
+
+
 class RichiestaCalibrazioneValore(BaseModel):
     """Il valore GREZZO di un override: coerce e validazione (int/float/scelta)
     vivono nel catalogo (`calibrazione._coerce`), mai qui."""
@@ -573,6 +585,16 @@ def crea_app(stato: StatoHost) -> FastAPI:
         if ric.carica is not None:
             # Il forum della run riparte dai turni GM congelati (H §11).
             stato.ricostruisci_thread(sessione.ricostruisci_thread())
+            # Nodo O4: le notifiche ARRETRATE degli obiettivi (sbloccati in un
+            # host senza vista, o su un live mai mostrato) entrano nel thread
+            # come righe-evento TIPATE, composte come la cronaca. Il drenaggio
+            # svuota la coda: un load successivo non le ripete.
+            stato.accoda_arretrati(
+                [
+                    ("ObiettivoRaggiunto", _riga_obiettivo(evento))
+                    for evento in sessione.drena_notifiche_obiettivi()
+                ]
+            )
         # Un turno del motore (sync, zero LLM) riallinea scena/menu e produce il
         # primo snapshot; da qui in poi vale il protocollo di versione.
         snap = sessione.avanza()
@@ -581,6 +603,10 @@ def crea_app(stato: StatoHost) -> FastAPI:
             eventi=stato.cronaca.preleva_tipata() if stato.cronaca else [],
             messaggio=None,
         )
+        # Drenaggio SILENZIOSO: se l'avanzamento ha sbloccato qualcosa, il live
+        # è appena passato dalla cronaca tipata — la coda dei non-letti si
+        # svuota perché al prossimo load non diventi un doppione.
+        sessione.drena_notifiche_obiettivi()
         return _stato_partita()
 
     @app.post("/api/partita/esci")
@@ -635,6 +661,20 @@ def crea_app(stato: StatoHost) -> FastAPI:
                 }
                 for fonte in sessione.scheda().zaino
             ]
+        }
+
+    @app.get("/api/partita/obiettivi")
+    async def obiettivi_run() -> dict:
+        """L'elenco obiettivi della run (nodo O4): il dato arriva GIÀ velato
+        dal motore (titolo sempre, testo/ricompensa solo a sblocco avvenuto —
+        `ObiettivoVista`) + il promemoria delle box in coda. Sola lettura:
+        nessun consumo, nessun bump di versione."""
+        sessione = _sessione()
+        return {
+            "obiettivi": [
+                o.model_dump(mode="json") for o in sessione.obiettivi_vista()
+            ],
+            "box_in_coda": sessione.box_in_coda(),
         }
 
     def _guardia_equip(ric: RichiestaEquip):
@@ -698,6 +738,8 @@ def crea_app(stato: StatoHost) -> FastAPI:
             nuovi = stato.registra_turno(
                 snap, eventi=eventi, messaggio=sessione.ultimo_messaggio, prose=prose
             )
+            # Nodo O4: drenaggio SILENZIOSO — il live è già nella cronaca tipata.
+            sessione.drena_notifiche_obiettivi()
         return _risposta_turno(nuovi)
 
     @app.post("/api/partita/opzioni")
@@ -737,6 +779,8 @@ def crea_app(stato: StatoHost) -> FastAPI:
             nuovi = stato.registra_turno(
                 snap, eventi=eventi, messaggio=messaggio, prose=prose
             )
+            # Nodo O4: drenaggio SILENZIOSO — il live è già nella cronaca tipata.
+            sessione.drena_notifiche_obiettivi()
         return _risposta_turno(nuovi)
 
     @app.post("/api/partita/azione/anteprima")
@@ -772,6 +816,8 @@ def crea_app(stato: StatoHost) -> FastAPI:
             nuovi = stato.registra_turno(
                 snap, eventi=eventi, messaggio=sessione.ultimo_messaggio, prose=prose
             )
+            # Nodo O4: drenaggio SILENZIOSO — il live è già nella cronaca tipata.
+            sessione.drena_notifiche_obiettivi()
         return _risposta_turno(nuovi)
 
     @app.post("/api/partita/scena/battuta")
@@ -808,6 +854,8 @@ def crea_app(stato: StatoHost) -> FastAPI:
             nuovi = stato.registra_turno(
                 snap, eventi=eventi, messaggio=None, prose=prose, battute=scambio
             )
+            # Nodo O4: drenaggio SILENZIOSO — il live è già nella cronaca tipata.
+            sessione.drena_notifiche_obiettivi()
         return _risposta_turno(nuovi)
 
     @app.post("/api/partita/salva")

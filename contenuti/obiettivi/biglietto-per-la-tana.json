@@ -1,0 +1,9 @@
+{
+  "slug": "biglietto-per-la-tana",
+  "versione": 1,
+  "tags": ["territorio", "spina"],
+  "titolo": "Biglietto per la tana",
+  "testo": "Sei entrato dove il piano tiene la sua cosa peggiore. Lo share è alle stelle. Le tue quote no.",
+  "trigger": {"evento": "zona_attraversata", "tier": "piano"},
+  "ricompensa": {"box": {"categoria": "avventuriero", "grado": "leggendario"}}
+}

@@ -180,6 +180,7 @@ function applicaTurno(qc: QueryClient, risposta: RispostaTurno) {
   void qc.invalidateQueries({ queryKey: ["thread"] }); // il thread si RILEGGE
   void qc.invalidateQueries({ queryKey: ["scheda"] }); // HP/status possono cambiare
   void qc.invalidateQueries({ queryKey: ["zaino"] }); // drop e indosso lo cambiano
+  void qc.invalidateQueries({ queryKey: ["obiettivi"] }); // sblocchi e box aperte
 }
 
 function risincronizza(qc: QueryClient) {
@@ -282,6 +283,16 @@ export function useZaino(abilitata: boolean) {
   return useQuery({
     queryKey: ["zaino"],
     queryFn: api.zaino,
+    enabled: abilitata,
+  });
+}
+
+/** L'elenco obiettivi della run (nodo O4): dato GIÀ velato dal backend.
+ * Invalidato da ogni turno come zaino/scheda (`applicaTurno`). */
+export function useObiettivi(abilitata: boolean) {
+  return useQuery({
+    queryKey: ["obiettivi"],
+    queryFn: api.obiettivi,
     enabled: abilitata,
   });
 }
