@@ -669,8 +669,15 @@ VERO; la box esce dalla coda solo a conio riuscito. Default-on: ogni
 sessione monta il catalogo di sistema (`obiettivi=()` esplicito = run
 pulita). Host (O4): notifiche ★ in cronaca tipata, elenco velato-finché-
 chiuso (`obiettivi_vista`), arretrate drenate-una-volta al load (§O-5),
-tasto `o` in TUI. RESTA O5 (cross-run col pattern ledger; «primi al mondo»
-solo col server) e il travaso al lab per la SPA (colonna notifiche, elenco).
+tasto `o` in TUI. DISACCOPPIAMENTO ratificato (2026-08-26): obiettivi =
+TITOLI per imprese mid-run, mai legati alla vittoria di run (che sarà SOLO
+il 18° piano, non ancora configurato — il terminale attuale è segnaposto);
+vocabolario esteso coi fatti da impresa su `CombatResolved` (custode,
+senza_graffi, grado_nemico fotografati all'apertura) + SERIE a `soglia` con
+contatori persistenti; catalogo a 20 voci (4 titoli nuovi). RESTA O5
+(cross-run col pattern ledger; «primi al mondo» solo col server); il
+travaso al lab della SPA è FATTO (commit a21a38b) — questo arricchimento
+andrà travasato al prossimo giro.
 
 ### 2.2 Combattimento
 

@@ -61,6 +61,16 @@ class TriggerObiettivo(BaseModel):
     fuga: bool | None = None        # combat_risolto
     interrotto: bool | None = None  # riposo_concluso
     tier: str | None = None         # zona_attraversata
+    # I fatti da IMPRESA (titoli mid-run, ratifica 2026-08-26: gli obiettivi
+    # sono ricompense per imprese significative DURANTE la run — mai
+    # accoppiati alla vittoria della run, che è un'altra storia):
+    custode: bool | None = None         # combat_risolto: il custode di zona
+    senza_graffi: bool | None = None    # combat_risolto: nemmeno un HP perso
+    grado_nemico_minimo: Grado | None = None  # combat_risolto: rango ≥ soglia
+    # La SERIE (sistema-titoli): l'impresa vale alla N-esima occorrenza delle
+    # condizioni (es. la decima vittoria). None = immediata. Con `ripetibile`
+    # il titolo suona a OGNI multiplo della soglia.
+    soglia: int | None = Field(default=None, ge=2)
 
 
 class BoxRicompensa(BaseModel):

@@ -157,6 +157,10 @@ class StatoCombattimento:
     crollo: int = 0                # danno inevitabile corrente dell'escalation (cresce oltre la soglia)
     fuga_richiesta: bool = False   # il prossimo turno del protagonista tenta la FUGA (FNC §4)
     mossa_richiesta: str | None = None  # la mossa SCELTA dal giocatore per il suo prossimo turno
+    # FOTOGRAFIE all'apertura (nodo O, titoli mid-run): i fatti da impresa si
+    # catturano quando i nemici sono ancora leggibili — alla chiusura sono morti.
+    hp_iniziali_prot: int = 0      # per `senza_graffi` sull'esito
+    grado_massimo: str = ""        # il grado più alto fra i nemici ("" = scalari)
 
 
 # --- Iniziativa (G-3): destrezza desc, tiebreak su chiave stabile seeded -------
@@ -613,8 +617,16 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
                 break  # nessuna azione disponibile/pagabile: il turno finisce
 
         # Condizione di vittoria: nessun nemico vivo → torna in narrazione.
+        # L'esito porta i FATTI DA IMPRESA (nodo O, titoli mid-run): grado del
+        # nemico più alto (fotografato all'apertura), stanza del custode,
+        # vittoria senza graffi — dati del motore, letti qui e mai dedotti.
         if not _nemici_vivi():
-            self.bus.pubblica(CombatResolved(entita=attivo, vittoria=True))
+            self.bus.pubblica(CombatResolved(
+                entita=attivo, vittoria=True,
+                grado_nemico=stato.grado_massimo,
+                custode=_e_stanza_del_custode(),
+                senza_graffi=scheda.punti_vita >= stato.hp_iniziali_prot > 0,
+            ))
 
     def _risolvi_fuga(self, attivo: int, stato: StatoCombattimento) -> None:
         """La fuga in tre corsie: **pulita**, **col colpo d'opportunità**, **negata**.
@@ -659,7 +671,10 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
             _pent, _marker, pscheda = protagonista()
             if not pscheda.vivo or pscheda.punti_vita <= 0:
                 return
-        self.bus.pubblica(CombatResolved(entita=attivo, vittoria=False, fuga=True))
+        self.bus.pubblica(CombatResolved(
+            entita=attivo, vittoria=False, fuga=True,
+            grado_nemico=stato.grado_massimo,
+        ))
 
     @staticmethod
     def _scala_ricariche(entita: int) -> None:
@@ -908,6 +923,18 @@ class SistemaCrollo(SistemaSoloCombattimento):
             self.bus.pubblica(CrolloDungeon(danno=stato.crollo))
 
 
+def _e_stanza_del_custode() -> bool:
+    """Vero se lo scontro vive nella stanza del CUSTODE di zona (il fatto per
+    il titolo «taglia sul custode»). Lettura tollerante: gli harness senza
+    territorio non devono esplodere — il degrado è False, mai un crash."""
+    try:
+        from .territorio import stanza_corrente_e_del_boss
+
+        return bool(stanza_corrente_e_del_boss())
+    except Exception:
+        return False
+
+
 # --- Ciclo di vita delle entità di combattimento (effimere) -------------------
 
 def collega_combattimento(bus) -> list[tuple[type, object]]:
@@ -956,6 +983,18 @@ def collega_combattimento(bus) -> list[tuple[type, object]]:
             for ent, comb in esper.get_component(Combattente)
         ]
         stato.ordine = calcola_iniziativa(combattenti)
+        # Le fotografie da impresa (nodo O): HP d'ingresso del protagonista e
+        # grado massimo dei nemici materializzati (per rango; gli scalari
+        # senza EntitaMob non contano — "" resta il degrado onesto).
+        stato.hp_iniziali_prot = _pscheda.punti_vita
+        from .catalogo import RANGO_GRADO
+
+        gradi = [
+            em.grado for _ent, (em, _n) in esper.get_components(EntitaMob, Nemico)
+        ]
+        stato.grado_massimo = (
+            max(gradi, key=RANGO_GRADO.__getitem__).value if gradi else ""
+        )
 
     def _smonta(_evento: CombatResolved) -> None:
         # Il ciclo di vita dipende da COME il nemico è entrato in scontro (FNC §6.3):

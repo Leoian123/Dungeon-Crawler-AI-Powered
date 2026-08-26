@@ -7,6 +7,16 @@ box per categoria e grado) e a volte è una beffa dichiarata. Le box si
 aprono **solo nelle SAFE ROOM** (ratifica 2026-08-26: il bagno è privacy,
 la safe room è il rifugio attrezzato — è lì che si scartano i regali).
 
+> **Disaccoppiamento (ratifica 2026-08-26).** Obiettivi e vittoria della run
+> NON si toccano: la run è vinta SE E SOLO SE si raggiunge il DICIOTTESIMO
+> piano (configurazione futura; il terminale attuale è un segnaposto MVP).
+> Gli obiettivi sono TITOLI: ricompense per IMPRESE SIGNIFICATIVE compiute
+> durante la discesa — la discesa di un piano è progressione, mai un finale.
+> Vocabolario esteso di conseguenza: `custode`, `senza_graffi`,
+> `grado_nemico_minimo` (fatti fotografati dal motore all'apertura dello
+> scontro e trasportati da `CombatResolved`) e `soglia` (le SERIE: l'impresa
+> vale alla N-esima occorrenza; contatori persistenti in `ObiettiviRun`).
+
 > **Nota IP (vincolante).** Il riferimento di meccanica e registro è il
 > romanzo; i TESTI del catalogo sono **originali al 100%**: mai righe, nomi
 > di obiettivo o battute del libro nel repo. Il registro si imita, il testo

@@ -1,0 +1,9 @@
+{
+  "slug": "senza-un-graffio",
+  "versione": 1,
+  "tags": ["combattimento", "titolo"],
+  "titolo": "Senza un graffio",
+  "testo": "Scontro chiuso, zero HP persi. La regia ha dovuto tagliare la puntata: mancava il sangue.",
+  "trigger": {"evento": "combat_risolto", "vittoria": true, "senza_graffi": true},
+  "ricompensa": {"box": {"categoria": "indumenti", "grado": "argento"}}
+}

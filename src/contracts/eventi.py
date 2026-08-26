@@ -50,6 +50,11 @@ class CombatResolved(EventoDominio):
     entita: Entita
     vittoria: bool
     fuga: bool = False
+    # I FATTI DA IMPRESA (nodo O, titoli mid-run) — fotografati dal motore
+    # all'apertura dello scontro, mai dedotti a valle:
+    grado_nemico: str = ""     # il grado più alto fra i nemici ("" = scalari)
+    custode: bool = False      # lo scontro era nella stanza del custode di zona
+    senza_graffi: bool = False # vittoria senza aver perso un solo HP
 
 
 @dataclass(frozen=True)

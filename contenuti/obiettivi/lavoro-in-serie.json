@@ -1,0 +1,9 @@
+{
+  "slug": "lavoro-in-serie",
+  "versione": 1,
+  "tags": ["combattimento", "titolo", "serie"],
+  "titolo": "Lavoro in serie",
+  "testo": "Dieci scontri vinti in questa discesa. La produzione ti ha assegnato una sigla personale. Non puoi sentirla, ma c'è.",
+  "trigger": {"evento": "combat_risolto", "vittoria": true, "soglia": 10},
+  "ricompensa": {"box": {"categoria": "avventuriero", "grado": "oro"}}
+}
