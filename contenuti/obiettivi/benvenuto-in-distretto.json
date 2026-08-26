@@ -1,0 +1,9 @@
+{
+  "slug": "benvenuto-in-distretto",
+  "versione": 1,
+  "tags": ["territorio", "spina"],
+  "titolo": "Benvenuto in distretto",
+  "testo": "Il quartiere non ti bastava. Il distretto ha più luci, più rumore e più cose con i denti.",
+  "trigger": {"evento": "zona_attraversata", "tier": "distretto"},
+  "ricompensa": {"box": {"categoria": "indumenti", "grado": "bronzo"}}
+}

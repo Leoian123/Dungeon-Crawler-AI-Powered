@@ -3243,7 +3243,7 @@ def costruisci_sessione(
     provider=None,
     stagione: Stagione | StagioneRisolta | str | None = None,
     fantasmi: tuple = (),
-    obiettivi: tuple = (),
+    obiettivi: tuple | None = None,
 ) -> SessioneGioco:
     """Cabla contenuto+provider → `SessioneGioco.nuova`. Senza `directory` la run
     vive in una tempdir usa-e-getta (demo/test).
@@ -3285,7 +3285,9 @@ def costruisci_sessione(
         n_stanze=n_stanze,
         stagione=_stagione_a_attiva(risolta),
         fantasmi=fantasmi,
-        obiettivi=obiettivi,
+        # None = il catalogo di SISTEMA (default: il dungeon ti guarda sempre);
+        # () esplicito = nessun obiettivo (harness e misure restano puliti).
+        obiettivi=catalogo_obiettivi() if obiettivi is None else obiettivi,
     )
 
 
@@ -3391,6 +3393,34 @@ def fantasmi_locali(
         if esito.terminale is _T.SCONFITTA:
             fantasmi.append(FantasmaRun.da_esito(esito))
     return tuple(fantasmi)
+
+
+def catalogo_obiettivi(ufficiali: Path | None = None) -> tuple:
+    """Il catalogo di SISTEMA degli obiettivi (nodo O3): `contenuti/obiettivi/
+    *.json`, validati dal contratto e LINTATI (slug == nome file: il rename
+    silenzioso è la via classica del drift). Lasco sul file rotto — si salta,
+    il catalogo non muore per una voce — ma il lint sullo slug è DURO: un
+    file valido col nome sbagliato è un errore d'authoring, non un incidente.
+    Ordinamento per slug: il congelamento per-run è deterministico."""
+    import json as _json
+
+    from contracts import AchievementAsset
+
+    base = (ufficiali or DIRECTORY_CONTENUTI) / "obiettivi"
+    if not base.exists():
+        return ()
+    raccolti = []
+    for percorso in sorted(base.glob("*.json")):
+        try:
+            asset = AchievementAsset.model_validate(
+                _json.loads(percorso.read_text(encoding="utf-8"))
+            )
+        except Exception:
+            continue  # voce rotta: si salta, mai un crash del catalogo
+        if asset.slug != percorso.stem:
+            continue  # slug ≠ file: drift d'authoring, la voce non entra
+        raccolti.append(asset)
+    return tuple(raccolti)
 
 
 def proposte_wiki(directory: Path | None = None) -> list[dict]:

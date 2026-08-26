@@ -1,0 +1,9 @@
+{
+  "slug": "primo-caffe-in-trincea",
+  "versione": 1,
+  "tags": ["riposo", "pietra-miliare"],
+  "titolo": "Primo caffè in trincea",
+  "testo": "Hai riposato fino in fondo senza che niente provasse a mangiarti. Nel dungeon si chiama fortuna, non abitudine.",
+  "trigger": {"evento": "riposo_concluso", "interrotto": false},
+  "ricompensa": {"beffa": "Il senso di pace che provi ora è il massimo che passiamo. Assapora."}
+}

@@ -348,3 +348,69 @@ def test_l_apertura_e_deterministica_per_replay(run_pulita, tmp_path) -> None:
         run_pulita, tmp_path / "b"
     )
     assert slug_a == slug_b, "il conio della box non è replay-safe"
+
+
+# --- Fase O3: il catalogo autorale di sistema -----------------------------------
+
+def test_il_catalogo_ufficiale_carica_e_regge_il_lint() -> None:
+    """Il catalogo di sistema: almeno 15 voci, tutte valide dal contratto,
+    slug unici e uguali al nome del file (il rename silenzioso non entra),
+    ogni categoria-box dichiarata è del vocabolario chiuso."""
+    from main import DIRECTORY_CONTENUTI, catalogo_obiettivi
+
+    catalogo = catalogo_obiettivi()
+    assert len(catalogo) >= 15, f"catalogo magro: {len(catalogo)} voci"
+    slugs = [a.slug for a in catalogo]
+    assert len(slugs) == len(set(slugs)), "slug duplicati nel catalogo"
+    file_presenti = {
+        p.stem for p in (DIRECTORY_CONTENUTI / "obiettivi").glob("*.json")
+    }
+    assert set(slugs) == file_presenti, "ogni file valido entra, slug == file"
+    assert any(a.ripetibile for a in catalogo), "serve almeno un ripetibile"
+    assert any(a.ricompensa.box is None for a in catalogo), "serve almeno una beffa"
+    assert any(
+        a.trigger.evento.value == "morte" for a in catalogo
+    ), "il postumo fa parte dello show"
+
+
+def test_il_loader_e_lasco_sul_rotto_e_duro_sul_drift(tmp_path) -> None:
+    """Un file corrotto si salta (il catalogo non muore per una voce); un
+    file VALIDO col nome sbagliato è drift d'authoring e non entra."""
+    import json
+    import shutil
+
+    from main import DIRECTORY_CONTENUTI, catalogo_obiettivi
+
+    base = tmp_path / "obiettivi"
+    base.mkdir()
+    sorgente = DIRECTORY_CONTENUTI / "obiettivi" / "debutto-in-societa.json"
+    shutil.copy2(sorgente, base / "debutto-in-societa.json")
+    (base / "rotto.json").write_text("{spazzatura", encoding="utf-8")
+    driftato = json.loads(sorgente.read_text(encoding="utf-8"))
+    driftato["slug"] = "altro-slug"
+    (base / "nome-diverso.json").write_text(
+        json.dumps(driftato, ensure_ascii=False), encoding="utf-8"
+    )
+
+    catalogo = catalogo_obiettivi(ufficiali=tmp_path)
+    assert [a.slug for a in catalogo] == ["debutto-in-societa"]
+
+
+def test_il_catalogo_di_sistema_e_il_default_della_sessione(
+    run_pulita, tmp_path
+) -> None:
+    """`obiettivi=None` (default) monta il catalogo di sistema; `()` esplicito
+    lascia la run pulita — harness e misure non pagano lo show."""
+    from main import catalogo_obiettivi, costruisci_sessione
+
+    sessione = costruisci_sessione(seed=3, directory=tmp_path / "a", nome="Donut")
+    comp = obiettivi_correnti()
+    assert comp is not None
+    assert len(comp.catalogo) == len(catalogo_obiettivi())
+    sessione.esci()
+
+    pulita = costruisci_sessione(
+        seed=3, directory=tmp_path / "b", nome="Donut", obiettivi=(),
+    )
+    assert obiettivi_correnti() is None, "() esplicito = nessun obiettivo"
+    pulita.esci()

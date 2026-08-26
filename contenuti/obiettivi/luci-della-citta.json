@@ -1,0 +1,9 @@
+{
+  "slug": "luci-della-citta",
+  "versione": 1,
+  "tags": ["territorio", "spina"],
+  "titolo": "Luci della città",
+  "testo": "Sei arrivato in città. Da qualche parte, un cartellone con la tua faccia dice cose che non hai mai autorizzato.",
+  "trigger": {"evento": "zona_attraversata", "tier": "citta"},
+  "ricompensa": {"box": {"categoria": "avventuriero", "grado": "argento"}}
+}
