@@ -979,9 +979,13 @@ strutturali, misurate in stack:
 Misura di chiusura (stessa `misura_run`, 40 seed): **combatti 3/40 → 7/40,
 fuga20 11/40 (28%)** — la spina intera + discesa (prof. 2) è un esito
 regolare, non un colpo di fortuna; `scappa` resta 0/40 (vincere richiede
-combattere). Restano da ratificare (§B del piano): scaling per piano delle
-box, moltiplicatore benefactor, canale consumabili (dichiarato, non
-progettato), qualità nel nome/vista.
+combattere). Ratifiche §B fatte: **scaling per territorio delle box** (il
+conio non scende sotto il minimo della finestra-loot corrente — aprire tardi
+paga, scelta non exploit; `BoxAperta.grado` = grado coniato) e **il dato agli
+host** (`OggettoTrovato` porta grado+qualità, `BoxAperta` la qualità, cronaca
+con la fattura — la vestizione SPA è del lab, al prossimo travaso). Restano
+dichiarate: moltiplicatore benefactor (quando esisteranno box sponsor),
+canale consumabili (non progettato), joke item come contenuto autorale.
 
 Il passo ora è la RIFINITURA: il giocatore vero sceglie gli scontri e usa i
 vicoli — le run manuali arrivano più in là della politica; leve residue in

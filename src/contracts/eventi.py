@@ -155,10 +155,15 @@ class OggettoTrovato(EventoDominio):
     """Bottino a fine scontro vinto: il canale del loot parla in cronaca.
 
     `fonte` è l'id di dominio durevole (quello di Zaino/equip); `nome` è il
-    diegetico da mostrare. La TABELLA dei drop è contenuto; questo è il canale."""
+    diegetico da mostrare. La TABELLA dei drop è contenuto; questo è il canale.
+    `grado` e `qualita` (nodo B, ratifica §B-4: il dato vive nel backend, gli
+    host lo VESTONO) viaggiano quando il motore li conosce — "" = non detto
+    (drop dal pool storico, eventi scritti prima del ventaglio)."""
 
     nome: str
     fonte: str
+    grado: str = ""
+    qualita: str = ""
 
 
 @dataclass(frozen=True)
@@ -191,12 +196,16 @@ class BoxAperta(EventoDominio):
     """Una box degli obiettivi si è aperta (nodo O2, solo nei luoghi quieti):
     il conio è del motore (fabbrica, stream isolato per-box — replay-safe),
     l'evento è il fatto compiuto per cronaca e showrunner. `fonte` è l'id di
-    dominio dell'oggetto coniato (Zaino/equip), `nome` il diegetico."""
+    dominio dell'oggetto coniato (Zaino/equip), `nome` il diegetico. `grado`
+    è il grado CONIATO (con lo scaling per territorio, ratifica §B-1, può
+    superare quello stampato sulla box); `qualita` è la fattura del ventaglio
+    (nodo B2, "" = evento scritto prima del ventaglio)."""
 
     categoria: str
     grado: str
     nome: str
     fonte: str
+    qualita: str = ""
 
 
 @dataclass(frozen=True)

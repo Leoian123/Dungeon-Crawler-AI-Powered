@@ -80,18 +80,24 @@ Manca (i due buchi che il power-play del 2026-08-26 ha misurato):
   bersaglio dichiarato è che il power player VEDA la scala (piano 2).
   Le foglie si ritoccano QUI, sui numeri misurati, non a tavolino.
 
-## Decisioni da ratificare (§B)
+## Decisioni §B (stato al 2026-08-26)
 
-1. **Box Benefactor** (moltiplicatore ×2 tier): oggi non esistono box
+1. **Scaling per territorio delle box — RATIFICATA E FATTA**: il grado del
+   conio-box = max(grado della box, minimo della finestra-loot corrente —
+   la stessa dei drop, `finestra_gradi_loot`). Aprire tardi PAGA: è una
+   scelta del giocatore (tenersi la box per il territorio profondo), non un
+   exploit — il conio resta deterministico per-box nella timeline in cui
+   apri. `BoxAperta.grado` dice il grado CONIATO.
+2. **Il dato agli host — FATTA (metà backend)**: `OggettoTrovato` trasporta
+   `grado`+`qualita`, `BoxAperta` la `qualita` ("" = non detto: eventi
+   vecchi e pool storico validano); la cronaca annuncia la fattura («—
+   fattura di scarto / pregiata», l'onesto tace). La VESTIZIONE (colori,
+   badge nella SPA) è del lab, al prossimo travaso.
+3. **Box Benefactor** (moltiplicatore ×2 tier): oggi non esistono box
    benefactor — quando arriveranno (sponsor/fan, strato sovra-run), il
-   moltiplicatore è la regola. Proposta: dichiarata ora, implementata allora.
-2. **Scaling per piano delle box** (stessa box, piano profondo = meglio):
-   proposta: il grado effettivo del conio-box = max(grado della box, minimo
-   della finestra-loot del piano). Da ratificare prima di toccare il nodo O.
-3. **Consumabili** (metà del dataset è consumabile: pozioni, pergamene,
+   moltiplicatore è la regola. Dichiarata ora, si implementa allora.
+4. **Consumabili** (metà del dataset è consumabile: pozioni, pergamene,
    esplosivi): canale NUOVO, fuori dal perimetro di questo giro (forma, non
    contenuto). Dichiarato, non progettato.
-4. **La qualità nel nome**: per ora la qualità si legge nella descrizione;
-   se la si vuole nel nome/vista (UI), è un giro di presentazione a parte.
 5. **Joke item**: il pavimento scarto è già la metà comica; testi joke
    AUTORALI (asset) possono arrivare come contenuto, mai generati dal motore.

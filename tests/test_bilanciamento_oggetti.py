@@ -143,6 +143,83 @@ def test_il_conio_storico_resta_byte_identico_a_monte_della_qualita(
     )
 
 
+'''--- B4: le ratifiche del giro (scaling box per territorio, dato agli host) ---'''
+
+
+def test_la_box_scala_col_territorio(mondo_isolato) -> None:
+    """Ratifica §B-1: stessa box, territorio profondo = conio migliore. Il
+    grado del conio non scende sotto il minimo della finestra-loot corrente
+    (la stessa dei drop); una box già alta resta sua; senza territorio il
+    grado stampato è legge."""
+    from contracts import BusEventi
+    from main import _stagione_a_attiva
+    from motore import (
+        attraversa,
+        avvia_territorio,
+        crea_entita_fase,
+        crea_profondita,
+        crea_seme,
+        crea_tempo_piano,
+        finestra_gradi_loot,
+        mappa_corrente,
+        registra_boss_sconfitto,
+        segna_visitata,
+        stanza_passaggio_di,
+        zona_corrente,
+    )
+    from motore.catalogo import RANGO_GRADO
+    from motore.obiettivi import _grado_conio_scalato
+    from tests.contenuti_sintetici import piano_territoriale, stagione_sintetica
+
+    # Harness nudo, senza territorio: nessuno scaling, nessun crash.
+    assert _grado_conio_scalato("bronzo") == "bronzo"
+
+    crea_profondita()
+    crea_seme(5)
+    crea_tempo_piano()
+    crea_stagione(_stagione_a_attiva(stagione_sintetica(
+        piani=[piano_territoriale(1)], slug="s-boxscala",
+    )))
+    crea_protagonista(destrezza=10, punti_vita=30, id_dominio="carl")
+    crea_entita_fase()
+    avvia_territorio(1)
+    bus = BusEventi()
+
+    # Quartiere (il tier minimo): il bronzo resta bronzo.
+    assert _grado_conio_scalato("bronzo") == "bronzo"
+
+    # Distretto: il minimo della finestra sale — e la box di bronzo con lui.
+    registra_boss_sconfitto()
+    _e, mappa = mappa_corrente()
+    mappa.stanza_corrente = stanza_passaggio_di(zona_corrente(), mappa.piano)
+    segna_visitata()
+    assert attraversa(bus) is True
+    minimo = min(finestra_gradi_loot(1), key=RANGO_GRADO.__getitem__)
+    assert RANGO_GRADO[minimo] > RANGO_GRADO[Grado.BRONZO], (
+        "il distretto deve alzare la finestra: senza, il test non prova nulla"
+    )
+    assert _grado_conio_scalato("bronzo") == minimo.value
+    # Una box già sopra la finestra resta sua: lo scaling è un floor, non un cap.
+    assert _grado_conio_scalato("celestiale") == "celestiale"
+
+
+def test_gli_eventi_loot_portano_grado_e_fattura() -> None:
+    """Ratifica §B-4 (metà backend): il dato vive nel backend, gli host lo
+    vestono — `OggettoTrovato`/`BoxAperta` trasportano grado e qualità, coi
+    default retro-compatibili ("" = non detto, gli eventi vecchi validano)."""
+    from contracts import BoxAperta, OggettoTrovato
+    from main import _nota_fattura
+
+    vecchio = OggettoTrovato(nome="Lama", fonte="lama-x")
+    assert vecchio.grado == "" and vecchio.qualita == ""
+    nuovo = BoxAperta(categoria="armi", grado="argento",
+                      nome="Lama", fonte="lama-y", qualita="pregiato")
+    assert _nota_fattura(nuovo) == " — fattura pregiata"
+    assert _nota_fattura(vecchio) == "", "il non-detto tace in cronaca"
+    scarto = OggettoTrovato(nome="Chiodo", fonte="chiodo-z", qualita="scarto")
+    assert _nota_fattura(scarto) == " — fattura di scarto"
+
+
 def test_i_save_vecchi_non_cambiano(mondo_isolato) -> None:
     """Un `OggettoAttivo` deserializzato SENZA campo qualità (save pre-B2)
     è onesto: stesso danno, stessi numeri di prima."""

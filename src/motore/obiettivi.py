@@ -315,6 +315,33 @@ _TIPI_PER_CATEGORIA: dict[str, tuple[str, ...] | None] = {
 }
 
 
+def _grado_conio_scalato(grado_box: str) -> str:
+    """Lo SCALING PER TERRITORIO delle box (ratifica §B-1, 2026-08-26 — la
+    regola del riferimento: stessa box, piano profondo = contenuto migliore).
+    Il conio non scende mai sotto il MINIMO della finestra-loot di dove ti
+    trovi — la stessa finestra dei drop (`finestra_gradi_loot`: il bottino
+    insegue il territorio). Una box di grado già alto resta sua; aprire tardi
+    PAGA, ed è una scelta del giocatore, non un exploit (il conio resta
+    deterministico per-box nella timeline in cui apri). Lettura tollerante:
+    senza territorio/piano il grado stampato sulla box è legge."""
+    try:
+        from contracts import Grado
+
+        from .catalogo import RANGO_GRADO
+        from .piano import livello_corrente
+        from .territorio import finestra_gradi_loot
+
+        finestra = finestra_gradi_loot(livello_corrente())
+        if not finestra:
+            return grado_box
+        minimo = min(finestra, key=RANGO_GRADO.__getitem__)
+        if RANGO_GRADO[minimo] > RANGO_GRADO[Grado(grado_box)]:
+            return minimo.value
+    except Exception:
+        pass
+    return grado_box
+
+
 def prossima_box() -> BoxChiusa | None:
     """La prossima box in coda (FIFO: la prima guadagnata è la prima aperta).
     Sola lettura: comporre il menu non consuma niente."""
@@ -352,9 +379,10 @@ def apri_prossima_box(bus) -> object | None:
     if tipo_stanza_corrente() is not TipoStanza.SAFE_ROOM:
         return None
     box = comp.box[0]
+    grado_conio = _grado_conio_scalato(box.grado)
     rng = random.Random(f"{master_seed()}:box:{box.id}")
     attivo = conia_procedurale(
-        rng, box.grado, tipi_base=_TIPI_PER_CATEGORIA.get(box.categoria),
+        rng, grado_conio, tipi_base=_TIPI_PER_CATEGORIA.get(box.categoria),
     )
     if attivo is None:
         return None  # fabbrica assente o categoria non onorabile: la box resta
@@ -363,7 +391,8 @@ def apri_prossima_box(bus) -> object | None:
     assicura_coniati(pent).voci.append(attivo)
     assicura_zaino(pent).fonti.append(attivo.slug)
     bus.pubblica(BoxAperta(
-        categoria=box.categoria, grado=box.grado,
+        categoria=box.categoria, grado=grado_conio,
         nome=attivo.nome, fonte=attivo.slug,
+        qualita=getattr(attivo, "qualita", "onesto"),
     ))
     return attivo

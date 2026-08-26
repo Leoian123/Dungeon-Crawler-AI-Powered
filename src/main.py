@@ -1665,7 +1665,11 @@ class SessioneGioco:
                 assicura_coniati(pent).voci.append(attivo)
                 assicura_zaino(pent).fonti.append(attivo.slug)
                 self._ultimo_drop = None
-                self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
+                self.bus.pubblica(OggettoTrovato(
+                    nome=attivo.nome, fonte=attivo.slug,
+                    grado=attivo.grado,
+                    qualita=getattr(attivo, "qualita", ""),
+                ))
                 if (self.memoria_lunga is not None
                         and rango_grado(_Grado(grado)) >= rango_grado(_Grado.ORO)):
                     from contracts import DocumentoMemoria, TipoDocumento
@@ -2009,7 +2013,10 @@ class SessioneGioco:
         assicura_coniati(pent).voci.append(attivo)
         assicura_zaino(pent).fonti.append(attivo.slug)
         self._ultimo_drop = (attivo.slug, grado)
-        self.bus.pubblica(OggettoTrovato(nome=attivo.nome, fonte=attivo.slug))
+        self.bus.pubblica(OggettoTrovato(
+            nome=attivo.nome, fonte=attivo.slug,
+            grado=attivo.grado, qualita=getattr(attivo, "qualita", ""),
+        ))
 
     def _drop_del_custode(self) -> bool:
         """Vero se la vittoria appena chiusa ha battuto il CUSTODE in persona
@@ -2045,8 +2052,10 @@ class SessioneGioco:
         zaino.fonti.append(fonte)
         oggetto = catalogo[fonte]
         self._ultimo_drop = (fonte, grado_oggetto(fonte))
+        # Dal pool storico: il grado si conosce, la qualità no ("" = non detto).
         self.bus.pubblica(OggettoTrovato(
             nome=getattr(oggetto, "nome", "") or fonte, fonte=fonte,
+            grado=grado_oggetto(fonte),
         ))
 
     def _scarica_drop_pendente(self) -> None:
@@ -2761,6 +2770,15 @@ def _riga_turno_saltato(e: object) -> str:
     return "Sei stordito: salti il turno!" if nome == "" else f"{nome} è stordito: salta il turno."
 
 
+def _nota_fattura(e: object) -> str:
+    """La fattura del ventaglio (nodo B2), quando l'evento la dice: scarto e
+    pregiato si annunciano accanto al nome, l'onesto (e il non-detto) tace."""
+    return {
+        "scarto": " — fattura di scarto",
+        "pregiato": " — fattura pregiata",
+    }.get(getattr(e, "qualita", ""), "")
+
+
 def _riga_risolto(e: object) -> str:
     if getattr(e, "fuga", False):
         return "Ti disimpegni: fuga riuscita, lo scontro si dissolve."
@@ -2827,8 +2845,8 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
             "piano": "la TANA. Qualcuno sta contando fino a dieci.",
         }.get(getattr(e, "tier", ""), "una zona nuova del piano."))),
     (OggettoTrovato, lambda e: (
-        f"✦ Bottino: {getattr(e, 'nome', '') or getattr(e, 'fonte', '?')} "
-        f"(nello zaino).")),
+        f"✦ Bottino: {getattr(e, 'nome', '') or getattr(e, 'fonte', '?')}"
+        f"{_nota_fattura(e)} (nello zaino).")),
     (TurnoSaltato, _riga_turno_saltato),
     (CombatResolved, _riga_risolto),
     # Nodo O2: la box si apre (solo nei luoghi quieti) — il conio è già fatto,
@@ -2836,7 +2854,7 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (BoxAperta, lambda e: (
         f"◇ La Box {getattr(e, 'categoria', '?').capitalize()} di "
         f"{getattr(e, 'grado', '?').capitalize()} si apre: "
-        f"{getattr(e, 'nome', '?')} (nello zaino).")),
+        f"{getattr(e, 'nome', '?')}{_nota_fattura(e)} (nello zaino).")),
     # Nodo O: la notifica di sistema. Testo e ricompensa sono GIÀ composti dal
     # motore (dato autorale, deterministico): la cronaca li affianca e basta.
     (ObiettivoRaggiunto, lambda e: (
