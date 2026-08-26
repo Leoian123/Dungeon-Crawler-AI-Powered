@@ -90,6 +90,18 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
     danno arma dal grado, resistenze dalle fasce."""
     tipo = o.tipo
     nome = o.nome
+    if tipo == "consumabile":
+        # Canale B: il consumabile non è un pezzo d'equip — è monouso, e
+        # `equipaggia()` lo rifiuta per costruzione (non è fra i suoi tipi).
+        from .consumabili import Consumabile
+
+        effetto = getattr(o, "effetto", "") or ""
+        return Consumabile(
+            fonte=o.slug, nome=nome,
+            effetto=effetto.value if hasattr(effetto, "value") else effetto,
+            grado=o.grado.value if hasattr(o.grado, "value") else str(o.grado),
+            descrizione=getattr(o, "descrizione", ""),
+        )
     mods = _modificatori_vivi(o)
     resistenze = _resistenze_vive(o)
     if tipo == "armatura":
@@ -213,6 +225,7 @@ def attivo_da_asset(ogg) -> OggettoAttivo:
         danno_base=ogg.danno_base,
         modificatori=tuple((m.stat.value, m.fascia.value) for m in ogg.modificatori),
         mosse=tuple(ogg.mosse),
+        effetto=ogg.effetto.value if ogg.effetto is not None else "",
     )
 
 
@@ -224,6 +237,11 @@ def catalogo_oggetti_correnti() -> dict[str, object]:
     from .design import stagione_corrente
 
     catalogo = dict(CATALOGO_OGGETTI)
+    # Canale B: il dato demo dei consumabili entra nel catalogo della run (e
+    # quindi nel giro dei drop dal pool) — import locale, niente ciclo.
+    from .consumabili import CATALOGO_CONSUMABILI
+
+    catalogo.update(CATALOGO_CONSUMABILI)
     stagione = stagione_corrente()
     if stagione is not None:
         for attivo in getattr(stagione, "oggetti", ()):
@@ -296,4 +314,9 @@ def grado_oggetto(fonte: str) -> str:
     for attivo in _coniati_correnti():
         if attivo.slug == fonte:
             return attivo.grado
+    from .consumabili import CATALOGO_CONSUMABILI
+
+    demo = CATALOGO_CONSUMABILI.get(fonte)
+    if demo is not None:
+        return demo.grado
     return Grado.BRONZO.value

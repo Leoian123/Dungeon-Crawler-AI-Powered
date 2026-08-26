@@ -183,6 +183,9 @@ class OggettoAttivo:
     # scarto | onesto | pregiato. Default "onesto" = comportamento storico
     # (i save e gli asset scritti prima del ventaglio non cambiano di un byte).
     qualita: str = "onesto"
+    # L'EFFETTO del consumabile (canale B, vocabolario chiuso del contratto):
+    # "" = non è un consumabile. Additivo con default: save vecchi intatti.
+    effetto: str = ""
     slot: str | None = None
     categoria: str | None = None
     taglia: str = "media"

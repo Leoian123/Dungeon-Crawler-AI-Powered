@@ -983,9 +983,16 @@ combattere). Ratifiche §B fatte: **scaling per territorio delle box** (il
 conio non scende sotto il minimo della finestra-loot corrente — aprire tardi
 paga, scelta non exploit; `BoxAperta.grado` = grado coniato) e **il dato agli
 host** (`OggettoTrovato` porta grado+qualità, `BoxAperta` la qualità, cronaca
-con la fattura — la vestizione SPA è del lab, al prossimo travaso). Restano
-dichiarate: moltiplicatore benefactor (quando esisteranno box sponsor),
-canale consumabili (non progettato), joke item come contenuto autorale.
+con la fattura — la vestizione SPA è del lab, al prossimo travaso). **Canale
+CONSUMABILI FATTO** (ratifica 2026-08-26): `OggettoAsset` tipo "consumabile"
++ `EffettoConsumabile` chiuso (cura/ristoro_mana/antidoto), quote del massimo
+per grado (§11), monouso via inventario (`sessione.usa` → `PlayerUsaOggetto`
+→ `SistemaConsumabili` solo-narrazione: in scontro l'intento resta in coda),
+rifiuto-non-consuma, antidoto mai sugli innati, `OggettoUsato` tipato in
+cronaca, dato demo (3 pezzi) nel giro dei drop; post-MVP dichiarati: uso in
+combattimento (muove il TTK), consumabili da fabbrica/box, ×N ai tier alti.
+Restano dichiarate: moltiplicatore benefactor (quando esisteranno box
+sponsor), joke item come contenuto autorale.
 
 Il passo ora è la RIFINITURA: il giocatore vero sceglie gli scontri e usa i
 vicoli — le run manuali arrivano più in là della politica; leve residue in

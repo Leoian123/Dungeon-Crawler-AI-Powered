@@ -96,8 +96,20 @@ Manca (i due buchi che il power-play del 2026-08-26 ha misurato):
 3. **Box Benefactor** (moltiplicatore ×2 tier): oggi non esistono box
    benefactor — quando arriveranno (sponsor/fan, strato sovra-run), il
    moltiplicatore è la regola. Dichiarata ora, si implementa allora.
-4. **Consumabili** (metà del dataset è consumabile: pozioni, pergamene,
-   esplosivi): canale NUOVO, fuori dal perimetro di questo giro (forma, non
-   contenuto). Dichiarato, non progettato.
+4. **Consumabili — CANALE FATTO (2026-08-26)**: `OggettoAsset` tipo
+   "consumabile" con `effetto` dal vocabolario CHIUSO (`EffettoConsumabile`:
+   cura, ristoro_mana, antidoto — un effetto nuovo = un membro + una riga
+   nell'esecutore, pattern SPEC_STATUS); numeri §11 come quote del MASSIMO
+   per grado (`CONSUMABILE.CURA_PCT.*` / `MANA_PCT.*` — la pozione scala col
+   pool, il «almeno il 50%» del riferimento); monouso, uso via INVENTARIO
+   (porta `sessione.usa(fonte)` → `PlayerUsaOggetto` → `SistemaConsumabili`
+   solo-narrazione: in combattimento l'intento resta in coda, come l'equip);
+   il rifiuto (HP pieni, niente da purgare) NON consuma e non è un fatto;
+   l'antidoto purga i dannosi APPLICATI, mai gli innati; `OggettoUsato` in
+   cronaca col dettaglio composto. Dato demo originale (3 pezzi, uno per
+   effetto) nel catalogo della run → girano nei drop dal pool. DICHIARATI
+   post-MVP: uso in combattimento (costo AP + cooldown: muove il TTK, va
+   misurato), consumabili dalla fabbrica/box (le parti non hanno vocabolario
+   d'effetto), «stesso consumabile ×N» ai tier alti.
 5. **Joke item**: il pavimento scarto è già la metà comica; testi joke
    AUTORALI (asset) possono arrivare come contenuto, mai generati dal motore.

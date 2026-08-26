@@ -192,6 +192,20 @@ class MortePersonaggio(EventoDominio):
 
 
 @dataclass(frozen=True)
+class OggettoUsato(EventoDominio):
+    """Un consumabile è stato usato (canale B): il fatto compiuto per la
+    cronaca — l'effetto l'ha GIÀ applicato il motore (numeri §11 per grado).
+    `dettaglio` è il risultato composto («+12 HP», «il veleno svanisce»):
+    l'host lo mostra, mai lo ricalcola. L'uso rifiutato (sei già intero,
+    niente da purgare) NON è un fatto: non passa di qui."""
+
+    nome: str
+    fonte: str
+    effetto: str
+    dettaglio: str = ""
+
+
+@dataclass(frozen=True)
 class BoxAperta(EventoDominio):
     """Una box degli obiettivi si è aperta (nodo O2, solo nei luoghi quieti):
     il conio è del motore (fabbrica, stream isolato per-box — replay-safe),

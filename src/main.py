@@ -75,11 +75,13 @@ from contracts import (
     BoxAperta,
     ObiettivoRaggiunto,
     OggettoTrovato,
+    OggettoUsato,
     PlayerDiscende,
     PlayerEquipaggia,
     PlayerAttraversa,
     PlayerSiMuove,
     PlayerToglie,
+    PlayerUsaOggetto,
     OpzioneVista,
     PlayerChoseOption,
     Grado,
@@ -2089,6 +2091,16 @@ class SessioneGioco:
         self.coda.accoda(PlayerToglie(fonte=fonte))
         return self.avanza()
 
+    def usa(self, fonte: str) -> SnapshotVista:
+        """Porta dei CONSUMABILI (canale B): Zaino → effetto, via l'intento
+        tipizzato servito da `SistemaConsumabili` nel bucket di narrazione —
+        stesso phase-gate dell'equip (in combattimento l'intento resta in
+        coda). A successo la fonte esce dallo zaino e `OggettoUsato` va in
+        cronaca; il rifiuto (sei intero, niente da purgare) non consuma."""
+        self._guardia_aperta()
+        self.coda.accoda(PlayerUsaOggetto(fonte=fonte))
+        return self.avanza()
+
     def salva(self) -> str:
         """Salvataggio a mano, in-run (H-6): il World sopravvive, scrittura prima di
         ogni teardown. La mappa viaggia nello slot `esplorazione`; l'Archivio (i turni
@@ -2847,6 +2859,10 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (OggettoTrovato, lambda e: (
         f"✦ Bottino: {getattr(e, 'nome', '') or getattr(e, 'fonte', '?')}"
         f"{_nota_fattura(e)} (nello zaino).")),
+    # Canale B: il consumabile usato — l'effetto è già applicato dal motore,
+    # la cronaca annuncia il dettaglio composto.
+    (OggettoUsato, lambda e: (
+        f"◉ Usi {getattr(e, 'nome', '?')}: {getattr(e, 'dettaglio', '') or 'fatto'}.")),
     (TurnoSaltato, _riga_turno_saltato),
     (CombatResolved, _riga_risolto),
     # Nodo O2: la box si apre (solo nei luoghi quieti) — il conio è già fatto,
