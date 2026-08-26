@@ -123,6 +123,7 @@ from .obiettivi import (
     BoxRicompensa,
     CategoriaBox,
     EventoTrigger,
+    ObiettivoVista,
     RicompensaObiettivo,
     TriggerObiettivo,
 )
@@ -194,6 +195,7 @@ __all__ = [
     "BoxRicompensa",
     "CategoriaBox",
     "EventoTrigger",
+    "ObiettivoVista",
     "RicompensaObiettivo",
     "TriggerObiettivo",
     # strato sovra-run (Fase A; B/C/D preparati, non consumati)

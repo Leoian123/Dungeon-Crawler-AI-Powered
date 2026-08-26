@@ -1871,6 +1871,32 @@ class SessioneGioco:
         self._sincronizza_scena()
         return self._snapshot_corrente()
 
+    def obiettivi_vista(self) -> tuple:
+        """L'elenco obiettivi per l'host (`ObiettivoVista`, fase O4): velato
+        finché chiuso, pieno a sblocco avvenuto."""
+        self._guardia_aperta()
+        from motore.obiettivi import elenco_vista
+
+        return elenco_vista()
+
+    def box_in_coda(self) -> int:
+        """Quante box aspettano una safe room (per l'host: il promemoria)."""
+        self._guardia_aperta()
+        from motore.obiettivi import obiettivi_correnti
+
+        comp = obiettivi_correnti()
+        return len(comp.box) if comp is not None else 0
+
+    def drena_notifiche_obiettivi(self) -> tuple:
+        """Le notifiche ARRETRATE (`ObiettivoRaggiunto` già composti): l'host
+        le mostra al load come se fossero appena accadute, poi la coda è
+        vuota. Dopo ogni turno il drenaggio è SILENZIOSO (il live è già
+        passato dalla cronaca): a un load resta solo il mai-mostrato."""
+        self._guardia_aperta()
+        from motore.obiettivi import drena_non_letti
+
+        return drena_non_letti()
+
     def fonti_indossate(self) -> tuple[str, ...]:
         """Le fonti INDOSSO (dal manifest), per l'host dell'inventario: `EquipVista`
         mostra la geometria per slot ma non porta la fonte, e il toggle

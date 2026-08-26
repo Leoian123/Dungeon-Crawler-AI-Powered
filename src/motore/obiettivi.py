@@ -210,6 +210,57 @@ def attiva_osservatore(bus) -> OsservatoreObiettivi:
     return OsservatoreObiettivi(bus)
 
 
+# --- Le viste per gli host (fase O4) --------------------------------------------
+
+def elenco_vista() -> tuple:
+    """L'elenco obiettivi per l'host (`ObiettivoVista`): il catalogo della
+    run con lo stato di sblocco. VELATO finché chiuso — titolo visibile,
+    testo e ricompensa arrivano solo a sblocco avvenuto: lo spoiler è metà
+    del premio."""
+    from contracts import ObiettivoVista
+
+    comp = obiettivi_correnti()
+    if comp is None:
+        return ()
+    return tuple(
+        ObiettivoVista(
+            slug=o.slug,
+            titolo=o.titolo,
+            testo=o.testo if o.slug in comp.sbloccati else "",
+            sbloccato=o.slug in comp.sbloccati,
+            ricompensa_testo=(
+                _ricompensa_testo(o) if o.slug in comp.sbloccati else ""
+            ),
+        )
+        for o in comp.catalogo
+    )
+
+
+def drena_non_letti() -> tuple:
+    """Le notifiche ARRETRATE (decisione §O-5): gli sblocchi non ancora
+    mostrati, come `ObiettivoRaggiunto` già composti — l'host li scrive come
+    se fossero appena accaduti, poi la coda è vuota. Il live passa dalla
+    cronaca: l'host drena in silenzio dopo ogni turno, e a un load trova qui
+    solo ciò che nessuna superficie ha mai mostrato."""
+    comp = obiettivi_correnti()
+    if comp is None or not comp.non_letti:
+        return ()
+    per_slug = {o.slug: o for o in comp.catalogo}
+    notifiche = []
+    for slug in comp.non_letti:
+        obiettivo = per_slug.get(slug)
+        if obiettivo is None:
+            continue  # catalogo driftato: la notifica orfana decade
+        notifiche.append(ObiettivoRaggiunto(
+            slug=obiettivo.slug,
+            titolo=obiettivo.titolo,
+            testo=obiettivo.testo,
+            ricompensa_testo=_ricompensa_testo(obiettivo),
+        ))
+    comp.non_letti.clear()
+    return tuple(notifiche)
+
+
 # --- L'apertura delle box (fase O2): solo nei luoghi quieti ---------------------
 
 # Categoria della box → tipi di BASE della fabbrica che può estrarre.

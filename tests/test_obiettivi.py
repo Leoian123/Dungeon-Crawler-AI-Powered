@@ -414,3 +414,81 @@ def test_il_catalogo_di_sistema_e_il_default_della_sessione(
     )
     assert obiettivi_correnti() is None, "() esplicito = nessun obiettivo"
     pulita.esci()
+
+
+# --- Fase O4: le porte per gli host ---------------------------------------------
+
+def test_l_elenco_e_velato_finche_chiuso(run_pulita, tmp_path) -> None:
+    """`obiettivi_vista`: titolo sempre visibile, testo e ricompensa SOLO a
+    sblocco avvenuto — lo spoiler è metà del premio."""
+    from main import costruisci_sessione
+
+    sessione = costruisci_sessione(
+        seed=3, directory=tmp_path, nome="Donut",
+        obiettivi=(_asset(), _asset("ritirata-d-autore", vittoria=None,
+                                    fuga=True, box=None, beffa="Anche no.")),
+    )
+    prima = {v.slug: v for v in sessione.obiettivi_vista()}
+    assert prima["debutto-in-societa"].sbloccato is False
+    assert prima["debutto-in-societa"].testo == "", "velato finché chiuso"
+    assert prima["debutto-in-societa"].ricompensa_testo == ""
+
+    asyncio.run(_vinci_il_primo_scontro(sessione))
+    dopo = {v.slug: v for v in sessione.obiettivi_vista()}
+    assert dopo["debutto-in-societa"].sbloccato is True
+    assert dopo["debutto-in-societa"].testo, "sbloccato = in chiaro"
+    assert dopo["debutto-in-societa"].ricompensa_testo.startswith("Hai ricevuto")
+    assert dopo["ritirata-d-autore"].sbloccato is False, "l'altro resta velato"
+    assert sessione.box_in_coda() == 1
+    sessione.esci()
+
+
+def test_le_notifiche_arretrate_si_drenano_una_volta(run_pulita, tmp_path) -> None:
+    """§O-5: uno sblocco salvato e mai drenato torna al load come notifica
+    arretrata — UNA volta sola; il drenaggio pre-save svuota per sempre."""
+    from main import carica_sessione, costruisci_sessione
+
+    sessione = costruisci_sessione(
+        seed=3, directory=tmp_path, nome="Donut", obiettivi=(_asset(),),
+    )
+    asyncio.run(_vinci_il_primo_scontro(sessione))
+    sessione.salva()  # NON drenata: l'host è "crashato" prima di mostrare
+    uuid = sessione.uuid
+    sessione.esci()
+
+    riaperta = carica_sessione(uuid=uuid, directory=tmp_path)
+    arretrate = riaperta.drena_notifiche_obiettivi()
+    assert [n.slug for n in arretrate] == ["debutto-in-societa"]
+    assert arretrate[0].ricompensa_testo, "la notifica torna GIÀ composta"
+    assert riaperta.drena_notifiche_obiettivi() == (), "una volta sola"
+
+    riaperta.salva()
+    uuid2 = riaperta.uuid
+    riaperta.esci()
+    di_nuovo = carica_sessione(uuid=uuid2, directory=tmp_path)
+    assert di_nuovo.drena_notifiche_obiettivi() == (), (
+        "il drenaggio persiste col save: mai due volte la stessa notifica"
+    )
+    di_nuovo.esci()
+
+
+def test_il_tasto_o_elenca_gli_obiettivi() -> None:
+    pytest.importorskip("textual")
+    import gioco_textual
+    from textual.widgets import RichLog
+
+    from main import costruisci_sessione
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(
+            costruisci_sessione(seed=1, obiettivi=(_asset(),))
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            rl = app.query_one("#log", RichLog)
+            prima = len(rl.lines)
+            await pilot.press("o")
+            await pilot.pause()
+            assert len(rl.lines) > prima, "O scrive l'elenco nel log"
+
+    asyncio.run(run())

@@ -655,6 +655,23 @@ RESTANO fuori dal motore, per i branch/progetti dedicati: la UI della bacheca
 (react-ecosystem) e il server classifica (progetto separato, importa solo
 `contracts`); Fase E (verifica per replay) solo se le classifiche si fanno serie.
 
+### 2.1-septies Obiettivi e Box (nodo O: O1–O4 FATTE, O5 dichiarata)
+Il dungeon ti guarda e commenta (piano ratificato: docs/obiettivi-e-box.md).
+Trigger = FATTI del bus tipizzato su vocabolario CHIUSO (mai LLM, mai prosa);
+testi = dato autorale ORIGINALE (16 voci in `contenuti/obiettivi/`, registro
+dark-comico, nota IP nel piano); ricompense = BOX della fabbrica (conio
+ritardato per categoria×grado su stream isolato `master_seed:box:{id}`,
+replay-safe) o BEFFA dichiarata — mai vuota e muta. Un solo componente
+persistente (`ObiettiviRun`: catalogo congelato per-run + sbloccati +
+non-letti + box). Le box si aprono SOLO in SAFE ROOM (ratifica 2026-08-26:
+il bagno è privacy, non servizi) via `TipoAzione.APRI_BOX` composto quando è
+VERO; la box esce dalla coda solo a conio riuscito. Default-on: ogni
+sessione monta il catalogo di sistema (`obiettivi=()` esplicito = run
+pulita). Host (O4): notifiche ★ in cronaca tipata, elenco velato-finché-
+chiuso (`obiettivi_vista`), arretrate drenate-una-volta al load (§O-5),
+tasto `o` in TUI. RESTA O5 (cross-run col pattern ledger; «primi al mondo»
+solo col server) e il travaso al lab per la SPA (colonna notifiche, elenco).
+
 ### 2.2 Combattimento
 
 **Due check, e nessuno dei due è un dado da JRPG**: check 1 = il *se* colpisci (gate

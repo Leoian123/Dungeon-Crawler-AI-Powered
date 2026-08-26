@@ -89,6 +89,20 @@ class RicompensaObiettivo(BaseModel):
         return self
 
 
+class ObiettivoVista(BaseModel):
+    """UNA riga dell'elenco obiettivi per l'host (fase O4): il catalogo della
+    run con lo stato di sblocco. Il testo resta VELATO finché non sbloccato
+    (lo spoiler dell'obiettivo è metà del gusto): l'host mostra, mai deduce."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    slug: str
+    titolo: str
+    testo: str            # "" finché non sbloccato (velato)
+    sbloccato: bool
+    ricompensa_testo: str  # "" finché non sbloccato
+
+
 class AchievementAsset(BaseModel):
     """UN obiettivo come dato autorale (contenuti/obiettivi/*.json, congelato
     per-run come ogni asset). `ripetibile=False` = una volta per run."""
