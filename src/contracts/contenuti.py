@@ -256,6 +256,7 @@ class EffettoConsumabile(str, Enum):
     CURA = "cura"                  # HP: quota del massimo, per grado
     RISTORO_MANA = "ristoro_mana"  # mana: quota del massimo, per grado
     ANTIDOTO = "antidoto"          # purga gli status DANNOSI (mai gli innati)
+    TOMO = "tomo"                  # INSEGNA una mossa (canale GearTome, nodo S)
 
 
 class OggettoAsset(_Asset):
@@ -283,6 +284,14 @@ class OggettoAsset(_Asset):
     mitigazione_cent: int | None = Field(default=None, ge=0)
     danno_base: int | None = Field(default=None, ge=0)
     effetto: EffettoConsumabile | None = None            # solo consumabili
+    insegna_mossa: str = ""                              # solo effetto TOMO
+    # Il canale GearTome del nodo S7: ALCUNI oggetti portano una skill in sé
+    # — il pezzo indossato ALZA il livello effettivo della competenza («la
+    # stessa skill a +1 o +5» del riferimento). SOLO gli indossabili: il
+    # consumabile insegna col tomo, non indossa competenza. `skill` è lo
+    # slug del catalogo skill (lint a valle), `skill_livelli` il bonus.
+    skill: str = ""
+    skill_livelli: int = Field(default=0, ge=0, le=5)
 
     @model_validator(mode="after")
     def _coerente_per_tipo(self) -> "OggettoAsset":
@@ -310,8 +319,25 @@ class OggettoAsset(_Asset):
                     f"oggetto {self.slug}: i modificatori sono dell'indossabile — "
                     "un consumabile agisce una volta, non si porta addosso"
                 )
+            if (self.effetto is EffettoConsumabile.TOMO) != bool(self.insegna_mossa):
+                raise ValueError(
+                    f"oggetto {self.slug}: il TOMO vuole la mossa che insegna, "
+                    "gli altri effetti non la portano"
+                )
         elif self.effetto is not None:
             raise ValueError(f"oggetto {self.slug}: l'effetto è solo del consumabile")
+        elif self.insegna_mossa:
+            raise ValueError(f"oggetto {self.slug}: insegna_mossa è solo del tomo")
+        if bool(self.skill) != (self.skill_livelli >= 1):
+            raise ValueError(
+                f"oggetto {self.slug}: la skill portata vuole i suoi livelli "
+                "(e viceversa) — il canale GearTome è una coppia"
+            )
+        if self.skill and self.tipo == "consumabile":
+            raise ValueError(
+                f"oggetto {self.slug}: il consumabile non indossa competenza "
+                "— la skill in sé è degli indossabili, il tomo insegna"
+            )
         _senza_duplicati([m.stat for m in self.modificatori], "modificatori (stat)")
         _senza_duplicati(self.mosse, "mosse")
         return self
@@ -367,12 +393,21 @@ class ParteAffisso(BaseModel):
     res_contro: TipoDanno | None = None       # resistenza elementale...
     res_fascia: Fascia | None = None          # ...con l'intensità a fascia
     modificatori: list[ModificatoreDati] = Field(default_factory=list, max_length=1)
+    # L'affisso che porta una SKILL in sé (S7, il conio che pesca competenza):
+    # il pezzo coniato con questo affisso alza il livello della skill finché
+    # indosso — stessa coppia degli oggetti autorati, stesso lint a valle.
+    skill: str = ""
+    skill_livelli: int = Field(default=0, ge=0, le=5)
 
     @model_validator(mode="after")
     def _res_coerente(self) -> "ParteAffisso":
         if (self.res_contro is None) != (self.res_fascia is None):
             raise ValueError(f"affisso {self.nome!r}: res_contro e res_fascia vanno insieme")
-        if self.res_contro is None and not self.modificatori:
+        if bool(self.skill) != (self.skill_livelli >= 1):
+            raise ValueError(
+                f"affisso {self.nome!r}: la skill portata vuole i suoi livelli"
+            )
+        if self.res_contro is None and not self.modificatori and not self.skill:
             raise ValueError(f"affisso {self.nome!r}: un affisso deve portare qualcosa")
         return self
 

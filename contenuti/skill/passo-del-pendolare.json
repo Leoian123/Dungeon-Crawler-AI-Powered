@@ -1,0 +1,12 @@
+{
+  "slug": "passo-del-pendolare",
+  "versione": 2,
+  "tags": ["territorio"],
+  "nome": "Passo del pendolare",
+  "testo": "Attraversare i confini di zona con la faccia di chi l'ha già fatto ieri e lo rifarà domani. Il territorio non si impressiona, ma prende nota.",
+  "tipo": "passiva",
+  "pratica": "zona",
+  "dominio": "movimento",
+  "effetto": "esca_agguati",
+  "intensita": "marcata"
+}

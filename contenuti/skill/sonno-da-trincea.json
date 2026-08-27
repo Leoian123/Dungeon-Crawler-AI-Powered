@@ -1,0 +1,12 @@
+{
+  "slug": "sonno-da-trincea",
+  "versione": 2,
+  "tags": ["riposo"],
+  "nome": "Sonno da trincea",
+  "testo": "Dormire con una mano sul coltello e un orecchio sul pavimento. Ogni riposo portato a termine è una piccola vittoria amministrativa.",
+  "tipo": "passiva",
+  "pratica": "riposo",
+  "dominio": "sopravvivenza",
+  "effetto": "resa_riposo",
+  "intensita": "marcata"
+}

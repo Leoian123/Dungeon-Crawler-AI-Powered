@@ -156,6 +156,8 @@ class AffissoAttivo:
     res_contro: str | None = None
     res_fascia: str | None = None
     modificatori: tuple[tuple[str, str], ...] = ()
+    skill: str = ""                  # la skill in sé (S7), "" = nessuna
+    skill_livelli: int = 0
 
 
 @dataclass(frozen=True)
@@ -187,6 +189,11 @@ class OggettoAttivo:
     # L'EFFETTO del consumabile (canale B, vocabolario chiuso del contratto):
     # "" = non è un consumabile. Additivo con default: save vecchi intatti.
     effetto: str = ""
+    # La mossa che il TOMO insegna (nodo S, canale GearTome): "" = non è un tomo.
+    insegna_mossa: str = ""
+    # La skill IN SÉ dell'indossabile (S7, «+1 o +5»): "" = nessuna.
+    skill: str = ""
+    skill_livelli: int = 0
     slot: str | None = None
     categoria: str | None = None
     taglia: str = "media"

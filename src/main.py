@@ -76,6 +76,7 @@ from contracts import (
     ObiettivoRaggiunto,
     OggettoTrovato,
     OggettoUsato,
+    SkillMigliorata,
     PlayerDiscende,
     PlayerEquipaggia,
     PlayerAttraversa,
@@ -183,6 +184,7 @@ from motore import (
 )
 from motore.fantasmi import consuma_fantasma_corrente, monta_fantasmi
 from motore.obiettivi import attiva_osservatore, monta_obiettivi
+from motore.skill import attiva_osservatore_skill, monta_skill
 from provider import FakeProvider
 
 # Il menu di combattimento NON è più una costante: lo compone `IstanzaCombattimento`
@@ -749,7 +751,12 @@ def risolvi_stagione(
         if ogg is None:
             errori.append(f"oggetto riferito ma assente: {slug_ogg}")
             continue
-        errori.extend(lint_oggetto(ogg, mosse_ammesse=note_mosse))
+        errori.extend(lint_oggetto(
+            ogg, mosse_ammesse=note_mosse,
+            # Il composition root conosce la libreria skill: il gate S7 —
+            # una skill portata deve esistere nel catalogo di sistema.
+            skill_ammesse={a.slug for a in catalogo_skill()},
+        ))
         oggetti_risolti.append(ogg)
     # Le MOSSE-ASSET (T3a, stessa politica lasca): il validator Pydantic è il
     # gate di composizione (PMF-6.4) — qui si risolvono i riferimenti.
@@ -783,6 +790,18 @@ def risolvi_stagione(
             "fabbriche", slug_fabbrica, ufficiali=ufficiali, locali=locali)
         if fabbrica_risolta is None:
             errori.append(f"fabbrica riferita ma assente: {slug_fabbrica}")
+        else:
+            # Il gate S7 vale anche per gli AFFISSI: una skill portata dal
+            # conio deve esistere nel catalogo di sistema — l'errore si dice
+            # all'autore della fabbrica, mai al giocatore col pezzo in mano.
+            skill_note = {a.slug for a in catalogo_skill()}
+            for affisso in fabbrica_risolta.affissi:
+                if affisso.skill and affisso.skill not in skill_note:
+                    errori.append(
+                        f"fabbrica {slug_fabbrica}: l'affisso {affisso.nome!r} "
+                        f"porta la skill {affisso.skill!r}, che non è nel "
+                        "catalogo skill"
+                    )
     if errori:
         raise ValueError("stagione non risolvibile:\n- " + "\n- ".join(errori))
     return StagioneRisolta(
@@ -843,6 +862,18 @@ def _skills_di(entita: int) -> tuple[SkillVista, ...]:
     valore stantio. `pronta` riflette comunque il MANA, che è posseduto e persiste:
     in narrazione la scheda può dire "non pronta" — ed è l'informazione che spinge
     a riposare."""
+    from motore.skill import PraticaSkill, _livello_di, skill_correnti
+
+    registro = skill_correnti()
+
+    def _livello_mossa(chiave: str) -> int:
+        if registro is None:
+            return 1
+        for s in registro.catalogo:
+            if s.pratica == PraticaSkill.MOSSA.value and s.mossa == chiave:
+                return _livello_di(registro, s)
+        return 1
+
     voci = []
     for chiave in mosse_di(entita):
         mossa = mossa_di_catalogo(chiave)
@@ -855,6 +886,7 @@ def _skills_di(entita: int) -> tuple[SkillVista, ...]:
             cd_totale=mossa.cooldown,
             cd_residuo=cooldown_residuo(entita, chiave),
             pronta=mossa_pagabile(entita, chiave),
+            livello=_livello_mossa(chiave),
         ))
     return tuple(voci)
 
@@ -1213,6 +1245,9 @@ class SessioneGioco:
         # (per-guscio: muore col suo bus) e valuta il catalogo della run
         # corrente — se non è montato, ogni fatto è un no-op.
         self._osservatore_obiettivi = attiva_osservatore(self.bus)
+        # Skill (nodo S): il registro della pratica ascolta lo stesso bus —
+        # senza catalogo montato ogni fatto è un no-op (stessa disciplina).
+        self._osservatore_skill = attiva_osservatore_skill(self.bus)
 
     def _segna_prosa(self, tipo: TipoProsa) -> None:
         """Dichiara un battito dovuto (idempotente per tipo: un'apertura sola per
@@ -1232,6 +1267,7 @@ class SessioneGioco:
         stagione: StagioneAttiva | None = None,
         fantasmi: tuple = (),
         obiettivi: tuple = (),
+        skill: tuple = (),
     ) -> "SessioneGioco":
         """Nuova run: il protagonista NASCE al confine guscio→run. L'uuid identifica
         lo slot di save (slot = crawler, H §1); il nome ne è l'etichetta.
@@ -1254,6 +1290,8 @@ class SessioneGioco:
         monta_fantasmi(fantasmi)
         # Il catalogo obiettivi (nodo O): stesso confine, stesso freeze.
         monta_obiettivi(obiettivi)
+        # Il catalogo skill (nodo S): stesso confine, stesso freeze.
+        monta_skill(skill)
         _registra_sessione_attiva(sessione)  # il run-World è suo
         sessione.coda = sessione.guscio.coda
         # La pipeline GM: l'Archivio (firma→record) e la memoria di run FRESCHI.
@@ -1894,6 +1932,15 @@ class SessioneGioco:
         from motore.obiettivi import elenco_vista
 
         return elenco_vista()
+
+    def skill_vista(self) -> tuple:
+        """Il registro della pratica per l'host (`SkillRigaVista`, nodo S):
+        nome, tipo, livello derivato, usi — il sistema conta tutto, l'host
+        mostra il conto."""
+        self._guardia_aperta()
+        from motore.skill import skill_vista
+
+        return skill_vista()
 
     def box_in_coda(self) -> int:
         """Quante box aspettano una safe room (per l'host: il promemoria)."""
@@ -2914,6 +2961,10 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
         f"★ Nuovo obiettivo: {getattr(e, 'titolo', '?')}! "
         f"{getattr(e, 'testo', '')} "
         f"Ricompensa: {getattr(e, 'ricompensa_testo', '')}")),
+    # Nodo S: il gradino di pratica — il sistema conta tutto, e lo dice.
+    (SkillMigliorata, lambda e: (
+        f"⤴ {getattr(e, 'nome', '?')} sale al livello "
+        f"{getattr(e, 'livello', '?')}.")),
     (MortePersonaggio, _riga_morte),
     (AnomalyTriggered, lambda _e: "Il dungeon ride: qualcosa è fuori scala…"),
     (DiscesaPiano, _riga_discesa),
@@ -3077,6 +3128,13 @@ def _stagione_a_attiva(risolta: StagioneRisolta) -> StagioneAttiva:
                     (m.stat.value, m.fascia.value) for m in ogg.modificatori
                 ),
                 mosse=tuple(ogg.mosse),
+                # Il canale consumabile e la skill in sé attraversano il
+                # freeze (censimento 2026-08-27: la conversione li perdeva —
+                # un consumabile di stagione arrivava morto nella run).
+                effetto=ogg.effetto.value if ogg.effetto is not None else "",
+                insegna_mossa=ogg.insegna_mossa,
+                skill=ogg.skill,
+                skill_livelli=ogg.skill_livelli,
             )
             for ogg in risolta.oggetti
         ],
@@ -3136,6 +3194,8 @@ def _fabbrica_a_attiva(fabbrica) -> "FabbricaAttiva | None":
                 res_fascia=a.res_fascia.value if a.res_fascia is not None else None,
                 modificatori=tuple(
                     (m.stat.value, m.fascia.value) for m in a.modificatori),
+                skill=a.skill,
+                skill_livelli=a.skill_livelli,
             )
             for a in fabbrica.affissi
         ),
@@ -3346,6 +3406,7 @@ def costruisci_sessione(
     stagione: Stagione | StagioneRisolta | str | None = None,
     fantasmi: tuple = (),
     obiettivi: tuple | None = None,
+    skill: tuple | None = None,
 ) -> SessioneGioco:
     """Cabla contenuto+provider → `SessioneGioco.nuova`. Senza `directory` la run
     vive in una tempdir usa-e-getta (demo/test).
@@ -3390,6 +3451,9 @@ def costruisci_sessione(
         # None = il catalogo di SISTEMA (default: il dungeon ti guarda sempre);
         # () esplicito = nessun obiettivo (harness e misure restano puliti).
         obiettivi=catalogo_obiettivi() if obiettivi is None else obiettivi,
+        # Stessa disciplina per le skill (nodo S): il sistema conta tutto
+        # di default, `skill=()` esplicito = registro spento.
+        skill=catalogo_skill() if skill is None else skill,
     )
 
 
@@ -3515,6 +3579,31 @@ def catalogo_obiettivi(ufficiali: Path | None = None) -> tuple:
     for percorso in sorted(base.glob("*.json")):
         try:
             asset = AchievementAsset.model_validate(
+                _json.loads(percorso.read_text(encoding="utf-8"))
+            )
+        except Exception:
+            continue  # voce rotta: si salta, mai un crash del catalogo
+        if asset.slug != percorso.stem:
+            continue  # slug ≠ file: drift d'authoring, la voce non entra
+        raccolti.append(asset)
+    return tuple(raccolti)
+
+
+def catalogo_skill(ufficiali: Path | None = None) -> tuple:
+    """Il catalogo di SISTEMA delle skill (nodo S4): `contenuti/skill/*.json`,
+    stessa disciplina del catalogo obiettivi — lasco sul file rotto, DURO sul
+    drift slug≠file, ordinamento per slug (congelamento deterministico)."""
+    import json as _json
+
+    from contracts import SkillAsset
+
+    base = (ufficiali or DIRECTORY_CONTENUTI) / "skill"
+    if not base.exists():
+        return ()
+    raccolti = []
+    for percorso in sorted(base.glob("*.json")):
+        try:
+            asset = SkillAsset.model_validate(
                 _json.loads(percorso.read_text(encoding="utf-8"))
             )
         except Exception:

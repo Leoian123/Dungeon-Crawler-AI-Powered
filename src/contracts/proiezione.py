@@ -166,6 +166,10 @@ class SkillVista(BaseModel):
     costo_mana: int = 0
     cd_totale: int = 0
     cd_residuo: int = 0
+    # Il livello della SKILL che governa questa mossa (nodo S): derivato dal
+    # registro della pratica, 1 senza skill — l'host lo veste (Lv), mai lo
+    # calcola.
+    livello: int = 1
     pronta: bool = True
 
 

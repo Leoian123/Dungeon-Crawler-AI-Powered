@@ -32,6 +32,7 @@ from contracts import (
     ClasseBeneficio,
     ClasseProva,
     Durata,
+    EffettoCompetenza,
     Fascia,
     FasciaCosto,
     FasciaPotenza,
@@ -389,6 +390,19 @@ _DEFS: tuple[Param, ...] = (
           "dal motore, seeded). Bassa: 'l'ingiustizia assurda' è rara.", CAT_PROB, "0 – 1"),
     Param("PROB_IMBOSCATA", 0.3, "Probabilità del dado-evento d'imboscata per tick di scorrimento "
           "(fuori combattimento).", CAT_PROB, "0 – 1"),
+    # --- Skill (nodo S): lo strato di competenza ---
+    Param("SKILL.usi_livello_base", 3, "La scala della crescita: salire al livello n "
+          "costa n-1 volte QUESTO numero di usi (cumulativa triangolare — la "
+          "crescita lineare lenta del golden standard). Alzala per un dungeon "
+          "che premia meno la routine.", "Skill — lo strato di competenza",
+          "intero ≥1", "int", "usi"),
+    Param("SKILL.livello_cap", 10, "Il tetto del livello skill (usi oltre la soglia "
+          "del cap contano ma non salgono più).", "Skill — lo strato di competenza",
+          "intero ≥1", "int", "livelli"),
+    Param("SKILL.fascicolo_soglia", 3, "Dal livello QUI in su una competenza (di "
+          "dominio non mondano) è NOTEVOLE: entra nel fascicolo del turno GM — "
+          "il master narra un crawler che È le sue competenze.",
+          "Skill — lo strato di competenza", "intero ≥1", "int", "livello"),
     # Pesi delle classi di frequenza delle tabelle di spawn (territorio, 2026-08):
     # la FORMA (comune/insolito/raro) è vocabolario chiuso del contratto; i pesi
     # sono foglie §11 — l'AI e l'authoring non emettono mai un numero.
@@ -747,6 +761,44 @@ def _mosse_fascia_defs() -> tuple[Param, ...]:
     return tuple(out)
 
 
+# La MAGNITUDINE della competenza per (effetto × fascia): quanto vale UN
+# livello sopra il primo (nodo S5, ratifica 2026-08-27 — «Calpestare 15 fa
+# la differenza con Calpestare 10»: il livello è la build, non una tacca).
+_COMPETENZA_DEFAULT: dict[str, dict[str, float]] = {
+    "potenza_mossa": {"lieve": 0.03, "marcata": 0.06, "potente": 0.10},
+    "margine_fuga": {"lieve": 0.5, "marcata": 1.0, "potente": 1.5},
+    "resa_riposo": {"lieve": 0.2, "marcata": 0.35, "potente": 0.5},
+    "esca_agguati": {"lieve": 0.02, "marcata": 0.04, "potente": 0.06},
+}
+
+
+def _competenza_defs() -> tuple[Param, ...]:
+    """Le foglie della competenza, GENERATE da `EffettoCompetenza × Fascia`:
+    un effetto o una fascia nuovi senza foglia = KeyError all'import — mai
+    un numero inventato nel consumatore."""
+    spiega = {
+        "potenza_mossa": "moltiplicatore della mossa governata (per livello "
+                         "sopra il primo, dentro l'unico arrotondamento del check 2)",
+        "margine_fuga": "punti di margine sulle tre corsie del disimpegno "
+                        "(per livello sopra il primo, al pavimento intero)",
+        "resa_riposo": "HP per tick di riposo in più (per livello sopra il "
+                       "primo, al pavimento intero)",
+        "esca_agguati": "riduzione del dado-imboscata nel downtime (per "
+                        "livello sopra il primo; il fattore non scende sotto 0.5)",
+    }
+    out: list[Param] = []
+    for effetto in EffettoCompetenza:
+        for fascia in Fascia:
+            out.append(Param(
+                f"COMPETENZA.{effetto.value}.{fascia.value}",
+                _COMPETENZA_DEFAULT[effetto.value][fascia.value],
+                f"Competenza {effetto.value.upper()} a fascia "
+                f"{fascia.value.upper()}: {spiega[effetto.value]}.",
+                "Skill — lo strato di competenza", "≥0", "float",
+            ))
+    return tuple(out)
+
+
 def _oggetti_defs() -> tuple[Param, ...]:
     """Le foglie del canale oggetti, GENERATE dagli enum (`Fascia`, `Grado`):
     una fascia o un grado nuovi senza foglia = KeyError all'import, mai un
@@ -857,7 +909,8 @@ def _status_defs() -> tuple[Param, ...]:
 
 # Le foglie per-status, per-archetipo e del canale oggetti sono GENERATE (dagli
 # enum Blocco/Fascia/Grado e dai profili base), sotto la categoria propria.
-_DEFS = _DEFS + _status_defs() + _archetipi_defs() + _oggetti_defs() + _mosse_fascia_defs()
+_DEFS = (_DEFS + _status_defs() + _archetipi_defs() + _oggetti_defs()
+         + _mosse_fascia_defs() + _competenza_defs())
 
 CATALOGO: dict[str, Param] = {p.chiave: p for p in _DEFS}
 
@@ -1052,6 +1105,14 @@ DANNO_BASE = valore("DANNO_BASE")
 
 PROB_ANOMALIA = valore("PROB_ANOMALIA")
 PROB_IMBOSCATA = valore("PROB_IMBOSCATA")
+SKILL_USI_LIVELLO_BASE = valore("SKILL.usi_livello_base")
+SKILL_LIVELLO_CAP = valore("SKILL.livello_cap")
+SKILL_FASCICOLO_SOGLIA = valore("SKILL.fascicolo_soglia")
+# effetto → fascia → magnitudine per livello (generata dagli enum).
+COMPETENZA_RATE: dict[str, dict[str, float]] = {
+    e.value: {f.value: valore(f"COMPETENZA.{e.value}.{f.value}") for f in Fascia}
+    for e in EffettoCompetenza
+}
 # Pesi per classe di frequenza (chiavi-stringa: derivate dall'enum del contratto —
 # un membro nuovo di `Frequenza` senza foglia è un KeyError all'import, pattern
 # SPEC_STATUS). Consumate da `territorio.pesca_spawn` via il catalogo.

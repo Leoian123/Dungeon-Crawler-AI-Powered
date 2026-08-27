@@ -50,6 +50,7 @@ def _costruisci_app(sessione):
             Binding("a", "azione", "Azione libera"),
             Binding("z", "zaino", "Zaino"),
             Binding("c", "scheda", "Scheda"),
+            Binding("k", "skill", "Skill"),
             Binding("b", "bacheca", "Bacheca"),
             Binding("o", "obiettivi", "Obiettivi"),
             Binding("s", "salva", "Salva"),
@@ -242,29 +243,59 @@ def _costruisci_app(sessione):
             self._menu_zaino = True
             await self._monta_zaino()
 
+        @staticmethod
+        def _decora_riga_zaino(riga) -> str:
+            """La vestizione del dato tipato (§B-4): tacca di fattura (l'onesto
+            tace), grado in coda — l'host mostra, mai deduce dal nome."""
+            tacca = {"pregiato": "✦ ", "scarto": "▽ "}.get(riga.qualita, "")
+            grado = f" [{riga.grado}]" if riga.grado else ""
+            return f"{tacca}{etichetta_oggetto(riga.fonte)}{grado}"
+
         async def _monta_zaino(self) -> None:
             menu = self.query_one("#menu", Horizontal)
             await menu.remove_children()
-            fonti = self.sessione.scheda().zaino
-            indossate = set(self.sessione.fonti_indossate())
-            bottoni = [
-                Button(
-                    ("Togli " if f in indossate else "Indossa ") + etichetta_oggetto(f),
-                    id=f"zaino-{f}",
-                    variant="warning" if f in indossate else "success",
-                )
-                for f in fonti
-            ]
+            righe = self.sessione.zaino_vista()
+            bottoni = []
+            for riga in righe:
+                if riga.tipo == "consumabile":
+                    # Il canale B in TUI: il consumabile si USA, mai si indossa
+                    # (il motore rifiuterebbe il toggle con un click muto).
+                    bottoni.append(Button(
+                        "Usa " + self._decora_riga_zaino(riga),
+                        id=f"zaino-{riga.fonte}", variant="primary",
+                    ))
+                else:
+                    bottoni.append(Button(
+                        ("Togli " if riga.indossato else "Indossa ")
+                        + self._decora_riga_zaino(riga),
+                        id=f"zaino-{riga.fonte}",
+                        variant="warning" if riga.indossato else "success",
+                    ))
             bottoni.append(Button("Torna alla scena", id="zaino-chiudi"))
             await menu.mount(*bottoni)
-            if not fonti:
+            if not righe:
                 self.query_one("#log", RichLog).write(
                     "[dim]Zaino vuoto: il bottino arriva dagli scontri vinti.[/]"
                 )
 
         async def _toggle_equip(self, fonte: str) -> None:
             rl = self.query_one("#log", RichLog)
-            if fonte in set(self.sessione.fonti_indossate()):
+            righe = {r.fonte: r for r in self.sessione.zaino_vista()}
+            riga = righe.get(fonte)
+            if riga is not None and riga.tipo == "consumabile":
+                snap = self.sessione.usa(fonte)
+                consumato = fonte not in {
+                    r.fonte for r in self.sessione.zaino_vista()
+                }
+                if consumato:
+                    # Il dettaglio («+12 HP») è già passato dalla cronaca tipata.
+                    rl.write(f"Usi {etichetta_oggetto(fonte)}.")
+                else:
+                    rl.write(
+                        f"[dim]{etichetta_oggetto(fonte)} resta chiuso: "
+                        "non ne hai bisogno adesso.[/]"
+                    )
+            elif fonte in set(self.sessione.fonti_indossate()):
                 snap = self.sessione.togli(fonte)
                 rl.write(f"Togli {etichetta_oggetto(fonte)}: i suoi effetti svaniscono.")
             else:
@@ -293,12 +324,30 @@ def _costruisci_app(sessione):
             for sk in s.skills:
                 pronta = "pronta" if sk.pronta else f"in ricarica ({sk.cd_residuo})"
                 costo = f" · {sk.costo_mana} mana" if sk.costo_mana else ""
-                rl.write(f"  • {sk.etichetta} — {pronta}{costo}")
+                livello = f" · Lv {sk.livello}" if sk.livello > 1 else ""
+                rl.write(f"  • {sk.etichetta} — {pronta}{costo}{livello}")
             indosso = ", ".join(
                 etichetta_oggetto(f) for f in self.sessione.fonti_indossate()
             ) or "niente"
             zaino = ", ".join(etichetta_oggetto(f) for f in s.zaino) or "vuoto"
             rl.write(f"Indosso: {indosso}  ·  Zaino: {zaino}  [dim](Z per gestirlo)[/]")
+
+        def action_skill(self) -> None:
+            """Il registro delle competenze nel log (nodo S): il sistema conta
+            tutto, e il menu lo elenca tutto — junk compreso, che è metà del
+            tono. Livello e usi li deriva il motore, qui si mostrano."""
+            if self._occupato:
+                return
+            rl = self.query_one("#log", RichLog)
+            righe = self.sessione.skill_vista()
+            if not righe:
+                rl.write("[dim]Nessuna skill in catalogo per questa run.[/]")
+                return
+            rl.write(f"[b]— SKILL {len(righe)} —[/b]")
+            for r in sorted(righe, key=lambda r: (-r.livello, r.nome)):
+                dominio = f" [dim]({r.dominio})[/]" if r.dominio else ""
+                usi = f" · usi {r.usi}" if r.usi else ""
+                rl.write(f"  • [b]Lv {r.livello}[/b] {r.nome}{dominio}{usi}")
 
         def action_obiettivi(self) -> None:
             """L'elenco obiettivi nel log (fase O4): sbloccati in chiaro,

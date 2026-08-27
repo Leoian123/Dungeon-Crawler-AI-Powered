@@ -1,0 +1,13 @@
+{
+  "slug": "filo-di-mana",
+  "versione": 2,
+  "tags": ["magia"],
+  "nome": "Filo di mana",
+  "testo": "Il dardo non si lancia: si lascia andare. Con la pratica il filo si assottiglia e la mira smette di tremare.",
+  "tipo": "attiva",
+  "pratica": "mossa",
+  "mossa": "dardo_arcano",
+  "dominio": "magia",
+  "effetto": "potenza_mossa",
+  "intensita": "marcata"
+}

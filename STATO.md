@@ -695,6 +695,76 @@ cronaca (pubblicazione annidata nel dispatch di CombatResolved). RESTA O5
 travaso al lab della SPA è FATTO (commit a21a38b) — questo arricchimento
 andrà travasato al prossimo giro.
 
+### 2.1-octies Skill (nodo S: S1–S6+S8 FATTE — branch `skill-system`)
+
+**RATIFICA 2026-08-27 — la skill è una COMPETENZA, non un contatore**: il
+livello è la MAGNITUDINE del potere («Calpestare 15 ≠ Calpestare 10») e lo
+strato su cui gireranno i sistemi complessi (magia, artigianato,
+sopravvivenza, combattimento avanzato). Sintesi a tre: canone (cresce con
+l'uso, il junk è tono), JRPG (il livello scala effetti reali, i tomi
+insegnano, il gear costruirà), master AI (legge le competenze dal
+fascicolo, mai i numeri). Modello: `SkillAsset` con `dominio` (enum chiuso:
+combattimento/magia/artigianato/sopravvivenza/movimento/mondana),
+`effetto` (`EffettoCompetenza` chiuso — un effetto = UN consumatore nel suo
+punto unico) e `intensita` (Fascia; i numeri = foglie §11 `COMPETENZA.
+{effetto}.{fascia}`, generate dagli enum). SUPERFICIE del substrato:
+`livello_competenza(slug)`, `livello_dominio(dominio)` (il gate dei sistemi
+futuri: «artigianato ≥ 5»), `bonus_competenza(effetto)`. Quattro
+consumatori vivi: potenza_mossa (check 2, marcata = +6%/livello),
+margine_fuga (le tre corsie), resa_riposo (HP/tick), esca_agguati (dado del
+downtime, pavimento ×0.5). A livello 1 tutto è identità (storico
+byte-identico); in run la pratica PAGA (misura: combatti 8/40, fuga20
+11/40). S8: riga `[fascicolo/competenze]` — il GM narra il mestiere, mai la
+statistica. La mondana resta tono per contratto (effetto vietato).
+**S7 FATTA (2026-08-27)**: la skill IN SÉ dell'oggetto — solo gli
+INDOSSABILI portano `skill`+`skill_livelli` (1–5; il consumabile insegna
+col tomo, mai indossa), livello effettivo = derivata usi + bonus indosso
+(punto unico `_livello_di`: vista/fattori/dominio/fascicolo seguono da
+soli; il bonus supera il cap: è la build); lint d'authoring chiuso su tomo
+(mossa ignota) e skill fuori catalogo (`skill_ammesse` dal composition
+root); demo Anello del Suggeritore e Schinieri del Disertore; FIX al
+passaggio: la conversione stagione→attiva perdeva `effetto`/`insegna_mossa`
+(un consumabile di stagione arrivava morto) — ora attraversano il freeze.
+**Affisso di fabbrica con skill FATTO** (2026-08-27): `ParteAffisso` porta
+la coppia skill+livelli (validata; «portare qualcosa» ora include la
+competenza), il conio la imprime sul pezzo (primo affisso con skill; lo
+scarto, senza affissi, mai), lint alla risoluzione stagione (skill fuori
+catalogo = errore d'authoring); affisso demo «Veterano» (+1
+gambe-in-spalla) nella catena-dei-morti. **Superfici TUI del censimento
+CHIUSE** (2026-08-27): tasto `k` = registro competenze (Lv/usi/dominio,
+junk compreso), zaino TIPATO via `zaino_vista` (tacca di fattura + grado)
+con «Usa» sui consumabili — chiuso il toggle muto — e `Lv` sulle mosse in
+scheda; pilot TUI a lucchetto. DICHIARATE: prova sociale (prima il
+fatto-parlamento sul bus), skill da pozione, gradini di sblocco,
+magia/artigianato come sistemi-consumatori di `livello_dominio`, skill dei
+mob.
+
+#### (prima stesura S1–S4, resta il pavimento)
+«Il sistema conta tutto» (piano: docs/sistema-skill.md; modello dal dataset
+docs/Dataset/Skill, 107 voci — curve e regole, MAI nomi: nota IP). La skill
+è il CONTATORE VIVO di una pratica: asset (`contenuti/skill/`, congelato
+per-run), registro persistente (`SkillDelCrawler`, tag `skill`: catalogo +
+usi — un solo proprietario), LIVELLO DERIVATO dagli usi (soglie triangolari
+§11 `SKILL.usi_livello_base`, cap; mai depositato: zero XP, replay-safe per
+costruzione; `livello_iniziale` = la dotazione junk ad alto livello, il tono
+del canone). Pratiche = vocabolario CHIUSO sui fatti del bus (mossa+chiave /
+fuga / riposo-completo / zona); l'osservatore conta SOLO il protagonista e
+pubblica `SkillMigliorata` ai gradini (cronaca «⤴ … sale al livello N»).
+EFFETTO solo per le ATTIVE: la mossa governata scala di
+`SKILL.potenza_per_livello` (0.04) per livello DENTRO l'unico arrotondamento
+del check 2 — a livello 1 vale 1.0, byte-identico allo storico (misura:
+combatti 7/40 invariato). GR2-14 emendato con allow-list: il registro è
+dato+osservatore, MAI un Processor — l'esecuzione resta nel risolutore.
+Canali dal dataset: Earth = dotazione demo (7 skill originali, junk
+compreso), Trained = l'uso, GearTome = il TOMO (`EffettoConsumabile.TOMO` +
+`insegna_mossa`: la mossa entra nel Repertorio persistente; demo
+quaderno-del-morso) e il gear che concede (già esistente). Viste: porta
+`skill_vista()` (`SkillRigaVista`) + `SkillVista.livello` in scheda.
+DICHIARATI: effetti delle passive (da misurare), RaceClass/Legendary/
+Celestial (niente classi; canali unici = contenuto), skill dei mob, filtro
+rilevanza del menu. Il travaso al lab (endpoint + pannello) è da fare al
+merge del branch.
+
 ### 2.2 Combattimento
 
 **Due check, e nessuno dei due è un dado da JRPG**: check 1 = il *se* colpisci (gate

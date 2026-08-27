@@ -23,6 +23,7 @@
     {"nome": "Marcio", "descrizione": "L'odore è un problema di chi ti cammina accanto; il veleno non è più un problema tuo.", "res_contro": "veleno", "res_fascia": "marcata"},
     {"nome": "Blindato", "descrizione": "Piastrine fitte come squame di pesce vecchio: la mischia ci si spunta sopra.", "res_contro": "mischia", "res_fascia": "lieve"},
     {"nome": "Lucidato", "descrizione": "Uno smalto che non serve a niente, tranne che a piegare la fortuna dalla tua parte.", "modificatori": [{"stat": "fortuna", "fascia": "marcata"}]},
-    {"nome": "Sgraffignato", "descrizione": "Già rubato almeno una volta: ha imparato a muoversi in fretta e a non farsi domande.", "modificatori": [{"stat": "destrezza", "fascia": "marcata"}]}
+    {"nome": "Sgraffignato", "descrizione": "Già rubato almeno una volta: ha imparato a muoversi in fretta e a non farsi domande.", "modificatori": [{"stat": "destrezza", "fascia": "marcata"}]},
+    {"nome": "Veterano", "descrizione": "Ha già visto come va a finire, e ha deciso di non restare a guardare: chi lo porta impara la ritirata dal migliore.", "skill": "gambe-in-spalla", "skill_livelli": 1}
   ]
 }

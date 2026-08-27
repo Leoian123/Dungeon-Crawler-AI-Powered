@@ -192,6 +192,17 @@ class MortePersonaggio(EventoDominio):
 
 
 @dataclass(frozen=True)
+class SkillMigliorata(EventoDominio):
+    """Una skill del crawler ha passato un gradino di livello (nodo S): il
+    livello è DERIVATO dal conteggio degli usi (soglie §11) — l'evento è la
+    notifica del sistema che conta tutto, il fatto compiuto per la cronaca."""
+
+    slug: str
+    nome: str
+    livello: int
+
+
+@dataclass(frozen=True)
 class OggettoUsato(EventoDominio):
     """Un consumabile è stato usato (canale B): il fatto compiuto per la
     cronaca — l'effetto l'ha GIÀ applicato il motore (numeri §11 per grado).

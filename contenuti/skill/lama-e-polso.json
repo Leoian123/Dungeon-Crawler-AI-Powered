@@ -1,0 +1,13 @@
+{
+  "slug": "lama-e-polso",
+  "versione": 2,
+  "tags": ["combattimento"],
+  "nome": "Lama e polso",
+  "testo": "Il mestiere del colpo semplice: niente scenografia, solo il polso che impara dove il ferro pesa di meno.",
+  "tipo": "attiva",
+  "pratica": "mossa",
+  "mossa": "attacco",
+  "dominio": "combattimento",
+  "effetto": "potenza_mossa",
+  "intensita": "marcata"
+}

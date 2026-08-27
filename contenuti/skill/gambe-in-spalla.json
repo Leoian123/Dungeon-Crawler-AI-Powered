@@ -1,0 +1,12 @@
+{
+  "slug": "gambe-in-spalla",
+  "versione": 2,
+  "tags": ["sopravvivenza"],
+  "nome": "Gambe in spalla",
+  "testo": "L'arte del disimpegno: chi la disprezza non è mai arrivato al piano dopo. Il sistema conta anche le ritirate, e senza ironia.",
+  "tipo": "passiva",
+  "pratica": "fuga",
+  "dominio": "movimento",
+  "effetto": "margine_fuga",
+  "intensita": "marcata"
+}

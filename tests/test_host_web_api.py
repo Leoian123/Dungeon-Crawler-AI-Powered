@@ -662,6 +662,28 @@ def _righe_obiettivo(client: TestClient) -> list[dict]:
     ]
 
 
+def test_il_registro_skill_via_api(host) -> None:
+    """GET /api/partita/skill (nodo S): il catalogo default-on arriva col
+    livello DERIVATO dal motore; dopo la vittoria guidata la pratica delle
+    mosse è salita di usi — la UI mostra il conto, mai lo calcola."""
+    client, _stato = host
+    apertura = _crea(client)
+    corpo = client.get("/api/partita/skill").json()
+    assert corpo["skill"], "il catalogo skill di sistema è default-on"
+    per_slug = {r["slug"]: r for r in corpo["skill"]}
+    assert per_slug["respirare-in-discesa"]["livello"] >= 3, (
+        "la dotazione junk parte alta: il tono viaggia col dato"
+    )
+    assert all(r["livello"] >= 1 and r["dominio"] for r in corpo["skill"])
+
+    _vinci_via_api(client, apertura["versione"])
+    corpo = client.get("/api/partita/skill").json()
+    usi_mosse = sum(
+        r["usi"] for r in corpo["skill"] if r["tipo"] == "attiva"
+    )
+    assert usi_mosse > 0, "i colpi a segno della vittoria devono contare"
+
+
 def test_obiettivi_velati_poi_pieni_dopo_la_vittoria(host) -> None:
     """GET /api/partita/obiettivi: il catalogo default-on arriva VELATO (il
     velo è del motore: titolo sempre, testo/ricompensa solo a sblocco); dopo

@@ -1,0 +1,12 @@
+{
+  "slug": "anello-del-suggeritore",
+  "versione": 1,
+  "tags": ["nascondino", "seed", "magia"],
+  "nome": "Anello del Suggeritore",
+  "descrizione": "Un cerchietto d'ottone da buca di palcoscenico. Sussurra la battuta giusta un attimo prima che serva — e il filo di mana smette di tremare.",
+  "tipo": "accessorio",
+  "grado": "argento",
+  "sede": "dita",
+  "skill": "filo-di-mana",
+  "skill_livelli": 2
+}

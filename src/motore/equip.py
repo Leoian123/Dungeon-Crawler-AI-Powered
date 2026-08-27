@@ -104,6 +104,11 @@ class PezzoArmatura:
     grado: str = ""
     qualita: str = ""
     descrizione: str = ""
+    # La skill IN SÉ (S7, canale GearTome): il pezzo indossato alza il
+    # livello effettivo della competenza — derivato alla lettura dal
+    # manifest, mai depositato (togli il pezzo, il livello torna suo).
+    skill: str = ""
+    skill_livelli: int = 0
 
 
 @dataclass(frozen=True)
@@ -126,6 +131,8 @@ class Arma:
     grado: str = ""          # dato di vestizione (§B-4), "" = non detto
     qualita: str = ""
     descrizione: str = ""
+    skill: str = ""          # la skill in sé (S7), "" = nessuna
+    skill_livelli: int = 0
 
 
 @dataclass(frozen=True)
@@ -147,6 +154,8 @@ class Accessorio:
     grado: str = ""          # dato di vestizione (§B-4), "" = non detto
     qualita: str = ""
     descrizione: str = ""
+    skill: str = ""          # la skill in sé (S7), "" = nessuna
+    skill_livelli: int = 0
     # Mosse CONCESSE dall'oggetto (chiavi del catalogo chiuso, mai comportamento). È il
     # canale che rende possibile «un oggetto che gioca d'azzardo nel suo component»
     # (Gr2 §5.2): l'oggetto non porta la casualità, porta la *mossa* che la dichiara —

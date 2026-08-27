@@ -13,6 +13,7 @@ import type {
   RispostaBacheca,
   RispostaCrawlers,
   RispostaObiettivi,
+  RispostaSkill,
   RispostaThread,
   RispostaTurno,
   RispostaZaino,
@@ -85,6 +86,7 @@ export const api = {
     ),
   zaino: () => richiesta<RispostaZaino>("/api/partita/zaino"),
   obiettivi: () => richiesta<RispostaObiettivi>("/api/partita/obiettivi"),
+  skill: () => richiesta<RispostaSkill>("/api/partita/skill"),
   equipaggia: (fonte: string, versione: number) =>
     richiesta<RispostaTurno>("/api/partita/equipaggia", post({ fonte, versione })),
   togli: (fonte: string, versione: number) =>

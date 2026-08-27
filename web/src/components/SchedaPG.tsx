@@ -77,7 +77,14 @@ function Skills({ skills }: { skills: SkillVista[] }) {
           }`}
           title={s.descrizione || undefined}
         >
-          <span className="min-w-0 truncate">{s.etichetta}</span>
+          <span className="min-w-0 truncate">
+            {s.etichetta}
+            {/* Il livello della skill che governa la mossa (nodo S): la
+                pratica si vede dove si sceglie. Lv 1 tace. */}
+            {s.livello > 1 && (
+              <span className="text-torcia/80"> · Lv {s.livello}</span>
+            )}
+          </span>
           <span className="shrink-0 tabular-nums text-[0.7rem]">
             {s.cd_residuo > 0
               ? `↻${s.cd_residuo}`

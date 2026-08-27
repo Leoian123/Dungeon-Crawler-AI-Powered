@@ -515,27 +515,33 @@ def mult_resistenza(ber: int, tipo: TipoDanno) -> float:
     return _clamp(1 + somma / 100, MULT_MIN, MULT_MAX)
 
 
-def check2(m: float, att: int, ber: int, danno: Danno) -> int:
+def check2(m: float, att: int, ber: int, danno: Danno,
+           fattore: float = 1.0) -> int:
     """Check 2 — il *quanto*: danno vs difesa, **deterministico** (GR2-11, DT-5).
 
     `atk_eff` in UNITÀ, `def_eff` in CENTESIMI → `/100`. La **schivata (`m=0`) corto-circuita
     PRIMA del floor** → 0 danni (il colpo non connette). Sui colpi che connettono (`m ∈ {g,
     1}`): `max(1, round(m·(atk−def/100)·mult))` — **un solo `round`, un solo `max(1,·)`**, con
-    `m` (graze) e `mult` (resistenza) **dentro lo stesso `round`** (no doppio arrotondamento)."""
+    `m` (graze) e `mult` (resistenza) **dentro lo stesso `round`** (no doppio arrotondamento).
+    `fattore` è il moltiplicatore della PRATICA (nodo S: la skill che governa
+    la mossa) — 1.0 di default e per i mob: entra nello stesso round."""
     if m == 0:
         return 0                                       # SCHIVATA piena: niente floor (GR2-11/§7.2)
     base = m * (atk_eff(att) - def_eff(ber) / 100)     # PRE-round: non arrotondare qui
     mult = mult_resistenza(ber, danno.tipo)
-    # `moltiplicatore` (mossa pesante) DENTRO lo stesso round: un solo arrotondamento.
-    return max(1, round(base * mult * danno.moltiplicatore))
+    # `moltiplicatore` (mossa pesante) e `fattore` (skill) DENTRO lo stesso
+    # round: un solo arrotondamento.
+    return max(1, round(base * mult * danno.moltiplicatore * fattore))
 
 
-def risolvi_danno(danno: Danno, att: int, ber: int, rng: random.Random) -> int:
+def risolvi_danno(danno: Danno, att: int, ber: int, rng: random.Random,
+                  fattore: float = 1.0) -> int:
     """Risolve un effetto `Danno`: check 1 (una pescata, o zero su auto-hit) poi check 2
     (zero pescate). `danno.quantita_da == ATK_EFF` → magnitudine da `atk_eff(att)`;
-    `danno.stile` sceglie l'accuratezza del check 1 (marziale vs magica)."""
+    `danno.stile` sceglie l'accuratezza del check 1 (marziale vs magica);
+    `fattore` è il moltiplicatore di pratica (nodo S), 1.0 senza skill."""
     m = check1(att, ber, rng, danno.stile)
-    return check2(m, att, ber, danno)
+    return check2(m, att, ber, danno, fattore)
 
 
 # --- Sistema-turno: AP loop + risoluzione (bucket solo-combattimento) ----------
@@ -649,7 +655,13 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         via `CLASSE_DA_GRADO`. Scappare da uno slime di bronzo e da un boss celestiale
         non possono chiedere la stessa cosa.
         """
-        margine = margine_prova(stat_eff(attivo, StatId.DESTREZZA), _classe_fuga())
+        # La COMPETENZA di fuga (nodo S6) entra nel margine — punti interi,
+        # 0 a livello 1: le tre corsie restano le stesse, la pratica le
+        # sposta. Import locale: il substrato skill resta a valle.
+        from .skill import bonus_margine_fuga
+
+        margine = (margine_prova(stat_eff(attivo, StatId.DESTREZZA), _classe_fuga())
+                   + bonus_margine_fuga())
         if margine < 0:
             # Negata: il turno è speso. I nemici agiscono (li serve il giro normale).
             self.bus.pubblica(TurnoSaltato(nome="", causa="fuga_negata"))
@@ -730,10 +742,20 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
         # `Danno` vale solo se il colpo ha connesso (il morso che avvelena deve mordere);
         # in una mossa senza Danno si applica e basta (utility pura). Deterministico.
         a_segno: bool | None = None
+        # Il moltiplicatore della PRATICA (nodo S): la skill che governa QUESTA
+        # mossa, per il protagonista che l'ha praticata — 1.0 per i mob e a
+        # livello 1 (byte-identico allo storico). Import locale: il sistema
+        # skill resta a valle del combattimento.
+        from .skill import fattore_skill
+
+        fattore = fattore_skill(azione.sorgente, azione.mossa)
         for effetto in azione.effetti:                       # giuntura 3: itera la lista
             if isinstance(effetto, Danno):
                 # Risolvi PRIMA (motore, seeded), narra DOPO (sul bus): mai LLM qui (G-4).
-                inflitto = risolvi_danno(effetto, azione.sorgente, azione.bersaglio, stato.rng)
+                inflitto = risolvi_danno(
+                    effetto, azione.sorgente, azione.bersaglio, stato.rng,
+                    fattore,
+                )
                 a_segno = inflitto > 0
                 if inflitto:
                     infliggi_danno(azione.bersaglio, inflitto)

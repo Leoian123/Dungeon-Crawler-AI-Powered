@@ -134,6 +134,8 @@ export interface SkillVista {
   cd_totale: number;
   cd_residuo: number;
   pronta: boolean;
+  /** Il livello della skill che governa la mossa (nodo S): 1 = base. */
+  livello: number;
 }
 
 /** Uno slot di equipaggiamento. `nome` vuoto = slot vuoto (nessun oggetto: il
@@ -204,6 +206,25 @@ export interface VoceZaino {
 
 export interface RispostaZaino {
   fonti: VoceZaino[];
+}
+
+/** Una riga del REGISTRO delle competenze (nodo S, speculare a
+ *  `SkillRigaVista`): livello e usi li deriva il motore — la UI mostra il
+ *  conto, junk compreso (che è metà del tono). */
+export interface SkillRiga {
+  slug: string;
+  nome: string;
+  tipo: string;        // attiva | passiva
+  livello: number;
+  usi: number;
+  testo: string;
+  mossa: string;       // per le attive: la chiave che governa
+  dominio: string;     // combattimento | magia | … | mondana
+  effetto: string;     // cosa muove il livello ("" = tono)
+}
+
+export interface RispostaSkill {
+  skill: SkillRiga[];
 }
 
 /** Una riga dell'elenco obiettivi (nodo O4), SPECULARE a ObiettivoVista: il

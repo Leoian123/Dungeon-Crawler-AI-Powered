@@ -1,0 +1,13 @@
+{
+  "slug": "schinieri-del-disertore",
+  "versione": 1,
+  "tags": ["nascondino", "seed", "sopravvivenza"],
+  "nome": "Schinieri del Disertore",
+  "descrizione": "Hanno già corso via da tre guerre e non si vergognano di niente. Conoscono la strada per l'uscita meglio di chi li porta.",
+  "tipo": "armatura",
+  "grado": "argento",
+  "slot": "gambe",
+  "categoria": "leggera",
+  "skill": "gambe-in-spalla",
+  "skill_livelli": 2
+}

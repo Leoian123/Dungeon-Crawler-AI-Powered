@@ -33,6 +33,7 @@ import {
 import { PannelloParty } from "./components/SchedaPG";
 import { PannelloZaino } from "./components/Zaino";
 import { AlboObiettivi, ChipObiettivi } from "./components/Obiettivi";
+import { RegistroSkill } from "./components/RegistroSkill";
 import { ThreadForum } from "./components/ThreadForum";
 
 // STANDARD di architettura della Partita (2026-08-26): la sidebar è il
@@ -40,7 +41,7 @@ import { ThreadForum } from "./components/ThreadForum";
 // (scheda, zaino operativo, chip di stato). Ogni CONSULTAZIONE (elenchi
 // lunghi: l'albo obiettivi) è una VISTA SECONDARIA con la sua superficie
 // piena, mai un riquadro in più appeso alla colonna.
-type VistaPartita = "diario" | "albo";
+type VistaPartita = "diario" | "albo" | "registro";
 
 function Partita({ stato }: { stato: StatoPartita }) {
   useSse(true);
@@ -62,7 +63,7 @@ function Partita({ stato }: { stato: StatoPartita }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <nav className="flex gap-1 rounded border border-pergamena/20 p-0.5">
-            {(["diario", "albo"] as const).map((v) => (
+            {(["diario", "albo", "registro"] as const).map((v) => (
               <button
                 key={v}
                 onClick={() => setVista(v)}
@@ -112,6 +113,10 @@ function Partita({ stato }: { stato: StatoPartita }) {
         {vista === "albo" ? (
           <main className="min-w-0 flex-1">
             <AlboObiettivi />
+          </main>
+        ) : vista === "registro" ? (
+          <main className="min-w-0 flex-1">
+            <RegistroSkill />
           </main>
         ) : (
         <div className="flex min-w-0 flex-1 flex-col gap-4">

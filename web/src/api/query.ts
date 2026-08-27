@@ -181,6 +181,7 @@ function applicaTurno(qc: QueryClient, risposta: RispostaTurno) {
   void qc.invalidateQueries({ queryKey: ["scheda"] }); // HP/status possono cambiare
   void qc.invalidateQueries({ queryKey: ["zaino"] }); // drop e indosso lo cambiano
   void qc.invalidateQueries({ queryKey: ["obiettivi"] }); // sblocchi e box aperte
+  void qc.invalidateQueries({ queryKey: ["skill"] }); // la pratica sale coi fatti
 }
 
 function risincronizza(qc: QueryClient) {
@@ -293,6 +294,16 @@ export function useObiettivi(abilitata: boolean) {
   return useQuery({
     queryKey: ["obiettivi"],
     queryFn: api.obiettivi,
+    enabled: abilitata,
+  });
+}
+
+/** Il registro delle competenze (nodo S): dato derivato dal motore,
+ *  invalidato da ogni turno come zaino/scheda. */
+export function useSkillRun(abilitata: boolean) {
+  return useQuery({
+    queryKey: ["skill"],
+    queryFn: api.skill,
     enabled: abilitata,
   });
 }

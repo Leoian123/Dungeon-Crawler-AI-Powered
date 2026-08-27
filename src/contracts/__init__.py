@@ -29,6 +29,7 @@ from .eventi import (
     TransizioneZona,
     OggettoTrovato,
     OggettoUsato,
+    SkillMigliorata,
     StatusApplicato,
     StatusSvanito,
     RiposoConcluso,
@@ -129,6 +130,13 @@ from .obiettivi import (
     RicompensaObiettivo,
     TriggerObiettivo,
 )
+from .skill import (
+    DominioSkill,
+    EffettoCompetenza,
+    PraticaSkill,
+    SkillAsset,
+    SkillRigaVista,
+)
 from .esito import (
     ClassificaGiorno,
     EsitoRun,
@@ -194,6 +202,12 @@ from .vista import (
 from .provider import Provider, TCandidato
 
 __all__ = [
+    # skill (nodo S)
+    "DominioSkill",
+    "EffettoCompetenza",
+    "PraticaSkill",
+    "SkillAsset",
+    "SkillRigaVista",
     # obiettivi e box (nodo O)
     "AchievementAsset",
     "BoxRicompensa",
@@ -245,6 +259,7 @@ __all__ = [
     "TransizioneZona",
     "OggettoTrovato",
     "OggettoUsato",
+    "SkillMigliorata",
     "StatusApplicato",
     "StatusSvanito",
     "TurnoSaltato",

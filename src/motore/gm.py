@@ -412,6 +412,10 @@ class Fascicolo:
     # del motore, LORE soltanto. "" = nessun fantasma qui. Il consumo (una
     # narrazione sola) lo compie la sessione a turno scritto, come i gemelli.
     fantasma_riga: str = ""
+    # Le COMPETENZE notevoli del crawler (nodo S8): il master narra un
+    # protagonista che È le sue competenze — i livelli li deriva il motore,
+    # il modello li veste. "" = niente di notevole.
+    competenze_riga: str = ""
 
 
 def componi_fascicolo(
@@ -561,6 +565,7 @@ def componi_fascicolo(
         esito_scena=esito_scena,
         rifiuto_parlamento=rifiuto_parlamento,
         fantasma_riga=_riga_fantasma(),
+        competenze_riga=_riga_competenze(),
         piano_etichetta=etichetta,
         scena_precedente=_coda_prosa(memoria.ultima_prosa) if memoria.ultima_prosa else "",
         territorio_riga=riga_territorio,
@@ -569,6 +574,21 @@ def componi_fascicolo(
         png_riga=riga_png,
         png_scena=scena_png,
     )
+
+
+def _riga_competenze() -> str:
+    """Le competenze notevoli per il fascicolo (nodo S8): «Gambe in spalla 5
+    · Filo di mana 3». Sola lettura dal registro skill; lasco: senza
+    registro risponde ""."""
+    try:
+        from .skill import competenze_notevoli
+
+        notevoli = competenze_notevoli()
+        if not notevoli:
+            return ""
+        return " · ".join(f"{nome} {livello}" for nome, livello in notevoli)
+    except Exception:
+        return ""
 
 
 def _riga_fantasma() -> str:
@@ -653,6 +673,14 @@ def sezione_fascicolo(f: Fascicolo) -> str:
         righe.append("[fascicolo/memoria] finora: " + " | ".join(f.memoria))
     if f.memoria_lunga:
         righe += [f"[fascicolo/memoria-lunga] {voce}" for voce in f.memoria_lunga]
+    if f.competenze_riga:
+        # Le competenze notevoli (nodo S8): il crawler È quello che pratica —
+        # il GM le mette in scena nei gesti (un fuggitore di mestiere si
+        # muove da fuggitore), MAI come numeri recitati o menu letti.
+        righe.append(
+            f"[fascicolo/competenze] {f.competenze_riga} — mestiere del "
+            "crawler: mostralo nei gesti, mai come statistica"
+        )
     if f.fantasma_riga:
         # La traccia di un'altra run (sovra-run, Fase D): il GM la VESTE come
         # reperto del passato — LORE soltanto, nessun effetto meccanico, mai

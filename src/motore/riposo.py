@@ -54,9 +54,11 @@ def riposa(bus) -> RiposoConcluso | None:
     prima_hp = scheda.punti_vita
     # La cura passa dal proprietario UNICO della mutazione HP (`salute.muovi_hp`):
     # il clamp al massimo derivato è la POLITICA di quel modulo, non una copia qui.
+    # La COMPETENZA di riposo (nodo S6) alza la resa per tick — 0 a livello 1.
     from .salute import muovi_hp
+    from .skill import bonus_resa_riposo
 
-    muovi_hp(pent, tick * RIPOSO_HP_PER_TICK)
+    muovi_hp(pent, tick * (RIPOSO_HP_PER_TICK + bonus_resa_riposo()))
     hp_recuperati = scheda.punti_vita - prima_hp
 
     mana = esper.try_component(pent, Mana)

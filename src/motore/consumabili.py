@@ -47,6 +47,7 @@ class Consumabile:
     effetto: str                 # EffettoConsumabile.value
     grado: str = "bronzo"
     descrizione: str = ""
+    insegna_mossa: str = ""      # solo effetto TOMO (nodo S, canale GearTome)
 
 
 # --- Il dato DEMO del canale (contenuto originale, pattern CATALOGO_OGGETTI) ---
@@ -72,17 +73,26 @@ CATALOGO_CONSUMABILI: dict[str, Consumabile] = {
         descrizione="L'etichetta elenca dodici veleni che non esistono più "
                     "e ne dimentica tre che esistono ancora. Media bene.",
     ),
+    "quaderno-del-morso": Consumabile(
+        fonte="quaderno-del-morso", nome="Quaderno del Morso",
+        effetto=EffettoConsumabile.TOMO.value, grado="argento",
+        insegna_mossa="morso_velenoso",
+        descrizione="Appunti di qualcuno che ha studiato i morsi da vicino. "
+                    "Troppo da vicino: le ultime pagine sono scritte con "
+                    "l'altra mano.",
+    ),
 }
 
 
 # --- Gli esecutori: UN effetto = UNA riga (pattern SPEC_STATUS) -----------------
 
-def _cura(entita: int, grado: str, bus) -> tuple[bool, str]:
+def _cura(entita: int, oggetto: "Consumabile", bus) -> tuple[bool, str]:
     from .calibrazione import CONSUMABILE_CURA_PCT
     from .derivate import max_hp
     from .salute import muovi_hp
     from .scheda import Scheda
 
+    grado = oggetto.grado
     scheda = esper.component_for_entity(entita, Scheda)
     massimo = max_hp(entita)
     prima = scheda.punti_vita
@@ -95,11 +105,12 @@ def _cura(entita: int, grado: str, bus) -> tuple[bool, str]:
     return True, f"+{(dopo or prima) - prima} HP"
 
 
-def _ristoro_mana(entita: int, grado: str, bus) -> tuple[bool, str]:
+def _ristoro_mana(entita: int, oggetto: "Consumabile", bus) -> tuple[bool, str]:
     from .calibrazione import CONSUMABILE_MANA_PCT
     from .derivate import max_mana
     from .scheda import assicura_mana
 
+    grado = oggetto.grado
     mana = assicura_mana(entita)
     massimo = max_mana(entita)
     if mana.attuale >= massimo:
@@ -111,7 +122,28 @@ def _ristoro_mana(entita: int, grado: str, bus) -> tuple[bool, str]:
     return True, f"+{guadagno} mana"
 
 
-def _antidoto(entita: int, grado: str, bus) -> tuple[bool, str]:
+def _tomo(entita: int, oggetto: "Consumabile", bus) -> tuple[bool, str]:
+    """Il TOMO insegna una mossa (canale GearTome, nodo S): la chiave entra
+    nel `Repertorio` PERSISTENTE — permanente, save-safe. Il gate: la mossa
+    deve esistere nel catalogo della run, e chi la conosce già (innata o
+    concessa dal gear) non consuma il tomo — niente feel-bad da click."""
+    from .combattimento import MOSSE_DEFAULT, mosse_di
+    from .mob import Repertorio
+    from .mosse import mossa_di
+
+    chiave = oggetto.insegna_mossa
+    if not chiave or mossa_di(chiave) is None:
+        return False, "il tomo è illeggibile: la tecnica non esiste quaggiù"
+    if chiave in mosse_di(entita):
+        return False, "la conosci già: il tomo resta chiuso"
+    rep = esper.try_component(entita, Repertorio)
+    base = tuple(rep.mosse) if rep is not None and rep.mosse else MOSSE_DEFAULT
+    nuovo = Repertorio(mosse=tuple(base) + (chiave,))
+    esper.add_component(entita, nuovo)  # sostituisce il componente (esper)
+    return True, f"appresa: {chiave.replace('_', ' ')}"
+
+
+def _antidoto(entita: int, oggetto: "Consumabile", bus) -> tuple[bool, str]:
     """Purga i DANNOSI applicati (mai gli innati: sono capacità, non
     afflizioni). La fine si narra con lo stesso evento della scadenza."""
     from contracts import StatusSvanito
@@ -140,6 +172,7 @@ _IMPLEMENTAZIONI = {
     EffettoConsumabile.CURA.value: _cura,
     EffettoConsumabile.RISTORO_MANA.value: _ristoro_mana,
     EffettoConsumabile.ANTIDOTO.value: _antidoto,
+    EffettoConsumabile.TOMO.value: _tomo,
 }
 # Completezza per costruzione: un membro nuovo dell'enum senza esecutore è un
 # KeyError QUI, all'import — mai un effetto che valida e poi non fa nulla.
@@ -166,7 +199,7 @@ def usa_consumabile(entita: int, fonte: str, bus=None) -> tuple[bool, str]:
     esegui = _ESECUTORI.get(oggetto.effetto)
     if esegui is None:
         return False, "effetto sconosciuto: il pezzo resta chiuso"
-    successo, dettaglio = esegui(entita, oggetto.grado, bus)
+    successo, dettaglio = esegui(entita, oggetto, bus)
     if not successo:
         return False, dettaglio
     zaino.fonti.remove(fonte)

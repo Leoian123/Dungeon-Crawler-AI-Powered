@@ -147,6 +147,10 @@ def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
     ) if x)
     descr = (descrizione or famiglia.descrizione
              or "Uscito dalla catena di montaggio del piano.")
+    # La skill in sé dall'AFFISSO (S7, il conio che pesca competenza): il
+    # primo affisso che la porta la imprime sul pezzo — lo scarto, che gli
+    # affissi li perde, non la porta mai (coerente: il junk non è una build).
+    con_skill = next((a for a in affissi if getattr(a, "skill", "")), None)
     return OggettoAttivo(
         slug=f"{_slug(nome or composto)}-{suffisso}",
         nome=nome or composto,
@@ -160,6 +164,8 @@ def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
         sede=base.sede,
         modificatori=modificatori,
         resistenze=resistenze,
+        skill=con_skill.skill if con_skill is not None else "",
+        skill_livelli=con_skill.skill_livelli if con_skill is not None else 0,
     )
 
 

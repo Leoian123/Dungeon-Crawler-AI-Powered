@@ -33,6 +33,7 @@ from ..mob import EntitaMob, Repertorio
 from ..modificatori import Modificatori, Resistenze
 from ..fantasmi import FantasmiAttivi
 from ..obiettivi import ObiettiviRun
+from ..skill import SkillDelCrawler
 from ..piano import ProfonditaPiano, TempoPiano
 from ..scheda import ActionPoint, Mana, Protagonista, Scheda
 from ..territorio import StatoTerritorio
@@ -70,6 +71,9 @@ _TAG_PER_TIPO: dict[type, str] = {
     # Obiettivi e Box (nodo O): catalogo congelato + sbloccati + non letti +
     # box chiuse — lo sblocco non si ripete al reload, le box sopravvivono.
     ObiettiviRun: "obiettivi",
+    # Skill (nodo S): catalogo congelato + conteggi degli usi — il livello è
+    # DERIVATO e non viaggia mai nel save (si ricalcola dagli usi).
+    SkillDelCrawler: "skill",
     Corredo: "corredo",
     # Lo Zaino è POSSESSO (fonti di dominio): attraversa il save.
     Zaino: "zaino",

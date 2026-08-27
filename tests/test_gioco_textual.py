@@ -148,6 +148,42 @@ def test_zaino_e_scheda_dalla_ui() -> None:
         cal.PROB_DROP = vecchio
 
 
+def test_skill_e_usa_dalla_ui() -> None:
+    """Il giro del nodo S in TUI: K elenca il registro (default-on, non
+    esplode), lo zaino TIPATO offre «Usa» sui consumabili e il tonico si
+    beve via porta — chiuso il toggle muto del censimento 2026-08-27."""
+    pytest.importorskip("textual")
+    from textual.widgets import Button
+
+    async def run() -> None:
+        app = gioco_textual._costruisci_app(costruisci_sessione(seed=1))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("k")             # l'elenco skill non esplode
+            await pilot.pause()
+
+            from motore import assicura_zaino
+            from motore.scheda import protagonista
+
+            pent, _m, scheda = protagonista()
+            assicura_zaino(pent).fonti.append("tonico-di-latta")
+            scheda.punti_vita = 1              # ferito: la cura ha lavoro
+
+            await pilot.press("z")
+            await pilot.pause()
+            bottoni = {b.id: b for b in app.query(Button)}
+            assert "zaino-tonico-di-latta" in bottoni
+            assert str(bottoni["zaino-tonico-di-latta"].label).startswith("Usa"), (
+                "il consumabile si USA, mai un toggle d'equip muto"
+            )
+            await pilot.click("#zaino-tonico-di-latta")
+            await pilot.pause()
+            assert "tonico-di-latta" not in app.sessione.scheda().zaino, "bevuto"
+            assert protagonista()[2].punti_vita > 1, "la cura è passata dal motore"
+
+    asyncio.run(run())
+
+
 def _carisma_alto() -> None:
     """Il gate del parlamento reso deterministico (stesso trucco dei test del
     motore): carisma sopra ogni soglia, mutazione diretta del World attivo."""

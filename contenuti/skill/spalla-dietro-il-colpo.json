@@ -1,0 +1,13 @@
+{
+  "slug": "spalla-dietro-il-colpo",
+  "versione": 2,
+  "tags": ["combattimento"],
+  "nome": "Spalla dietro il colpo",
+  "testo": "Il colpo pesante non è forza: è sapere quale metà del corpo arriva per prima. Il pubblico sente il tonfo dagli spalti.",
+  "tipo": "attiva",
+  "pratica": "mossa",
+  "mossa": "attacco_pesante",
+  "dominio": "combattimento",
+  "effetto": "potenza_mossa",
+  "intensita": "marcata"
+}

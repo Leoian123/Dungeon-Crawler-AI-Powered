@@ -174,15 +174,18 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
         return RisultatoTick(morte=True, imboscata=False)
 
     # 4. Dado-evento (seeded a questo tick): token-zero salvo evento (§8). Il
-    #    contesto modula la probabilità su due assi: la STANZA (quiete=0,
-    #    corridoio ×molt — T2) e le MINACCE del chunk (∝ nemici presenti:
-    #    ripulire la zona = guadagnarsi il riposo, playtest 2026-08-12).
-    #    Import locale: il tempo non importa la mappa in testa.
+    #    contesto modula la probabilità su TRE assi: la STANZA (quiete=0,
+    #    corridoio ×molt — T2), le MINACCE del chunk (∝ nemici presenti:
+    #    ripulire la zona = guadagnarsi il riposo, playtest 2026-08-12) e la
+    #    COMPETENZA `esca_agguati` (nodo S6: chi conosce i passi del piano
+    #    rischia meno, pavimento ×0.5 — mai spento). Import locale: il tempo
+    #    non importa mappa né skill in testa.
     from .mappa import fattore_imboscata_stanza, fattore_minacce
+    from .skill import fattore_esca_agguati
 
     esito = tira_dado_evento(
         _rng_dado(tempo_piano_corrente()),
-        fattore_imboscata_stanza() * fattore_minacce(),
+        fattore_imboscata_stanza() * fattore_minacce() * fattore_esca_agguati(),
     )
 
     # 5. Effetto a confine di tick — solo su protagonista vivo (J-12). L'imboscata emette

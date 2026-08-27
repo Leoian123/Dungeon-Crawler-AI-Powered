@@ -1,0 +1,11 @@
+{
+  "slug": "respirare-in-discesa",
+  "versione": 2,
+  "tags": ["dotazione", "junk"],
+  "nome": "Respirare in discesa",
+  "testo": "Lo facevi già prima del dungeon, e il sistema l'ha registrato lo stesso. Livello 3 alla nascita: complimenti, immaginiamo.",
+  "tipo": "passiva",
+  "pratica": "riposo",
+  "dominio": "mondana",
+  "livello_iniziale": 3
+}

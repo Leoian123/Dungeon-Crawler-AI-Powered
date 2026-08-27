@@ -678,6 +678,16 @@ def crea_app(stato: StatoHost) -> FastAPI:
             "box_in_coda": sessione.box_in_coda(),
         }
 
+    @app.get("/api/partita/skill")
+    async def skill_run() -> dict:
+        """Il registro delle competenze (nodo S): livello e usi li DERIVA il
+        motore (`skill_vista`), la UI mostra il conto — junk compreso, che è
+        metà del tono. Sola lettura."""
+        sessione = _sessione()
+        return {
+            "skill": [r.model_dump(mode="json") for r in sessione.skill_vista()]
+        }
+
     def _guardia_equip(ric: RichiestaEquip):
         """Guardie comuni di Indossa/Togli: run viva, versione fresca, fase di
         narrazione (in scontro l'intento resterebbe in coda non servita:

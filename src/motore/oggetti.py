@@ -100,6 +100,9 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
         "grado": o.grado.value if hasattr(o.grado, "value") else str(o.grado),
         "qualita": "" if qualita == "onesto" else qualita,
         "descrizione": getattr(o, "descrizione", "") or "",
+        # La skill in sé (S7): viaggia sul pezzo, il registro la legge indosso.
+        "skill": getattr(o, "skill", "") or "",
+        "skill_livelli": int(getattr(o, "skill_livelli", 0) or 0),
     }
     if tipo == "consumabile":
         # Canale B: il consumabile non è un pezzo d'equip — è monouso, e
@@ -112,6 +115,7 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
             effetto=effetto.value if hasattr(effetto, "value") else effetto,
             grado=o.grado.value if hasattr(o.grado, "value") else str(o.grado),
             descrizione=getattr(o, "descrizione", ""),
+            insegna_mossa=getattr(o, "insegna_mossa", "") or "",
         )
     mods = _modificatori_vivi(o)
     resistenze = _resistenze_vive(o)
@@ -151,12 +155,14 @@ def oggetto_da_asset(o) -> PezzoArmatura | Arma | Accessorio:
     )
 
 
-def lint_oggetto(asset, *, mosse_ammesse=None) -> list[str]:
+def lint_oggetto(asset, *, mosse_ammesse=None, skill_ammesse=None) -> list[str]:
     """Il gate numerico dell'authoring oggetti (trasposizione di `lint_profilo`):
     la banda è DERIVATA dal catalogo §11 (`max(storici) × TETTO_AUTHORING`) —
     alzare la scala del gioco allarga la banda da sé, il refuso resta fuori.
-    Le mosse concesse devono esistere (F-6): `mosse_ammesse=None` = il catalogo
-    storico; il chiamante che conosce la libreria (mosse-asset) passa il suo set."""
+    Le mosse concesse — e quella che il TOMO insegna — devono esistere (F-6):
+    `mosse_ammesse=None` = il catalogo storico. La SKILL portata in sé (S7)
+    deve stare nel catalogo skill: `skill_ammesse=None` = check saltato (il
+    motore non conosce la libreria skill — il composition root la passa)."""
     from .mosse import mosse_note
 
     errori: list[str] = []
@@ -180,6 +186,21 @@ def lint_oggetto(asset, *, mosse_ammesse=None) -> list[str]:
     fuori = [m for m in asset.mosse if m not in note]
     if fuori:
         errori.append(f"oggetto {asset.slug}: mosse fuori catalogo: {', '.join(fuori)}")
+    # Il TOMO che insegna una mossa inesistente era «illeggibile» solo a
+    # RUNTIME (breaker/censimento 2026-08-27): l'errore d'authoring si dice
+    # al gate, non al giocatore che ha speso il drop.
+    insegna = getattr(asset, "insegna_mossa", "") or ""
+    if insegna and insegna not in note:
+        errori.append(
+            f"oggetto {asset.slug}: il tomo insegna {insegna!r}, che non è "
+            "nel catalogo mosse"
+        )
+    skill = getattr(asset, "skill", "") or ""
+    if skill and skill_ammesse is not None and skill not in skill_ammesse:
+        errori.append(
+            f"oggetto {asset.slug}: porta la skill {skill!r}, che non è nel "
+            "catalogo skill"
+        )
     return errori
 
 
@@ -240,6 +261,9 @@ def attivo_da_asset(ogg) -> OggettoAttivo:
         modificatori=tuple((m.stat.value, m.fascia.value) for m in ogg.modificatori),
         mosse=tuple(ogg.mosse),
         effetto=ogg.effetto.value if ogg.effetto is not None else "",
+        insegna_mossa=ogg.insegna_mossa,
+        skill=ogg.skill,
+        skill_livelli=ogg.skill_livelli,
     )
 
 

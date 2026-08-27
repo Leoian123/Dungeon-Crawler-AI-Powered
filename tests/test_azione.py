@@ -83,28 +83,44 @@ def test_GR2_13_effetti_iterati_come_lista(mondo_isolato: str) -> None:
     assert esper.component_for_entity(nem, PuntiVita).attuali < hp0
 
 
-# --- GR2-14 EMENDATO (2026-08): il motore-skill è ACCESO, ma resta senza SISTEMA --
+# --- GR2-14 EMENDATO (2026-08, poi nodo S 2026-08-26): senza SISTEMA resta --------
 #
 # GR2-14 vietava «Mana, cooldown, SistemaSkill» perché erano corpo ANTICIPATO: nel
 # Gruppo 2 non c'era ancora una ragione di gioco per averli. La decisione di prodotto
-# (Mossa 2, 2026-08) li rende necessari: senza una risorsa, `attacco_pesante` è
-# strettamente dominante e la scelta della mossa non è una scelta.
+# (Mossa 2, 2026-08) li rende necessari; il nodo S (2026-08-26, dataset skill alla
+# mano) accende il REGISTRO della pratica.
 #
 # Ciò che il divieto proteggeva DAVVERO resta in piedi, e questo test lo custodisce:
-# niente `SistemaSkill` separato. Mana e cooldown sono DATI (un componente posseduto,
-# un componente effimero) letti dal risolutore che già c'era — nessun secondo motore
-# accanto a `SistemaTurnoCombattimento`.
+# nessun secondo motore di esecuzione accanto a `SistemaTurnoCombattimento`. Le skill
+# del nodo S sono DATO (catalogo congelato + conteggi) più un OSSERVATORE del bus —
+# il loro effetto entra nel check 2 del risolutore che già c'era (`fattore` dentro
+# l'unico arrotondamento), mai in un Processor a parte.
 
 def test_GR2_14_nessun_sistema_skill_separato() -> None:
-    # Statico sui NOMI di classe (non su docstring/commenti: "skill" può comparire nella
-    # prosa che spiega *cosa non si fa*).
-    classi: set[str] = set()
+    # Statico sui NOMI di classe (non su docstring/commenti). Allow-list
+    # CONSAPEVOLE: le sole classi "Skill*" ammesse sono il dato e
+    # l'osservatore del nodo S — una classe nuova qui è una decisione di
+    # architettura, non un refuso.
+    classi: dict[str, list[str]] = {}
     for f in _MOTORE.rglob("*.py"):
         for n in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             if isinstance(n, ast.ClassDef):
-                classi.add(n.name)
-    vietati = {c for c in classi if "Skill" in c}
-    assert vietati == set(), f"nessun motore-skill separato: {vietati}"
+                basi = [
+                    b.id if isinstance(b, ast.Name) else getattr(b, "attr", "")
+                    for b in n.bases
+                ]
+                classi[n.name] = basi
+    ammesse = {"SkillDelCrawler", "SkillRegistrata", "OsservatoreSkill"}
+    con_skill = {c for c in classi if "Skill" in c}
+    assert con_skill <= ammesse, (
+        f"motore-skill fuori dall'allow-list del nodo S: {con_skill - ammesse}"
+    )
+    # E NESSUNA di loro è un sistema: niente basi Sistema*/Processor — il
+    # registro è dato+osservatore, l'esecuzione resta nel risolutore.
+    for nome in con_skill:
+        assert not any("Sistema" in b or "Processor" in b for b in classi[nome]), (
+            f"{nome} non deve essere un sistema: {classi[nome]}"
+        )
     # I due dati dell'economia esistono e sono esattamente due (nessuna proliferazione).
     assert "Mana" in classi and "Ricariche" in classi
 
