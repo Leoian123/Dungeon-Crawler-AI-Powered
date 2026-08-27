@@ -44,8 +44,12 @@ def _arma_run(seed: int = 7) -> None:
     avvia_run(crea_singleton_fase=True, fase_iniziale=Fase.NARRAZIONE,
               sempre_attivi=[SistemaTempoPiano()])
     # La stanza si RIVELA prima di qualunque downtime (pacing 2026-08-26: il
-    # dado-imboscata tace nella stanza non ancora rivelata).
+    # dado-imboscata tace nella stanza non ancora rivelata) e la TREGUA di
+    # reveal si consuma subito: qui si testa il dado libero, non il pacing.
     segna_visitata()
+    from motore.mappa import consuma_tregua_reveal
+
+    consuma_tregua_reveal()
 
 
 class _Bus:

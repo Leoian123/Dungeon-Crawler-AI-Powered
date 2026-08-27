@@ -146,7 +146,20 @@ class RisultatoTick:
     incontro: int | None = None
 
 
-def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> RisultatoTick:
+def _consuma_quiete_reveal() -> bool:
+    """La tregua di reveal (pacing 2026-08-27), consumata QUI: la prima spesa
+    di tempo dopo il reveal di una stanza — cioè il costo del turno che l'ha
+    rivelata — non tira il dado. Tollerante: senza mappa → False."""
+    try:
+        from .mappa import consuma_tregua_reveal
+
+        return consuma_tregua_reveal()
+    except Exception:
+        return False
+
+
+def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None,
+                      quiete_reveal: bool = False) -> RisultatoTick:
     """UN tick di scorrimento, nell'ordine normativo (§9, J-11):
 
     status → death-check (nel `process()`) → **morte? fine, niente dado** →
@@ -185,7 +198,10 @@ def _tick_scorrimento(bus, componi_imboscata: Callable[[], int] | None) -> Risul
 
     esito = tira_dado_evento(
         _rng_dado(tempo_piano_corrente()),
-        fattore_imboscata_stanza() * fattore_minacce() * fattore_esca_agguati(),
+        # La pescata avviene COMUNQUE (stream stabile); la tregua di reveal
+        # azzera il fattore per i tick del turno che ha rivelato la stanza.
+        (0.0 if quiete_reveal else 1.0)
+        * fattore_imboscata_stanza() * fattore_minacce() * fattore_esca_agguati(),
     )
 
     # 5. Effetto a confine di tick — solo su protagonista vivo (J-12). L'imboscata emette
@@ -211,7 +227,8 @@ def passa_turno(bus, *, componi_imboscata: Callable[[], int] | None = None) -> R
         raise TempoNonAvanzabile(
             "passa-turno non disponibile: in combattimento o status unsafe attivo"
         )
-    return _tick_scorrimento(bus, componi_imboscata)
+    return _tick_scorrimento(bus, componi_imboscata,
+                             quiete_reveal=_consuma_quiete_reveal())
 
 
 # --- Fast-forward: downtime narrato, comprime N tick (§5) ----------------------
@@ -240,9 +257,12 @@ def fast_forward(
             "downtime non disponibile: in combattimento o status dannoso/unsafe attivo"
         )
     n = gate_durata(durata)  # durata → gate → carico-tick (mai diretto, J-3)
+    # La tregua di reveal copre TUTTI i tick di QUESTA spesa (il costo del
+    # turno che ha rivelato), poi si spegne: la prossima spesa rischia.
+    quiete = _consuma_quiete_reveal()
     eseguiti = 0
     for _ in range(n):
-        ris = _tick_scorrimento(bus, componi_imboscata)
+        ris = _tick_scorrimento(bus, componi_imboscata, quiete_reveal=quiete)
         eseguiti += 1
         if ris.morte:
             return RisultatoFastForward(tick_eseguiti=eseguiti, interrotto_da="morte")

@@ -40,9 +40,13 @@ def _arma_mondo(seed: int = 7) -> BusEventi:
     ))
     crea_protagonista(destrezza=10, punti_vita=30, id_dominio="carl")
     avvia_territorio(1)
-    # Stanza RIVELATA: qui si testano quiete e downtime, non la soglia
-    # (dove il dado ora tace per design — pacing 2026-08-26).
+    # Stanza RIVELATA e tregua di reveal CONSUMATA: qui si testano quiete e
+    # downtime a dado libero, non il pacing della soglia (che ha i suoi
+    # lucchetti qua sotto).
     segna_visitata()
+    from motore.mappa import consuma_tregua_reveal
+
+    consuma_tregua_reveal()
     return BusEventi()
 
 
@@ -73,6 +77,39 @@ def test_fattore_imboscata_segue_il_tipo(mondo_isolato) -> None:
     assert fattore_imboscata_stanza() == float(STANZE_MOLT_IMBOSCATA_CORRIDOIO)
     mappa.piano.tipi.pop(stanza)
     assert fattore_imboscata_stanza() == 1.0
+
+
+def test_il_turno_che_rivela_non_imbosca(mondo_isolato, monkeypatch) -> None:
+    """Playtest LIVE 2026-08-27: il reveal e la spesa del suo turno stanno
+    nello STESSO giro — la stanza appena segnata veniva imboscata dal proprio
+    tick (+2) e il giocatore la viveva come agguato sulla soglia, con due
+    prose incollate. La TREGUA di reveal: la prima spesa dopo `segna_visitata`
+    non tira il dado; la seconda torna a rischiare."""
+    from motore import componi_imboscata_scena
+    from motore import tempo as tempo_mod
+    from motore.fase import crea_entita_fase
+    from motore.mappa import segna_visitata as _segna
+    from motore.tempo import passa_turno
+
+    monkeypatch.setattr(tempo_mod, "PROB_IMBOSCATA", 1.0)  # dado FORZATO
+    from motore import mappa as mappa_mod
+
+    monkeypatch.setattr(mappa_mod, "fattore_minacce", lambda: 1.0)
+    bus = _arma_mondo()
+    crea_entita_fase()
+    _e, mappa = mappa_corrente()
+    vergine = next(
+        s for s in sorted(mappa.piano.adiacenze) if s not in mappa.visitate
+    )
+    mappa.stanza_corrente = vergine
+    _segna()  # il REVEAL: alza la tregua
+
+    primo = passa_turno(bus, componi_imboscata=componi_imboscata_scena)
+    assert not primo.imboscata, (
+        "il turno che rivela non imbosca: prima la stanza si guarda"
+    )
+    secondo = passa_turno(bus, componi_imboscata=componi_imboscata_scena)
+    assert secondo.imboscata, "consumata la tregua, il dado torna a mordere"
 
 
 def test_l_agguato_non_coglie_sulla_soglia(mondo_isolato) -> None:

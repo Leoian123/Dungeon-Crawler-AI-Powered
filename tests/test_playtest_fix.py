@@ -372,16 +372,23 @@ def test_l_agguato_e_cucito_alla_prosa_del_reveal(run_pulita, tmp_path, monkeypa
         nome="Varco", seed=3, directory=tmp_path,
         stagione=stagione_sintetica(piani=[piano_territoriale(1)], slug="s-varco"),
     )
-    snap = asyncio.run(sessione.prossima_narrazione())  # reveal + agguato insieme
+    # Il REVEAL non imbosca più (tregua di reveal, playtest live 2026-08-27):
+    # anche col dado forzato, il primo turno presenta la stanza e basta.
+    snap = asyncio.run(sessione.prossima_narrazione())
+    assert snap.fase == "narrazione", "il turno che rivela non imbosca"
+    # La cucitura vive dove l'agguato resta LEGITTIMO: un turno con prosa
+    # che SPENDE tempo dopo la tregua — l'azione libera, col dado forzato.
+    riep = sessione.riepiloga_azione("perlustro il perimetro della stanza")
+    snap = asyncio.run(sessione.esegui_azione(riep))
     assert snap.fase == "combattimento"
     assert sessione._imboscata_in_corso is True
     nemico = sessione._istanza.nemico
-    assert "Prima che tu possa guardarti intorno" in snap.prosa
+    assert "ti piomba addosso" in snap.prosa
     assert nemico and nemico in snap.prosa.split("\n\n")[-1], (
         "il segnaposto nomina CHI ti piomba addosso, non un generico rumore"
     )
     for record in sessione.archivio.record_di_tipo(TIPO_RECORD_GM):
-        assert "guardarti intorno" not in record.contenuto.get("prosa", ""), (
+        assert "piomba addosso" not in record.contenuto.get("prosa", ""), (
             "l'Archivio deve restare pulito: l'agguato non è della stanza"
         )
     # Niente `esci()`: in combattimento non si salva (guardia audit 2026-08);

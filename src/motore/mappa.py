@@ -53,6 +53,12 @@ class Mappa:
     stanza_corrente: int
     visitate: set[int] = field(default_factory=set)
     mob_stanza: dict[int, int] = field(default_factory=dict)
+    # LA TREGUA DI REVEAL (pacing, playtest live 2026-08-27): il turno che
+    # RIVELA una stanza non imbosca — «prima la stanza si guarda». Alzata da
+    # `segna_visitata` alla PRIMA visita, consumata dalla PRIMA spesa di
+    # tempo successiva (il costo del turno di reveal stesso). Transiente:
+    # non viaggia nel save (`mappa_to_dict` serializza chiavi scelte).
+    tregua_reveal: bool = False
 
 
 # --- Generazione (seeded, motore-owned) ----------------------------------------
@@ -286,7 +292,22 @@ def stanza_visitata() -> bool:
 def segna_visitata() -> None:
     m = mappa_corrente()
     if m is not None:
+        if m[1].stanza_corrente not in m[1].visitate:
+            # Prima visita = il reveal: il tick che ne paga la durata non
+            # tira il dado-imboscata (la tregua si consuma alla prima spesa).
+            m[1].tregua_reveal = True
         m[1].visitate.add(m[1].stanza_corrente)
+
+
+def consuma_tregua_reveal() -> bool:
+    """Legge E consuma la tregua di reveal (vero se era attiva): la chiama la
+    prima spesa di tempo dopo il reveal — e gli harness che vogliono il dado
+    libero subito."""
+    m = mappa_corrente()
+    if m is None or not m[1].tregua_reveal:
+        return False
+    m[1].tregua_reveal = False
+    return True
 
 
 def registra_mob(entita: int) -> None:
