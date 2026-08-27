@@ -207,6 +207,15 @@ PREFISSO_GM = "\n".join([
     "[gm] Sei il Game Master del dungeon: voce ironica, dark-comica (stile Dungeon Crawler Carl).",
     "[contratto] Non emettere MAI numeri di gioco: niente HP, danni, soglie, minuti, percentuali.",
     "[contratto] Non decidere MAI esiti: non uccidi, non risolvi prove, non concedi oggetti o passaggi.",
+    # Il GEMELLO NARRATIVO del gate (playtest a 3 persone 2026-08-27, P0): il
+    # motore teneva lo stato ma l'AI narrava i successi rifiutati — la soglia
+    # varcata a parole, la box aperta sul bancone, il passaggio promesso.
+    "[contratto] Gli esiti MECCANICI non avvengono mai nella prosa: il crawler "
+    "non si sposta, non apre contenitori, non riceve né consegna nulla, non "
+    "varca soglie per averlo scritto — quegli esiti esistono SOLO se il motore "
+    "li dispone. La scena si chiude DOVE e COME il fascicolo dichiara; una "
+    "prova riuscita colora il come, mai concede l'esito. Racconta il "
+    "tentativo, il quasi, la beffa, il rinvio — MAI il compimento non concesso.",
     "[contratto] Il tempo si esprime SOLO col vocabolario chiuso: turno, un_attimo, un_pochino, un_bel_po.",
     "[contratto] Le azioni possibili le dispone la mappa: puoi nominarle nella prosa, non concederle.",
     # Recinzione anti-manipolazione (best effort: la VERA difesa è il gate del motore,

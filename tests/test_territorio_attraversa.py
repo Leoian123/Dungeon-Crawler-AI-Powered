@@ -53,6 +53,71 @@ def _vai_al_passaggio() -> None:
     segna_visitata()
 
 
+# --- Lo sbocco del parlamento (decisione S2, playtest a 3 persone 2026-08-27) ---
+
+def _presidia(nome: str) -> int:
+    """Materializza un ostile che presidia la stanza corrente."""
+    import esper
+
+    from contracts import EntitaGenerata, Grado
+    from motore import istanzia_entita, registra_mob
+    from motore.mob import EntitaMob
+
+    eg = EntitaGenerata(archetipo="slime", grado=Grado.BRONZO, blocchi=[],
+                        nome=nome, descrizione="")
+    ent = istanzia_entita(eg, livello=1)
+    registra_mob(ent)
+    segna_visitata()
+    return ent
+
+
+def test_il_gregario_che_ha_ascoltato_apre_il_passaggio(mondo_isolato) -> None:
+    """P0 del playtest a 3 persone: il pacifista superava le prove, otteneva
+    la tregua («transitus permissus») e faceva ping-pong 0↔1 senza una strada
+    avanti — l'unico sblocco era uccidere chi lo aveva appena benedetto. Col
+    parlamento riuscito su un GREGARIO, i «Vai:» si compongono e la ritirata
+    si chiama col suo nome: «Congedati», non «Scappi»."""
+    import esper
+
+    from motore.mob import EntitaMob
+
+    _arma_mondo()
+    ent = _presidia("Fante Cortese")
+
+    # PRIMA della tregua: menu di ingaggio pieno, nessun movimento.
+    etichette = [o.etichetta for o in componi_opzioni_scena()]
+    assert not any(e.startswith("Vai:") for e in etichette)
+    assert "Scappi" in etichette
+
+    # DOPO il gate di carisma superato (marker del motore, scena.py):
+    esper.component_for_entity(ent, EntitaMob).parlamento_riuscito = True
+    opzioni = componi_opzioni_scena()
+    etichette = [o.etichetta for o in opzioni]
+    assert any(e.startswith("Vai:") for e in etichette), (
+        "la tregua del gregario deve aprire il passaggio (S2)"
+    )
+    assert "Congedati" in etichette and "Scappi" not in etichette
+    # L'ingaggio resta possibile: la tregua apre, non disarma.
+    assert any(o.tipo is TipoAzione.COMBATTI for o in opzioni)
+
+
+def test_il_custode_parlamentato_resta_combat_only(mondo_isolato) -> None:
+    """Il boss-gate non si parla: anche col custode che ha ascoltato, né i
+    «Vai:» né l'Attraversa si compongono — il varco vive dietro la vittoria."""
+    import esper
+
+    from motore.mob import EntitaMob
+
+    _arma_mondo()
+    _vai_al_passaggio()  # la stanza del custode
+    ent = _presidia("Custode Loquace")
+    esper.component_for_entity(ent, EntitaMob).parlamento_riuscito = True
+    etichette = [o.etichetta for o in componi_opzioni_scena()]
+    assert not any(e.startswith("Vai:") for e in etichette)
+    assert not any(e.startswith("Attraversa") for e in etichette)
+    assert "Congedati" in etichette  # il congedo resta onesto anche qui
+
+
 def test_gate_chiuso_senza_boss_battuto(mondo_isolato) -> None:
     bus = _arma_mondo()
     _vai_al_passaggio()

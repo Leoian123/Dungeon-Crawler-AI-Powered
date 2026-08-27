@@ -522,12 +522,44 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         # Il menu DICE chi c'è (playtest round 2: rivisitare la stanza del mob
         # congedato dava un «Combatti» cieco): il nome è verità del World.
         nome = nome_mob_corrente()
+
+        # LO SBOCCO DEL PARLAMENTO (decisione S2, playtest a 3 persone
+        # 2026-08-27 — P0): il GREGARIO che ha ASCOLTATO (gate di carisma
+        # superato, tregua attiva) apre il passaggio — la fiction prometteva
+        # «transitus permissus» e il menu lo negava: il pacifista faceva
+        # ping-pong fra due tregue senza una strada avanti, o doveva uccidere
+        # chi lo aveva appena benedetto. Il CUSTODE resta combat-only: il
+        # boss-gate non si parla (l'Attraversa vive comunque dietro la
+        # vittoria — qui non si compone nemmeno il movimento).
+        def _tregua_col_presidiante() -> bool:
+            from .mob import EntitaMob
+
+            em = esper.try_component(mob_corrente(), EntitaMob)
+            return em is not None and em.parlamento_riuscito
+
+        def _e_il_custode() -> bool:
+            from .territorio import (
+                boss_sconfitto, stanza_corrente_e_del_boss, zona_corrente,
+            )
+
+            zona = zona_corrente()
+            return (zona is not None and stanza_corrente_e_del_boss()
+                    and not boss_sconfitto(zona))
+
+        tregua = _lettura_tollerante("tregua", _tregua_col_presidiante, False)
+        custode = _lettura_tollerante("custode", _e_il_custode, False)
         con_mob: list[OpzioneScena] = [
             OpzioneScena(
                 tipo=TipoAzione.COMBATTI,
                 etichetta=f"Combatti — {nome}" if nome else "Combatti",
             ),
-            OpzioneScena(tipo=TipoAzione.SCAPPA, etichetta="Scappi"),
+            # Con la tregua attiva non stai FUGGENDO da nessuno: ti congedi
+            # da chi ti ha detto «vai» (finding 3 del playtest — l'etichetta
+            # cambia, la meccanica di ritirata resta la stessa).
+            OpzioneScena(
+                tipo=TipoAzione.SCAPPA,
+                etichetta="Congedati" if tregua else "Scappi",
+            ),
         ]
         # PARLAMENTA con l'OSTILE (2026-08-16): la voce compare solo se il
         # tentativo non è mai stato speso (uno per mob, il marker persiste).
@@ -543,6 +575,16 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
                 tipo=TipoAzione.PARLAMENTA,
                 etichetta=f"Parlamenta — {nome}" if nome else "Parlamenta",
             ))
+        if tregua and not custode:
+            if scala_presente():
+                con_mob.append(OpzioneScena(
+                    tipo=TipoAzione.SCENDI, etichetta="Scendi la scala",
+                ))
+            for stanza in uscite():
+                con_mob.append(OpzioneScena(
+                    tipo=TipoAzione.MUOVI,
+                    etichetta=f"Vai: stanza {stanza}", stanza=stanza,
+                ))
         return tuple(con_mob)
     opzioni: list[OpzioneScena] = []
     # PARLAMENTA col PNG INTERPELLABILE (2026-08-16): solo le categorie che

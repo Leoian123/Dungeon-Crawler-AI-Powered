@@ -352,6 +352,24 @@ def test_muoversi_su_stanza_visitata_costa_un_tick(run_pulita, tmp_path) -> None
     sessione.esci()
 
 
+# --- Playtest a 3 persone (2026-08-27): la verità del World arriva alla prosa ----
+
+def test_il_contratto_vieta_gli_esiti_meccanici_in_prosa() -> None:
+    """P0 del playtest a 3 persone: il motore teneva lo stato ma l'AI narrava
+    i successi rifiutati (la soglia varcata a parole, la box aperta sul
+    bancone, i passaggi promessi). Il gemello narrativo del gate è una
+    clausola di CONTRATTO — statica, in cache, uniforme su OGNI intento
+    rifiutato — non un prompt mirato per caso."""
+    from motore import PREFISSO_GM
+    from motore.scena import _ISTRUZIONE_BLOCCHI
+
+    assert "esiti MECCANICI non avvengono mai nella prosa" in PREFISSO_GM
+    assert "MAI il compimento non concesso" in PREFISSO_GM
+    # E la scena (dove il Postino «consegnava» la chiave) porta lo stesso
+    # divieto in forma sua: promettere sì, consegnare mai.
+    assert "mai consegnarli" in _ISTRUZIONE_BLOCCHI
+
+
 # --- Round 3: l'agguato è cucito alla prosa del turno -----------------------------
 
 def test_l_agguato_e_cucito_alla_prosa_del_reveal(run_pulita, tmp_path, monkeypatch) -> None:
