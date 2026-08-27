@@ -397,6 +397,14 @@ from .tempo import (
     passa_turno,
     fast_forward,
 )
+from .bonifica import (
+    REGOLE_SLOP,
+    ViolazioneSlop,
+    misura_slop,
+    prima_frase,
+    riga_stile_derivata,
+    righe_regia,
+)
 from .narrazione import (
     RETRY_NARRAZIONE,
     RETRY_PROSA,
@@ -841,6 +849,13 @@ __all__ = [
     "tenta_disimpegno",
     "classe_disimpegno",
     "ingaggia_combattimento",
+    # bonifica prosa (gate di forma sul canale unico, 2026-08-27)
+    "REGOLE_SLOP",
+    "ViolazioneSlop",
+    "misura_slop",
+    "prima_frase",
+    "riga_stile_derivata",
+    "righe_regia",
     # pipeline GM (G §9.2: fan-out sotto il socket, una sola gating per turno)
     "PREFISSO_GM",
     "PREFISSO_RIFINITURA",

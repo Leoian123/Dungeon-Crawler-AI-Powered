@@ -14,22 +14,45 @@ from typing import Mapping
 
 from pydantic import BaseModel
 
+from ..bonifica import misura_slop, retry_bonifica, righe_regia
 from ..fase import Fase, in_combattimento
 from ..tipografia import rifinisci_caporali
 from .rotte import ROTTE, Corsia, Rotta
 
 # I campi di PROSA A VIDEO degli schemi delle rotte (`prosa` nei turni e nei
-# blocchi di scena, `testo` nei Flavor): gli unici che la rifinitura
-# tipografica tocca — mai slug, enum o campi d'authoring.
+# blocchi di scena, `testo` nei Flavor): gli unici che rifinitura tipografica
+# e bonifica toccano — mai slug, enum o campi d'authoring.
 _CAMPI_PROSA = ("prosa", "testo")
+
+
+def _campo_prosa(candidato) -> tuple[str, str] | None:
+    for campo in _CAMPI_PROSA:
+        valore = getattr(candidato, campo, None)
+        if isinstance(valore, str):
+            return campo, valore
+    return None
+
+
+def _rifinisci_prosa(candidato) -> None:
+    """Rifinitura di FORMA (mai di contenuto): i caporali mischiati agli apici
+    dritti nella prosa a video (playtest 2026-08-27). Non è validazione né
+    fallback: il candidato è già conforme."""
+    trovato = _campo_prosa(candidato)
+    if trovato is not None:
+        campo, valore = trovato
+        setattr(candidato, campo, rifinisci_caporali(valore))
 
 
 @dataclass
 class ConsumoRotta:
-    """Il conteggio di UNA rotta: chiamate fatte, degradi (tutti i tentativi None)."""
+    """Il conteggio di UNA rotta: chiamate fatte, degradi (tutti i tentativi
+    None), regie (giri extra del gate di forma) e slop (violazioni
+    sopravvissute nel testo accettato — la telemetria della bonifica)."""
 
     chiamate: int = 0
     degradi: int = 0
+    regie: int = 0
+    slop: int = 0
 
 
 class MasterEngine:
@@ -70,16 +93,43 @@ class MasterEngine:
             conto.chiamate += 1
             candidato = await provider.genera(prompt, rotta.schema, sistema=sistema)
             if candidato is not None:
-                # Rifinitura di FORMA (mai di contenuto): i caporali mischiati
-                # agli apici dritti nella prosa a video (playtest 2026-08-27).
-                # Non è validazione né fallback: il candidato è già conforme.
-                for campo in _CAMPI_PROSA:
-                    valore = getattr(candidato, campo, None)
-                    if isinstance(valore, str):
-                        setattr(candidato, campo, rifinisci_caporali(valore))
+                _rifinisci_prosa(candidato)
+                if rotta.bonifica:
+                    candidato = await self._bonifica(
+                        rotta, provider, prompt, sistema, candidato, conto
+                    )
                 return candidato
         conto.degradi += 1
         return None
+
+    async def _bonifica(
+        self, rotta: Rotta, provider, prompt: str, sistema: str, candidato, conto
+    ):
+        """Il gate di FORMA (tabella REGOLE_SLOP): a violazione, UN giro di
+        regia — stessa chiamata, con le violazioni come note. Si tiene il
+        testo con MENO violazioni; la forma non blocca mai il gioco: al
+        limite si accetta e si conta (`conto.slop`)."""
+        trovato = _campo_prosa(candidato)
+        if trovato is None:
+            return candidato
+        violazioni = misura_slop(trovato[1])
+        for _ in range(retry_bonifica()):
+            if not violazioni:
+                break
+            conto.regie += 1
+            conto.chiamate += 1
+            secondo = await provider.genera(
+                f"{prompt}\n{righe_regia(violazioni)}", rotta.schema, sistema=sistema
+            )
+            if secondo is None:
+                break  # trasporto giù: resta il primo — la regia non degrada mai
+            _rifinisci_prosa(secondo)
+            trovato2 = _campo_prosa(secondo)
+            v2 = misura_slop(trovato2[1]) if trovato2 is not None else violazioni
+            if len(v2) < len(violazioni):
+                candidato, violazioni = secondo, v2
+        conto.slop += len(violazioni)
+        return candidato
 
     @staticmethod
     def _guardia_fase(rotta: Rotta) -> None:

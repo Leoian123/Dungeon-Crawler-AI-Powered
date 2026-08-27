@@ -62,6 +62,11 @@ class Rotta:
     retry: int = 0
     fase: Fase | None = None
     gating: bool = False
+    # `bonifica=True` = l'esito porta PROSA A VIDEO: il canale unico la passa
+    # al gate di forma (tabella REGOLE_SLOP) con retry di regia. Le rotte
+    # strutturali (ideazione, prova, authoring, premi) restano fuori: la loro
+    # forma la vestono altri canali.
+    bonifica: bool = False
 
 
 ROTTE: dict[str, Rotta] = {}
@@ -85,18 +90,22 @@ for _rotta in (
     Rotta("gm.gating", TurnoNarrazione, Corsia.FORTE, retry=1,
           fase=Fase.NARRAZIONE, gating=True),
     Rotta("gm.prova", InquadramentoProva, Corsia.VELOCE, retry=0, fase=Fase.NARRAZIONE),
-    Rotta("gm.limatura", Flavor, Corsia.VELOCE, retry=0, fase=Fase.NARRAZIONE),
+    Rotta("gm.limatura", Flavor, Corsia.VELOCE, retry=0, fase=Fase.NARRAZIONE,
+          bonifica=True),
     Rotta("gm.distilla", Flavor, Corsia.VELOCE, retry=0, fase=Fase.NARRAZIONE),
     # --- Scontro narrato (Fase 5): tutte non-gating, degrado deterministico ----
     # Apertura: breve trailer al tasto Combatti — vive nella TRANSIZIONE di fase
     # (l'host la attende DOPO il flip), quindi lecita ovunque (fase=None).
-    Rotta("scontro.apertura", Flavor, Corsia.VELOCE, retry=0, fase=None),
+    Rotta("scontro.apertura", Flavor, Corsia.VELOCE, retry=0, fase=None,
+          bonifica=True),
     # Resoconto: la chiusura cinematografica dai FATTI deterministici — è un
     # turno GM a tutti gli effetti, vive in NARRAZIONE.
-    Rotta("scontro.resoconto", Flavor, Corsia.FORTE, retry=0, fase=Fase.NARRAZIONE),
+    Rotta("scontro.resoconto", Flavor, Corsia.FORTE, retry=0, fase=Fase.NARRAZIONE,
+          bonifica=True),
     # Epitaffio: la voce dello showrunner sulla schermata terminale (la run è
     # chiusa: nessuna fase da esigere, nessun Archivio da scrivere).
-    Rotta("scontro.epitaffio", Flavor, Corsia.FORTE, retry=0, fase=None),
+    Rotta("scontro.epitaffio", Flavor, Corsia.FORTE, retry=0, fase=None,
+          bonifica=True),
     # --- Authoring della stagione (2026-08-10): chiamate FUORI-RUN (fase=None,
     # non esiste un World), gating=True — il gate è la catena di lint esistente
     # (registry F-6, mosse note, budget, risoluzione finale). Corsia FORTE: il
@@ -142,14 +151,14 @@ for _rotta in (
     # è flavor conversazionale; se la voce risulta piatta, il cambio a FORTE
     # è un dato in questa riga.
     Rotta("png.dialogo", Flavor, Corsia.VELOCE, retry=0,
-          fase=Fase.NARRAZIONE, gating=False),
+          fase=Fase.NARRAZIONE, gating=False, bonifica=True),
     # --- Scena narrativa (S1): il battito a BLOCCHI — l'AI compone (battuta/
     # snodo/chiudi), il motore arbitra (tiro dello snodo, legalità della
     # chiusura, anti-pesca). Corsia VELOCE (è conversazione), phase-gated a
     # NARRAZIONE come il dialogo PNG; retry=1: lo schema è strict sui campi
     # per-blocco e un tentativo di correzione vale la chiamata.
     Rotta("scena.blocco", BattutaScena, Corsia.VELOCE, retry=1,
-          fase=Fase.NARRAZIONE, gating=False),
+          fase=Fase.NARRAZIONE, gating=False, bonifica=True),
     # --- Banco di prova nemici: strumento fuori-run (fase=None), gating=True
     # (il core passa da `valida_turno`). Corsia FORTE: è il confronto fra
     # modelli sul percorso di qualità. retry=0: un None VA riportato com'è.

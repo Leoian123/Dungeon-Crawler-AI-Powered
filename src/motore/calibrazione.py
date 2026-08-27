@@ -649,6 +649,18 @@ _DEFS: tuple[Param, ...] = (
           "custode gracile non si sentiva boss). 1.0 = spento; le ferite del "
           "custode riarruolato restano comunque sue.",
           CAT_CHECK2, "≥1", "float"),
+    # --- Bonifica prosa (2026-08-27): il gate di FORMA sul canale unico ---------
+    Param("BONIFICA.retry", 1, "Giri di REGIA del gate anti-slop: a violazione "
+          "della tabella REGOLE_SLOP la chiamata si ripete UNA volta con le "
+          "violazioni come note di regia. 0 = gate passivo (solo telemetria, "
+          "zero costi extra); la forma non blocca mai il gioco: al limite si "
+          "accetta e si conta.", "Bonifica prosa — gate anti-slop",
+          "0 o 1", "int", "giri"),
+    Param("BONIFICA.parole_finestra", 250, "La finestra di parole su cui sono "
+          "tarate le soglie di densità delle regole (similitudini, lineette): "
+          "un testo lungo il doppio tollera il doppio. Abbassala per una prosa "
+          "più severa.", "Bonifica prosa — gate anti-slop",
+          "intero ≥50", "int", "parole"),
 )
 
 # Durata di default delle afflizioni per nome-blocco: eccezioni qui, il resto 3.

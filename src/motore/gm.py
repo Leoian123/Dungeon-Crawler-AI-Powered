@@ -75,6 +75,7 @@ from .calibrazione import (
     PAVIMENTO_BENEFICIO,
     TARIFFA_FUORI_SCALA,
 )
+from .bonifica import prima_frase, riga_stile_derivata
 from .catalogo import ANCORE_CLASSE, Budget, carico_tick, prepara_contesto, rango_grado
 from .design import (
     PianoAttivo,
@@ -184,7 +185,11 @@ STILE_CINEMA = "\n".join([
     "ripetere quelle frasi, mai ripartire da zero come se nulla fosse accaduto.",
     # Esemplari ORIGINALI del registro (few-shot): non sono contenuto di gioco,
     # sono la TARATURA della voce — statici, viaggiano in cache col prefisso.
-    "[esempio/apertura] La stanza 4 puzza di colla e di applausi vecchi. Da "
+    # DEVONO passare la bonifica (lucchetto in test_bonifica): il few-shot è
+    # l'attrattore più forte del registro, e un tic nell'esemplare è un tic
+    # serializzato in ogni scena (qui c'era «La stanza 4…»: il numero di
+    # mappa recitato in prosa, ritrovato tale e quale nel playtest live).
+    "[esempio/apertura] La sala prove puzza di colla e di applausi vecchi. Da "
     "qualche parte sopra di te, un riflettore si accende con un TONF che senti "
     "nello sterno, e il cerchio di luce si mette a cercarti — pigro, teatrale, "
     "come se avesse tutto il tempo del mondo. Ce l'ha. Nel cono di polvere "
@@ -216,6 +221,9 @@ PREFISSO_GM = "\n".join([
     # La guida di stile è PARTE del prefisso statico: stessa cache, stessa
     # byte-identità (vedi STILE_CINEMA sopra per il perché del suo peso).
     STILE_CINEMA,
+    # La clausola di forma è DERIVATA dalla tabella della bonifica: il prompt
+    # dice esattamente ciò che il gate misura — un solo dato, mai divergenza.
+    riga_stile_derivata(),
 ])
 
 # Prefisso CORTO per gli stadi di rifinitura (limatura/distillazione): riscrivere
@@ -227,6 +235,10 @@ PREFISSO_RIFINITURA = "\n".join([
     "[contratto] Non emettere MAI numeri di gioco: niente HP, danni, soglie, minuti, percentuali.",
     "[contratto] Non aggiungere fatti nuovi: lavora SOLO sul testo fornito.",
     "[contratto] Rispondi SOLO nella forma strutturata richiesta in coda.",
+    # Anche la corsia veloce (trailer, premi, scena, limatura) riceve la
+    # STESSA clausola di forma derivata: le superfici che il giocatore vede
+    # di più non restano orfane del gate che le misura.
+    riga_stile_derivata(),
 ])
 
 
@@ -1430,9 +1442,18 @@ async def esegui_turno_gm(
         evento=evento,
         compito=compito,
     ).componi()
+    # Bonifica (gate di forma): al REVEAL l'incipit dell'ultima scena mostrata
+    # accende la regola dell'incipit-fotocopia — due stanze di fila che si
+    # aprono con lo stesso gesto sono il déjà-vu di forma (playtest live
+    # 2026-08-27). La telemetria finisce nel tally dell'engine, per rotta.
+    from .master.engine import ConsumoRotta
+
+    incipit = prima_frase(memoria.ultima_prosa) if reveal else ""
+    conto_gating = engine.tally.setdefault("gm.gating", ConsumoRotta())
     risultato = await procura_turno(
         engine.provider_di(Corsia.FORTE), budget, fascicolo.proiezione, voce=voce,
         ingresso_combattimento=ingresso_combattimento, sistema=sistema,
+        incipit_precedente=incipit, conto=conto_gating,
     )
     # Gate anti-arbitraggio (deterministico, zero chiamate): la durata proposta
     # dall'AI incontra il pavimento della classe di beneficio e la durata che il

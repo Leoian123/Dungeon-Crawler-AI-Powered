@@ -364,6 +364,8 @@ async def procura_turno(
     voce: str = "Il dungeon osserva.",
     ingresso_combattimento: bool = False,
     sistema: str = "",
+    incipit_precedente: str = "",
+    conto=None,
 ) -> RisultatoTurno:
     """Coroutine host-agnostica: prompt → `genera` (con policy) → gate → esito.
 
@@ -374,7 +376,16 @@ async def procura_turno(
     `None` (trasporto) e rifiuto-di-gate (dominio) **collassano sullo stesso fallback
     atomico** (F-8): non c'è esito "prosa valida ma entità no". Nessun secondo
     modello-giudice reinterpreta un fuori-budget (F-9): il fallback è il terminale.
+
+    A valle del gate di dominio corre il gate di FORMA (bonifica, tabella
+    REGOLE_SLOP): a violazione, UN giro di regia sulla stessa chiamata — si
+    tiene il turno con meno violazioni, mai il fallback (la forma non blocca
+    il gioco). `incipit_precedente` accende la regola dell'incipit-fotocopia;
+    `conto` (un `ConsumoRotta`) raccoglie la telemetria se il chiamante la vuole.
     """
+    from .bonifica import misura_slop, retry_bonifica, righe_regia
+    from .tipografia import rifinisci_caporali
+
     prompt = costruisci_prompt(budget, proiezione, voce)
     candidato = await _chiama_con_policy(provider, prompt, TurnoNarrazione, sistema)
 
@@ -386,6 +397,30 @@ async def procura_turno(
 
     if validato is None:
         return fallback_turno(budget, ingresso_combattimento=ingresso_combattimento)
+
+    validato.prosa = rifinisci_caporali(validato.prosa)
+    violazioni = misura_slop(validato.prosa, incipit_precedente=incipit_precedente)
+    for _ in range(retry_bonifica()):
+        if not violazioni:
+            break
+        if conto is not None:
+            conto.regie += 1
+        secondo = await _chiama_con_policy(
+            provider, f"{prompt}\n{righe_regia(violazioni)}", TurnoNarrazione, sistema
+        )
+        rivalidato = None
+        if secondo is not None:
+            rivalidato = valida_turno(
+                secondo, budget, ingresso_combattimento=ingresso_combattimento
+            )
+        if rivalidato is None:
+            break  # la regia non degrada mai un turno valido in fallback
+        rivalidato.prosa = rifinisci_caporali(rivalidato.prosa)
+        v2 = misura_slop(rivalidato.prosa, incipit_precedente=incipit_precedente)
+        if len(v2) < len(violazioni):
+            validato, violazioni = rivalidato, v2
+    if conto is not None:
+        conto.slop += len(violazioni)
     return RisultatoTurno(
         turno=validato, budget=budget, fallback=False, anomala=budget.anomala
     )
