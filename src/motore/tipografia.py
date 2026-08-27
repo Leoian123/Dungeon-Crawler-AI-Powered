@@ -18,6 +18,27 @@ from __future__ import annotations
 _APICI = '"“”'
 
 
+def coda_su_frase(testo: str, max_chars: int = 320) -> str:
+    """La CODA di un testo (ultime frasi, ~max_chars), con taglio su confine
+    di frase: quanto basta a riprendere il filo senza ripagare il testo
+    intero. Deterministica.
+
+    È il taglio GIUSTO per la memoria di conversazione: la scenografia sta
+    in testa, i FATTI atterrano in coda (playtest live 2026-08-27: il filo
+    di scena tagliava `prosa[:160]` e il Tenente Kross — introdotto a metà
+    battuta — spariva dal contesto del turno dopo, che lo re-inventava)."""
+    testo = " ".join(testo.split())
+    if len(testo) <= max_chars:
+        return testo
+    coda = testo[-max_chars:]
+    # Riparti dalla prima frase completa dentro la finestra (se ce n'è una).
+    for sep in (". ", "! ", "? "):
+        i = coda.find(sep)
+        if i != -1:
+            return coda[i + len(sep):]
+    return coda
+
+
 def rifinisci_caporali(testo: str) -> str:
     """Normalizza i delimitatori di dialogo sul caporale, a bilancio.
 

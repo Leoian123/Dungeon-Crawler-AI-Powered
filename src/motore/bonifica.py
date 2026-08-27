@@ -32,6 +32,16 @@ _RE_PAROLE = re.compile(r"[a-zà-ù0-9]+", re.IGNORECASE)
 # Frase = segmento chiuso da .!?… (l'ellissi conta come chiusura).
 _RE_FRASI = re.compile(r"[^.!?…]+[.!?…]+")
 _RE_TOKEN = re.compile(r"[a-zà-ù0-9]{3,}")
+# Il PARLATO dei personaggi: gli span fra caporali (o fra apici dritti, per
+# la prosa non ancora rifinita). Le regole con ambito "narrazione" lo tolgono
+# prima di misurare: la voce di un personaggio è VOCE — un fante che parla
+# telegrafico («Guerra cambia forma. No.») non è slop del narratore, e il
+# gate non deve stirare le cadenze autorate (riscontro utente 2026-08-27).
+_RE_PARLATO = re.compile(r"«[^»]*»|\"[^\"]*\"")
+
+
+def _solo_narrazione(testo: str) -> str:
+    return _RE_PARLATO.sub(" ", testo)
 
 
 def _parole(testo: str) -> int:
@@ -72,6 +82,22 @@ def _conta_retorica_non(testo: str) -> int:
     return len(re.findall(r"\bnon\s+\w+\s*:\s*\w", testo, re.IGNORECASE))
 
 
+def _conta_frasi_fiume(testo: str) -> int:
+    """Frasi oltre le ~40 parole: l'apnea che il playtest live 2026-08-27 ha
+    chiamato «prosa pesante» — immagini impilate senza un punto a dividerle."""
+    return sum(1 for f in _frasi(testo) if len(_RE_PAROLE.findall(f)) > 40)
+
+
+def _conta_grappoli_di_che(testo: str) -> int:
+    """Tre o più «che» nella STESSA frase: il grappolo di relative («un suono
+    che potrebbe essere l'aria che fuoriesce da polmoni che non respirano») —
+    la sintassi che si avvita è la faccia misurabile della prosa confusa."""
+    return sum(
+        1 for f in _frasi(testo)
+        if len(re.findall(r"\bche\b", f, re.IGNORECASE)) >= 3
+    )
+
+
 # Lessico dei cliché da dungeon generico: la lista È il dato — estenderla è
 # una riga. Confronto case-insensitive su testo normalizzato.
 CLICHE = (
@@ -110,6 +136,10 @@ class RegolaSlop:
     regia: str
     stile: str
     scala_su_lunghezza: bool = True
+    # "tutto" misura il testo intero; "narrazione" toglie prima il PARLATO
+    # (gli span fra virgolette): le regole di ritmo non giudicano mai la
+    # voce di un personaggio — quella è cadenza autorata, non slop.
+    ambito: str = "tutto"
 
 
 REGOLE_SLOP: tuple[RegolaSlop, ...] = (
@@ -126,9 +156,25 @@ REGOLE_SLOP: tuple[RegolaSlop, ...] = (
     ),
     RegolaSlop(
         "frammento-eco", _conta_frammenti_eco, 2,
-        "troppe frasi-frammento di una o due parole: il ritmo staccato è un "
-        "colpo, non una raffica",
+        "troppe frasi-frammento di una o due parole nella narrazione: il "
+        "ritmo staccato è un colpo, non una raffica",
         "frasi-frammento («Aspetta.») come colpi rari, mai in raffica",
+        ambito="narrazione",
+    ),
+    RegolaSlop(
+        "frase-fiume", _conta_frasi_fiume, 1,
+        "frasi-fiume oltre le 40 parole nella narrazione: spezzale — il "
+        "ritmo è lunghezza variata, non apnea",
+        "le frasi respirano: spezza quelle oltre le ~40 parole",
+        ambito="narrazione",
+    ),
+    RegolaSlop(
+        "grappolo-di-che", _conta_grappoli_di_che, 0,
+        "tre o più «che» nella stessa frase: sciogli il grappolo di "
+        "relative in frasi piene",
+        "mai tre «che» nella stessa frase — una frase, un'immagine",
+        scala_su_lunghezza=False,
+        ambito="narrazione",
     ),
     RegolaSlop(
         "numero-di-stanza", _conta_numero_stanza, 0,
@@ -185,9 +231,11 @@ def misura_slop(testo: str, *, incipit_precedente: str = "") -> tuple[Violazione
     if not testo:
         return ()
     parole = _parole(testo)
+    narrazione = _solo_narrazione(testo)
     violazioni = []
     for regola in REGOLE_SLOP:
-        conteggio = regola.conta(testo)
+        bersaglio = narrazione if regola.ambito == "narrazione" else testo
+        conteggio = regola.conta(bersaglio)
         ammesse = _soglia_effettiva(regola, parole)
         if conteggio > ammesse:
             violazioni.append(ViolazioneSlop(regola.slug, conteggio, ammesse, regola.regia))

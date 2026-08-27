@@ -352,18 +352,11 @@ class PromptEvento:
 
 
 def _coda_prosa(testo: str, max_chars: int = 320) -> str:
-    """La CODA della prosa (ultime frasi, ~max_chars): quanto basta a riprendere
-    il filo senza ripagare il turno intero. Deterministica, taglio su frase."""
-    testo = " ".join(testo.split())
-    if len(testo) <= max_chars:
-        return testo
-    coda = testo[-max_chars:]
-    # Riparti dalla prima frase completa dentro la finestra (se ce n'è una).
-    for sep in (". ", "! ", "? "):
-        i = coda.find(sep)
-        if i != -1:
-            return coda[i + len(sep):]
-    return coda
+    """La CODA della prosa: delega al taglio condiviso (`coda_su_frase` in
+    tipografia — lo stesso che il filo di scena usa per non perdere la lore)."""
+    from .tipografia import coda_su_frase
+
+    return coda_su_frase(testo, max_chars)
 
 
 def _filo(f: Fascicolo) -> str:

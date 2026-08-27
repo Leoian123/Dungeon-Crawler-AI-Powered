@@ -192,8 +192,15 @@ async def battuta_scena(
     else:
         prosa = candidato.prosa
 
+    # Il filo conserva la CODA su confine di frase, mai la testa: la
+    # scenografia sta in testa, i FATTI (nomi, ordini, promesse) atterrano
+    # in coda — il taglio `prosa[:160]` troncava via la lore e il turno dopo
+    # la re-inventava (il Tenente Kross del playtest live 2026-08-27, citato
+    # in due versioni diverse a un turno di distanza).
+    from .tipografia import coda_su_frase
+
     istanza.filo.append(f'crawler: "{battuta_giocatore[:120]}"')
-    istanza.filo.append(f"scena: {prosa[:160]}")
+    istanza.filo.append(f"scena: {coda_su_frase(prosa, 360)}")
 
     if istanza.aperta and istanza.battute_spese >= int(_max_battute()):
         _chiudi_d_ufficio(istanza)  # il tetto §11: la scena non è infinita

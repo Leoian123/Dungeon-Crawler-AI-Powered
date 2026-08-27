@@ -73,6 +73,57 @@ def test_le_soglie_scalano_sulla_lunghezza() -> None:
     assert "similitudine-seriale" not in _slugs(misura_slop(testo))
 
 
+def test_frase_fiume_e_grappolo_di_che() -> None:
+    """La «prosa confusa e pesante» del playtest live 2026-08-27, resa
+    misurabile: l'apnea oltre le 40 parole e la sintassi che si avvita
+    (tre «che» nella stessa frase)."""
+    fiume_unica = ("La stanza si allunga oltre la luce dei bracieri spenti "
+                   "mentre il fango sale in creste basse lungo le assi e i "
+                   "manifesti scoloriti guardano un nemico dimenticato e la "
+                   "pala continua a mordere la terra a intervalli regolari "
+                   "senza fretta e senza stanchezza in un conteggio muto.")
+    # UNA frase lunga per finestra è un respiro legittimo…
+    assert "frase-fiume" not in _slugs(misura_slop(fiume_unica))
+    # …DUE sono l'apnea.
+    assert "frase-fiume" in _slugs(misura_slop(fiume_unica + " " + fiume_unica))
+    avvitata = ("Dalla crepa viene un suono che potrebbe essere una risata "
+                "che fuoriesce da polmoni che non respirano più.")
+    assert "grappolo-di-che" in _slugs(misura_slop(avvitata))
+    assert misura_slop("Un suono che raschia sale dal solco. Poi tace.") == ()
+
+
+def test_la_voce_dei_personaggi_non_e_slop_del_narratore() -> None:
+    """Riscontro utente 2026-08-27 («forse è figlia del personaggio…»): le
+    regole di RITMO misurano solo la narrazione — il telegrafico del Fante
+    dentro le virgolette è cadenza autorata, non slop. Fuori dalle
+    virgolette, la stessa raffica resta violazione."""
+    in_voce = ("«Guerra finita? No. Guerra cambia forma. Scavi profondi.» "
+               "La pala riprende il suo ritmo contro la terra battuta.")
+    assert "frammento-eco" not in _slugs(misura_slop(in_voce))
+    da_narratore = ("La guerra è finita. No. Cambia forma. Scava ancora. "
+                    "La pala riprende il suo ritmo contro la terra battuta.")
+    assert "frammento-eco" in _slugs(misura_slop(da_narratore))
+
+
+def test_il_filo_di_scena_conserva_la_coda_coi_fatti() -> None:
+    """Il Tenente Kross del playtest live: la lore atterra in CODA alla
+    battuta, e il taglio di testa (`prosa[:160]`) la troncava via — il turno
+    dopo la re-inventava in un'altra versione. Il filo ora tiene la coda su
+    confine di frase: il nome resta nel contesto del turno successivo."""
+    from motore.tipografia import coda_su_frase
+
+    scenografia = ("La pala cade nel fango e la maschera emette un sibilo "
+                   "lungo mentre la voce arriva da lontano, filtrata "
+                   "attraverso strati di membrana e di ruggine vecchia. " * 3)
+    prosa = scenografia + ("Il Tenente Kross mi disse di scavare fino al "
+                           "fondo, fino al silenzio.")
+    coda = coda_su_frase(prosa, 360)
+    assert "Tenente Kross" in coda, "la coda conserva il fatto, la testa no"
+    assert prosa[:160].find("Kross") == -1, "il taglio vecchio lo perdeva"
+    # E il testo corto passa intero, senza tagli.
+    assert coda_su_frase("Breve e completa.", 360) == "Breve e completa."
+
+
 def test_incipit_fotocopia() -> None:
     prima = "La porta si chiude alle tue spalle con uno schiocco molle."
     dopo = "Il saloon si chiude alle tue spalle con un cigolio secco."
