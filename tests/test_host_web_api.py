@@ -275,7 +275,9 @@ def test_parlamentare_dal_browser_batte_e_tronca(host) -> None:
     corpo = r.json()
     assert corpo["snapshot"]["scena_aperta"] is False, "battuta vuota = tronca"
     scena = [p for p in corpo["post"] if p["genere"] == "scena"]
-    assert scena and "tronca" in scena[0]["battute"][0]["testo"]
+    # La riga di chiusura è DIEGETICA (playtest a 3 persone: «Il crawler
+    # tronca la conversazione» era una doccia fredda dopo un congedo caldo).
+    assert scena and "la scena si chiude" in scena[0]["battute"][0]["testo"]
     assert scena[0]["battute"][0]["chi"] == "canale", "il tronca è regia, non battuta"
 
 

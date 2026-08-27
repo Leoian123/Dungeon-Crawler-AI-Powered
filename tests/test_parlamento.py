@@ -114,6 +114,45 @@ def test_la_difficolta_segue_il_grado_del_mob(run_pulita) -> None:
     assert esito is not None and esito.riuscito, "7 > soglia bronzo: ascolta"
 
 
+# --- Il convinto riascolta (P1 playtest a 3 persone, 2026-08-27) ----------------
+
+def test_il_convinto_riascolta_senza_ritirare(run_pulita) -> None:
+    """Il successo bruciava il Parlamenta come il rifiuto: la chiacchierona
+    non poteva più parlare coi suoi «amici». Ora il CONVINTO riascolta — la
+    voce resta nel menu e riaprire la scena non ri-tira il gate (il margine
+    non si ri-pesca: anti-pesca vale anche al contrario). Il RIFIUTATO resta
+    rifiutato: quel lucchetto non si tocca."""
+    from motore import EntitaMob, mob_corrente, tenta_parlamento
+    from motore.scena import puo_parlamentare
+
+    sessione, _snap = _sessione_con_mob()
+    _carisma(sessione, 40)
+    mob = mob_corrente()
+    em = esper.component_for_entity(mob, EntitaMob)
+    esito = tenta_parlamento(mob)
+    assert esito is not None and esito.riuscito
+    assert puo_parlamentare(mob), "il convinto deve restare interpellabile"
+    # La riapertura NON è una seconda prova: nessun nuovo tiro, esito già suo.
+    _carisma(sessione, 1)  # se il gate ritirasse, ora fallirebbe
+    secondo = tenta_parlamento(mob)
+    assert secondo is not None and secondo.riuscito
+    assert "ascolta ancora" in secondo.riga_fatto
+    assert em.parlamento_riuscito, "la tregua resta"
+
+
+def test_il_rifiutato_resta_rifiutato(run_pulita) -> None:
+    from motore import mob_corrente, tenta_parlamento
+    from motore.scena import puo_parlamentare
+
+    sessione, _snap = _sessione_con_mob()
+    _carisma(sessione, 1)
+    mob = mob_corrente()
+    esito = tenta_parlamento(mob)
+    assert esito is not None and not esito.riuscito
+    assert not puo_parlamentare(mob)
+    assert tenta_parlamento(mob) is None  # il tentativo è speso: nessun bis
+
+
 # --- La tregua del parlamentato (playtest giro 3, 2026-08-16) ------------------
 
 def test_il_gate_superato_marca_la_tregua(run_pulita) -> None:
@@ -129,7 +168,10 @@ def test_il_gate_superato_marca_la_tregua(run_pulita) -> None:
     esito = tenta_parlamento(mob)
     assert esito is not None and esito.riuscito
     assert em.parlamento_riuscito and em.nome in nomi_in_tregua()
-    em.parlamento_tentato = False  # reset di laboratorio
+    # Reset di laboratorio COMPLETO: il convinto ora riascolta senza ritirare
+    # (P1 playtest a 3 persone) — per rigiocare il gate serve un mob vergine.
+    em.parlamento_tentato = False
+    em.parlamento_riuscito = False
     _carisma(sessione, 1)
     esito = tenta_parlamento(mob)
     assert esito is not None and not esito.riuscito

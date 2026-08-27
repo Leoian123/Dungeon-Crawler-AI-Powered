@@ -370,6 +370,58 @@ def test_il_contratto_vieta_gli_esiti_meccanici_in_prosa() -> None:
     assert "mai consegnarli" in _ISTRUZIONE_BLOCCHI
 
 
+def test_le_corsie_dichiarate_arrivano_al_modello(run_pulita, tmp_path) -> None:
+    """P1 del playtest a 3 persone: `scontro.resoconto` degradava a RIPIEGO in
+    7 scontri su 7 LIVE — l'host costruiva un composito per-schema (Flavor →
+    veloce, 512 token) e l'avvolgi appiattiva le corsie dichiarate dalle
+    rotte. Ora un dict {"forte","veloce"} dal composition root diventa un
+    MasterEngine vero dentro la sessione: la rotta comanda la corsia."""
+    from main import costruisci_sessione
+    from motore import Corsia, MasterEngine
+    from provider import FakeProvider
+
+    forte, veloce = FakeProvider([]), FakeProvider([])
+    sessione = costruisci_sessione(
+        nome="Corsie", seed=3, directory=tmp_path,
+        provider={"forte": forte, "veloce": veloce},
+    )
+    engine = sessione._engine()
+    assert isinstance(engine, MasterEngine)
+    assert engine.provider_di(Corsia.FORTE) is forte
+    assert engine.provider_di(Corsia.VELOCE) is veloce
+    sessione.esci()
+
+
+def test_il_ripiego_non_mente_sulle_ferite_pregresse() -> None:
+    """P1: «Ne esci senza un graffio» stampato su un crawler ferito e
+    avvelenato — `hp_persi` conta solo QUESTO scontro; lo stato reale sta
+    nei descrittori della proiezione."""
+    from contracts import FattiScontro
+    from motore.gm import _resoconto_fallback
+
+    illeso_qui = FattiScontro(nemico="l'Usciere", vittoria=True, turni=2, hp_persi=0)
+    assert "senza un graffio" in _resoconto_fallback(illeso_qui, ("integro",))
+    testo = _resoconto_fallback(illeso_qui, ("ferito", "avvelenato"))
+    assert "senza un graffio" not in testo
+    assert "da prima" in testo
+    ferito_qui = FattiScontro(nemico="l'Usciere", vittoria=True, turni=2, hp_persi=5)
+    assert "segni della lotta" in _resoconto_fallback(ferito_qui, ("ferito",))
+
+
+def test_la_regia_di_chiusura_matura_coi_due_terzi_del_tetto() -> None:
+    """P1: sei scene su sei chiuse a mano col tronca — l'AI non emetteva mai
+    `chiudi`. Dai due terzi di SCENA.max_battute il prompt porta la regia di
+    chiusura: deterministico dallo stato, mai un conteggio del modello."""
+    from motore.calibrazione import SCENA_MAX_BATTUTE
+    from motore.scena import IstanzaScena, _prompt_scena
+
+    istanza = IstanzaScena(partecipanti=["Fante"])
+    assert "[scena/regia]" not in _prompt_scena(istanza, "ciao")
+    istanza.battute_spese = (int(SCENA_MAX_BATTUTE) * 2) // 3
+    maturo = _prompt_scena(istanza, "e quindi?")
+    assert "[scena/regia]" in maturo and "componi `chiudi`" in maturo
+
+
 # --- Round 3: l'agguato è cucito alla prosa del turno -----------------------------
 
 def test_l_agguato_e_cucito_alla_prosa_del_reveal(run_pulita, tmp_path, monkeypatch) -> None:

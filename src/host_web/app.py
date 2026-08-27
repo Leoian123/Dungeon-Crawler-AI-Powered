@@ -208,10 +208,8 @@ def _provider_live(stato: StatoHost) -> tuple[object, str]:
             "L'host è stato avviato con --fake: il GM live è disabilitato.",
         )
     from provider import (
-        AnthropicBackend,
         MODELLO_DEFAULT,
         MODELLO_VELOCE,
-        ProviderPerSchema,
         chiave_presente,
         sdk_disponibile,
     )
@@ -227,14 +225,16 @@ def _provider_live(stato: StatoHost) -> tuple[object, str]:
             503, "live_non_disponibile",
             "SDK anthropic non installato: .venv\\Scripts\\pip install anthropic",
         )
-    from contracts import TurnoNarrazione
+    # Backend PER CORSIA dal composition root (playtest a 3 persone 2026-08-27):
+    # il composito per-schema costruito a mano qui — con la veloce a 512 token —
+    # appiattiva le corsie dichiarate dalle rotte, e `scontro.resoconto` (FORTE,
+    # 250-400 parole) troncava in RIPIEGO 7 scontri su 7. Il dict diventa un
+    # MasterEngine dentro la sessione: la rotta comanda la corsia, i profili
+    # (modelli, tetti, timeout) vivono in UN posto solo (provider/root.py).
+    from provider import costruisci_backend_live
 
-    # Il modello FORTE serve solo la chiamata gating (il turno); gli stadi ancillari
-    # non-gating vanno sul VELOCE (stessa corsia della TUI).
-    forte = AnthropicBackend()
-    veloce = AnthropicBackend(modello=MODELLO_VELOCE, max_tokens=512, timeout=15.0)
-    provider = ProviderPerSchema({TurnoNarrazione: forte}, predefinito=veloce)
-    return provider, f"GM live — {MODELLO_DEFAULT} (turni) + {MODELLO_VELOCE} (rifiniture)"
+    corsie = costruisci_backend_live()
+    return corsie, f"GM live — {MODELLO_DEFAULT} (turni) + {MODELLO_VELOCE} (rifiniture)"
 
 
 def crea_app(stato: StatoHost) -> FastAPI:
@@ -868,7 +868,11 @@ def crea_app(stato: StatoHost) -> FastAPI:
             scambio: list[tuple[str, str]] = []
             if not testo:
                 sessione.abbandona_parlamento()
-                scambio.append(("canale", "Il crawler tronca la conversazione."))
+                # Diegetica, non burocratica (playtest a 3 persone: «Il
+                # crawler tronca la conversazione» era una doccia fredda
+                # dopo un congedo caldo — l'insicuro la leggeva come colpa).
+                scambio.append(("canale", "Le parole finiscono lì: la scena "
+                                          "si chiude e il dungeon riprende."))
             else:
                 risposta = await sessione.battuta_parlamento(testo)
                 scambio.extend((("crawler", testo), ("canale", risposta)))

@@ -569,10 +569,21 @@ def _costruisci_app(sessione):
 def _scegli_provider(argv: list[str]) -> tuple[object | None, str]:
     """Delega al composition root del pacchetto provider (`provider.root`): la
     politica fake/live, il cablaggio forte+veloce e il tally condiviso non sono
-    più affare dell'host TUI — questo alias sopravvive per compat coi chiamanti."""
-    from provider import scegli_provider
+    più affare dell'host TUI — questo alias sopravvive per compat coi chiamanti.
 
-    return scegli_provider(argv)
+    PER CORSIA, non per schema (playtest a 3 persone 2026-08-27): il dict
+    {"forte","veloce"} diventa un MasterEngine dentro la sessione, così la
+    corsia dichiarata dalla ROTTA arriva al modello giusto — il composito
+    per-schema mandava ogni Flavor sulla veloce e `scontro.resoconto`
+    troncava in RIPIEGO."""
+    from provider import scegli_corsie
+
+    corsie, etichetta, consumo = scegli_corsie(argv)
+    if corsie is None:
+        return None, etichetta
+    # Il tally di consumo resta raggiungibile dall'host (stampa d'uscita):
+    # viaggia sul dict come voce dedicata — la sessione usa solo forte/veloce.
+    return {**corsie, "consumo": consumo}, etichetta
 
 
 def _scegli_sessione(argv: list[str], provider, directory=None):
@@ -644,7 +655,8 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover (entry point
     app.run()
     # Il tally non si butta più via: una riga a fine sessione dice quanto si è
     # speso e PERCHÉ eventuali turni sono degradati (trasporto vs generazione).
-    consumo = getattr(provider, "consumo", None)
+    consumo = (provider.get("consumo") if isinstance(provider, dict)
+               else getattr(provider, "consumo", None))
     if consumo is not None:
         print(f"[gioca] {consumo.riassunto()}")
     # Il tally PER ROTTA (registro C, chiuso): il totale dice quanto si è speso,

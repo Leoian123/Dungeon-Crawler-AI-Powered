@@ -123,23 +123,25 @@ def test_scegli_provider_live_condivide_davvero_il_tally(monkeypatch) -> None:
     """Lucchetto sul CABLAGGIO (non solo sull'unità): il ramo live di
     `_scegli_provider` deve passare lo STESSO ConsumoProvider a forte e veloce —
     se qualcuno toglie `consumo=consumo` da uno dei due, il totale per-run torna
-    a essere spezzato in silenzio."""
+    a essere spezzato in silenzio.
+
+    Dal playtest a 3 persone (2026-08-27) il ramo live consegna backend PER
+    CORSIA (dict {"forte","veloce","consumo"}), mai più il composito
+    per-schema che appiattiva le corsie dichiarate dalle rotte."""
     import gioco_textual
     import provider as pacchetto
-    from contracts import TurnoNarrazione
 
     # Presenza di chiave e SDK simulate: il ramo live COSTRUISCE i backend ma non
     # chiama mai la rete (l'SDK è importato pigramente, solo alla prima genera).
     monkeypatch.setattr(pacchetto, "chiave_presente", lambda: True)
     monkeypatch.setattr(pacchetto, "sdk_disponibile", lambda: True)
 
-    composto, _etichetta = gioco_textual._scegli_provider([])
-    forte = composto._per_schema[TurnoNarrazione]
-    veloce = composto._predefinito
-    assert forte.consumo is veloce.consumo
-    # E il tally viaggia col provider composto: è ciò che l'host legge per il
-    # riassunto a fine sessione (audit 2026-08-07: accumulato ma mai mostrato).
-    assert composto.consumo is forte.consumo
+    corsie, _etichetta = gioco_textual._scegli_provider([])
+    assert isinstance(corsie, dict) and {"forte", "veloce"} <= set(corsie)
+    assert corsie["forte"].consumo is corsie["veloce"].consumo
+    # E il tally viaggia col dict: è ciò che l'host legge per il riassunto a
+    # fine sessione (audit 2026-08-07: accumulato ma mai mostrato).
+    assert corsie["consumo"] is corsie["forte"].consumo
 
 
 def test_riassunto_e_leggibile_e_conta_i_guasti() -> None:

@@ -1187,6 +1187,19 @@ class SessioneGioco:
         # Cablaggio comune: il costruttore NON entra in run — lo fanno i factory
         # `nuova` (il protagonista nasce) e `da_salvataggio` (si deserializza),
         # al confine guscio→run (E-5).
+        # Un dict {"forte","veloce"} = backend PER CORSIA (composition root):
+        # diventa un MasterEngine vero, così la corsia dichiarata dalla ROTTA
+        # arriva davvero al modello giusto. Il playtest a 3 persone l'ha
+        # pagato caro: gli host costruivano compositi per-schema e l'avvolgi
+        # appiattiva le corsie — `scontro.resoconto` (FORTE per rotta, 250-400
+        # parole) finiva sulla veloce col tetto corto e troncava in RIPIEGO
+        # 7 scontri su 7.
+        if isinstance(provider, dict):
+            from motore import Corsia
+
+            provider = MasterEngine({
+                Corsia.FORTE: provider["forte"], Corsia.VELOCE: provider["veloce"],
+            })
         self.provider = provider
         self.rng = random.Random(seed)
         self.guscio = Guscio(directory)
@@ -3436,9 +3449,11 @@ def costruisci_sessione(
     ESPLICITO, il default resta offline."""
     directory = directory or Path(tempfile.mkdtemp(prefix="dcc-"))
     if provider == "auto":
-        from provider import scegli_provider
+        # Per CORSIA, mai per schema: il composito per-schema mandava tutte
+        # le rotte Flavor sulla veloce anche quando la rotta dichiara FORTE.
+        from provider import scegli_corsie
 
-        provider, _etichetta = scegli_provider([])
+        provider, _etichetta, _consumo = scegli_corsie([])
     if isinstance(stagione, StagioneRisolta):
         risolta = stagione
     else:

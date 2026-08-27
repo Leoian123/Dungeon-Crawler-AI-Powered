@@ -121,6 +121,16 @@ def _prompt_scena(istanza: IstanzaScena, battuta_giocatore: str) -> str:
         )
     righe += [f"[filo] {riga}" for riga in istanza.filo[-_FILO_MAX:]]
     righe.append(f'[battuta] il crawler dice: "{battuta_giocatore}"')
+    # La REGIA DI CHIUSURA (playtest a 3 persone 2026-08-27: 6 scene su 6
+    # chiuse a mano col tronca, l'AI non emetteva MAI `chiudi`): dai due
+    # terzi del tetto in poi il motore lo DICE — deterministico dallo stato
+    # (battute spese vs SCENA.max_battute), mai un conteggio del modello.
+    if istanza.battute_spese >= (int(_max_battute()) * 2) // 3:
+        righe.append(
+            "[scena/regia] La scena è matura: se la conversazione ha dato "
+            "quel che poteva, componi `chiudi` — un congedo in personaggio "
+            "vale più di un'altra battuta."
+        )
     righe.append(_ISTRUZIONE_BLOCCHI)
     return "\n".join(righe)
 
@@ -266,15 +276,20 @@ class EsitoParlamento:
 
 
 def puo_parlamentare(ent: int) -> bool:
-    """Vero se il mob OSTILE è ancora parlamentabile: il tentativo è UNO per
-    mob (anti-pesca sociale — il rifiutato resta rifiutato, anche dopo un
-    load: il marker viaggia con l'entità)."""
+    """Vero se il mob OSTILE è parlamentabile: il TENTATIVO è uno per mob
+    (anti-pesca sociale — il rifiutato resta rifiutato, anche dopo un load:
+    il marker viaggia con l'entità), ma il CONVINTO riascolta (playtest a 3
+    persone 2026-08-27: il successo bruciava il Parlamenta come il rifiuto —
+    la chiacchierona non poteva più rivolgere la parola ai suoi «amici»,
+    una punizione proprio della persona che il canale vuole servire)."""
     import esper
 
     from .mob import EntitaMob
 
     em = esper.try_component(ent, EntitaMob)
-    return em is not None and not em.parlamento_tentato
+    if em is None:
+        return False
+    return not em.parlamento_tentato or em.parlamento_riuscito
 
 
 def tenta_parlamento(ent: int) -> EsitoParlamento | None:
@@ -294,7 +309,17 @@ def tenta_parlamento(ent: int) -> EsitoParlamento | None:
     from .mob import EntitaMob
 
     em = esper.try_component(ent, EntitaMob)
-    if em is None or em.parlamento_tentato:
+    if em is None:
+        return None
+    if em.parlamento_riuscito:
+        # Il CONVINTO riascolta senza ritirare: il gate si è già espresso —
+        # nessuna seconda prova (il margine non si ri-pesca: anti-pesca vale
+        # anche al contrario), la scena si riapre e basta.
+        return EsitoParlamento(
+            riuscito=True,
+            riga_fatto=f"parlamento con {em.nome}: ti conosce — ascolta ancora",
+        )
+    if em.parlamento_tentato:
         return None
     em.parlamento_tentato = True
     pent, _marker, _scheda = protagonista()

@@ -1109,16 +1109,25 @@ def _prompt_resoconto(fascicolo: Fascicolo) -> str:
     ).componi()
 
 
-def _resoconto_fallback(e: FattiScontro) -> str:
+def _resoconto_fallback(e: FattiScontro, descrittori: tuple[str, ...] = ()) -> str:
     """Il degrado deterministico del resoconto: un template dai FATTI — brutto ma
-    onesto, zero chiamate (il gemello del fallback atomico della narrazione)."""
+    onesto, zero chiamate (il gemello del fallback atomico della narrazione).
+
+    `descrittori` = lo stato REALE del protagonista (playtest a 3 persone
+    2026-08-27: «Ne esci senza un graffio» stampato su un crawler ferito e
+    avvelenato — `hp_persi` conta SOLO questo scontro, le ferite di prima
+    restano addosso)."""
     nemico = e.nemico or "il nemico"
     if e.fuga:
         return (f"Ti lasci {nemico} alle spalle e non ti volti. "
                 "La stanza resta sua; il fiato, per ora, è tuo.")
     if e.vittoria:
-        ferite = "Porti addosso i segni della lotta." if e.hp_persi > 0 else \
-                 "Ne esci senza un graffio."
+        if e.hp_persi > 0:
+            ferite = "Porti addosso i segni della lotta."
+        elif "integro" in descrittori:
+            ferite = "Ne esci senza un graffio."
+        else:  # illeso QUI, ma il corpo porta ancora i conti di prima
+            ferite = "Stavolta non ti ha toccato; il resto te lo porti da prima."
         return (f"{nemico} non si rialza. Lo scontro si chiude dopo {e.turni} scambi. "
                 f"{ferite} La stanza torna silenziosa.")
     return "Lo scontro è finito. La stanza tiene il conto di ciò che è costato."
@@ -1363,7 +1372,9 @@ async def esegui_turno_gm(
             "scontro.resoconto", _prompt_resoconto(fascicolo), sistema=sistema
         )
         in_fallback = flavor is None
-        prosa = flavor.testo if flavor is not None else _resoconto_fallback(esito_scontro)
+        prosa = (flavor.testo if flavor is not None
+                 else _resoconto_fallback(esito_scontro,
+                                          fascicolo.proiezione.descrittori))
         if guardia_scrittura is not None:
             guardia_scrittura()  # barriera: ultimo await passato (F-11)
         _nota(avanzamento, "Il GM aggiorna il mondo…", 0.95)
