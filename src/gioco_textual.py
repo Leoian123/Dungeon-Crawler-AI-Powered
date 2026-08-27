@@ -524,7 +524,16 @@ def _costruisci_app(sessione):
                 await menu.mount(Button("Esci (Q)", id="esci", variant="success"))
                 return
             bottoni = [
-                Button(o.etichetta, id=f"opz-{o.indice}", variant="primary")
+                Button(
+                    # Il livello della skill che governa la mossa (nodo S) è
+                    # DATO sull'opzione: la vestizione è dell'host, mai una
+                    # concatenazione dentro l'etichetta del contratto.
+                    o.etichetta + (
+                        f"  [Lv {o.livello}]"
+                        if getattr(o, "livello", 1) > 1 else ""
+                    ),
+                    id=f"opz-{o.indice}", variant="primary",
+                )
                 for o in snap.opzioni
             ]
             if bottoni:

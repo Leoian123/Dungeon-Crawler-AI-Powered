@@ -81,6 +81,30 @@ CATALOGO_CONSUMABILI: dict[str, Consumabile] = {
                     "Troppo da vicino: le ultime pagine sono scritte con "
                     "l'altra mano.",
     ),
+    # I tomi delle mosse-asset (nodo S, canale GearTome): le skill di
+    # combattimento e le magie si IMPARANO in run — la mossa entra nel menu
+    # accanto ad Attacca/Colpo/Dardo, coi suoi costi (fasce dell'asset).
+    "manuale-dello-spezzagiunture": Consumabile(
+        fonte="manuale-dello-spezzagiunture", nome="Manuale dello Spezzagiunture",
+        effetto=EffettoConsumabile.TOMO.value, grado="argento",
+        insegna_mossa="spezzagiunture",
+        descrizione="Tavole anatomiche annotate da un buttafuori in pensione. "
+                    "I capitoli sono ordinati per articolazione.",
+    ),
+    "quaderno-della-brace": Consumabile(
+        fonte="quaderno-della-brace", nome="Quaderno della Brace",
+        effetto=EffettoConsumabile.TOMO.value, grado="oro",
+        insegna_mossa="lingua-di-brace",
+        descrizione="Le pagine sono bruciacchiate ai bordi, e non per un "
+                    "incidente: è il metodo d'insegnamento.",
+    ),
+    "erbario-di-palude": Consumabile(
+        fonte="erbario-di-palude", nome="Erbario di Palude",
+        effetto=EffettoConsumabile.TOMO.value, grado="argento",
+        insegna_mossa="fiato-di-palude",
+        descrizione="Un erbario dove ogni pianta è segnata «non commestibile» "
+                    "con calligrafie diverse. Nessuna delle mani ha finito il libro.",
+    ),
 }
 
 

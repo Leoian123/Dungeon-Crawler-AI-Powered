@@ -1,0 +1,13 @@
+{
+  "slug": "palato-di-palude",
+  "versione": 1,
+  "tags": ["magia", "veleno"],
+  "nome": "Palato di palude",
+  "testo": "Un sapore che si impara a tenere in bocca senza morire. Con la pratica, a restituirlo con gli interessi.",
+  "tipo": "attiva",
+  "pratica": "mossa",
+  "mossa": "fiato-di-palude",
+  "dominio": "magia",
+  "effetto": "potenza_mossa",
+  "intensita": "marcata"
+}

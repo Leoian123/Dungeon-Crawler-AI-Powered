@@ -1,0 +1,12 @@
+{
+  "slug": "fiato-di-palude",
+  "versione": 1,
+  "tags": ["magia", "veleno"],
+  "etichetta": "Fiato di Palude",
+  "effetti": [
+    {"primitivo": "danno", "tipo_danno": "veleno", "potenza": "lieve", "stile": "magico"},
+    {"primitivo": "applica_status", "blocco": "veleno"}
+  ],
+  "costo": "standard",
+  "ricarica": "nessuna"
+}

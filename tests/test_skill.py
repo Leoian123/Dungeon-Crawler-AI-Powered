@@ -446,16 +446,18 @@ def test_i_conteggi_round_trippano_nel_save(mondo_isolato, tmp_path) -> None:
 # --- Il catalogo demo e il default-on -------------------------------------------
 
 def test_il_catalogo_demo_e_lintato() -> None:
-    from main import catalogo_skill
-    from motore.mosse import mosse_note
+    from main import catalogo_skill, mosse_note_authoring
 
     catalogo = catalogo_skill()
-    assert len(catalogo) >= 6, f"catalogo magro: {len(catalogo)}"
+    assert len(catalogo) >= 9, f"catalogo magro: {len(catalogo)}"
     slugs = [a.slug for a in catalogo]
     assert len(slugs) == len(set(slugs))
+    # Le attive governano mosse ESISTENTI: storiche o della libreria
+    # mosse-asset (le skill di combattimento e le magie SONO mosse a menu).
+    note = mosse_note_authoring()
     for a in catalogo:
         if a.tipo == "attiva":
-            assert a.mossa in mosse_note(), (
+            assert a.mossa in note, (
                 f"{a.slug}: un'attiva governa una mossa del catalogo, "
                 f"{a.mossa!r} non esiste"
             )
@@ -463,6 +465,9 @@ def test_il_catalogo_demo_e_lintato() -> None:
         "il junk di dotazione ad alto livello è metà del tono (golden standard)"
     )
     assert any(a.tipo == "passiva" for a in catalogo)
+    assert any(a.dominio.value == "magia" and a.tipo == "attiva" for a in catalogo), (
+        "le magie di combattimento sono nel catalogo (archetipo Spell del dataset)"
+    )
 
 
 def test_default_on_e_run_pulita(run_pulita, tmp_path) -> None:
@@ -528,6 +533,63 @@ def _dotazione(riga) -> int:
         if a.slug == riga.slug:
             return a.livello_iniziale
     return 1
+
+
+def test_e2e_la_magia_imparata_entra_nel_menu_coi_suoi_costi(
+    run_pulita, tmp_path,
+) -> None:
+    """La catena INTERA della skill di combattimento: il tomo insegna la
+    mossa-asset → la mossa appare nel MENU accanto ad Attacca/Colpo/Dardo,
+    coi SUOI costi (fascia dell'asset) → si lancia in scontro → la skill che
+    la governa conta l'uso e ne scala la potenza. Non parole: porte."""
+    import asyncio
+
+    from contracts import PlayerChoseOption
+    from main import _etichetta_mossa_ricca, costruisci_sessione
+    from motore import assicura_zaino, protagonista, usa_consumabile
+    from motore.combattimento import mosse_di
+    from motore.skill import fattore_skill, skill_correnti
+    from contracts import BusEventi
+
+    sessione = costruisci_sessione(nome="Maga", seed=11, directory=tmp_path)
+    asyncio.run(sessione.prossima_narrazione())
+    pent, _m, _s = protagonista()
+
+    # Il tomo (drop del canale GearTome) insegna la SPELL della libreria.
+    assicura_zaino(pent).fonti.append("quaderno-della-brace")
+    ok, dettaglio = usa_consumabile(pent, "quaderno-della-brace", sessione.bus)
+    assert ok, dettaglio
+    assert "lingua-di-brace" in mosse_di(pent), "la spell è nel repertorio"
+
+    # Nel MENU accanto alle mosse base, col SUO costo (fascia costosa).
+    etichetta = _etichetta_mossa_ricca(pent, "lingua-di-brace")
+    assert "Lingua di Brace" in etichetta and "mana" in etichetta, etichetta
+
+    # In scontro si lancia davvero e la skill governante conta l'uso.
+    snap = sessione.avanza()
+    if not snap.opzioni:
+        snap = asyncio.run(sessione.prossima_narrazione())
+    combatti = next(
+        (o.indice for o in snap.opzioni if o.etichetta.startswith("Combatti")),
+        None,
+    )
+    assert combatti is not None
+    sessione.coda.accoda(PlayerChoseOption(combatti))
+    snap = sessione.avanza()
+    assert snap.fase == "combattimento"
+    voci = {o.etichetta: o.indice for o in snap.opzioni}
+    voce_spell = next(
+        (i for e, i in voci.items() if e.startswith("Lingua di Brace")), None,
+    )
+    assert voce_spell is not None, f"la spell manca dal menu di scontro: {voci}"
+    sessione.coda.accoda(PlayerChoseOption(voce_spell))
+    sessione.avanza()
+    assert skill_correnti().usi.get("gola-di-fornace", 0) >= 1, (
+        "il lancio a segno pratica la skill che governa la spell"
+    )
+    # E la pratica ne scala la potenza (fascia POTENTE: +10%/livello).
+    skill_correnti().usi["gola-di-fornace"] = 9  # livello 3
+    assert fattore_skill(pent, "lingua-di-brace") == pytest.approx(1.20)
 
 
 # --- Il tomo (S3, canale GearTome) ----------------------------------------------

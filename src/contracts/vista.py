@@ -79,6 +79,10 @@ class OpzioneVista(BaseModel):
     etichetta: str
     tipo: TipoAzione
     abilitata: bool = True
+    # Il livello della SKILL che governa questa mossa (nodo S): DATO, mai
+    # concatenato nell'etichetta — il pattern «etichetta — costo» è un
+    # contratto di presentazione che host e oracoli leggono. 1 = tace.
+    livello: int = 1
 
 
 class SnapshotVista(BaseModel):

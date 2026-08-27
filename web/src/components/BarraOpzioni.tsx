@@ -50,6 +50,14 @@ export function BarraOpzioni({
           }`}
         >
           {opzione.etichetta}
+          {/* Il Lv della skill che governa la mossa (nodo S): DATO
+              sull'opzione, vestito qui — la pratica si vede al momento
+              della scelta. Lv 1 tace. */}
+          {(opzione.livello ?? 1) > 1 && (
+            <span className="ml-1.5 rounded border border-current/40 px-1 text-[0.65rem] opacity-80">
+              Lv {opzione.livello}
+            </span>
+          )}
         </button>
       ))}
     </div>

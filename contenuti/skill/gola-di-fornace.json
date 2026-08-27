@@ -1,0 +1,13 @@
+{
+  "slug": "gola-di-fornace",
+  "versione": 1,
+  "tags": ["magia", "fuoco"],
+  "nome": "Gola di fornace",
+  "testo": "La brace non si sputa: si pronuncia. Ogni sillaba lascia il palato un po' più asciutto e il bersaglio molto più acceso.",
+  "tipo": "attiva",
+  "pratica": "mossa",
+  "mossa": "lingua-di-brace",
+  "dominio": "magia",
+  "effetto": "potenza_mossa",
+  "intensita": "potente"
+}

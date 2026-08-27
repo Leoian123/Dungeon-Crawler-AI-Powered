@@ -11,6 +11,8 @@ export interface OpzioneVista {
   tipo: string;
   /** false = voce mostrata ma non giocabile ora (mossa senza mana o in ricarica). */
   abilitata?: boolean;
+  /** Il Lv della skill che governa la mossa (nodo S): 1 = tace. */
+  livello?: number;
 }
 
 /** Come una run è finita. `null` = in corso. */

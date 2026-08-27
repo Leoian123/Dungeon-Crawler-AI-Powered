@@ -87,7 +87,12 @@ def test_ttk_per_profilo(run_pulita, tmp_path, archetipo: str, grado: Grado) -> 
     nessun equipaggiamento poteva compensare due curve che salivano appaiate. Da F9 le
     curve sono separate e il corredo atteso entra nel conto."""
     sessione = costruisci_sessione(
-        nome="TTK", seed=1, directory=tmp_path, stagione=_stagione_un_mob(archetipo, grado)
+        nome="TTK", seed=1, directory=tmp_path,
+        stagione=_stagione_un_mob(archetipo, grado),
+        # La banda TTK è la taratura BASE del check 2: si misura SENZA il
+        # registro skill (la pratica che sale mid-scontro sposterebbe la
+        # coda dei tier alti — quella è progressione, non banda).
+        skill=(),
     )
     _equipaggia_di_riferimento(grado)
     colpi_giocatore = []
@@ -123,6 +128,7 @@ def test_giro_completo_giocabile_con_tattica(run_pulita, tmp_path) -> None:
     sessione = costruisci_sessione(
         nome="Giro", seed=1, directory=tmp_path,
         stagione=stagione_sintetica(1, n_stanze=8),
+        skill=(),  # misura di giocabilità base: senza registro (vedi sopra)
     )
     snap = asyncio.run(sessione.prossima_narrazione())
     stanze_viste = 1

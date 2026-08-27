@@ -928,7 +928,9 @@ def _equip_di(entita: int) -> tuple[EquipVista, ...]:
 
 def _etichetta_mossa_ricca(entita: int, chiave: str) -> str:
     """L'etichetta di menu che DICE il costo: "Dardo arcano — 3 mana", e in ricarica
-    "Colpo pesante — ricarica (1)". Composizione di presentazione: vive nel port,
+    "Colpo pesante — ricarica (1)"; col LIVELLO della skill che la governa
+    (nodo S) quando supera il primo — la pratica si vede al momento della
+    scelta. Composizione di presentazione: vive nel port,
     non nel motore (che possiede i numeri, non le frasi). Il ribattezzo del
     Guardaroba (premi.skill) vince sul nome di catalogo."""
     from motore import guardaroba_attivo
@@ -1020,6 +1022,18 @@ class IstanzaCombattimento:
 
     @property
     def opzioni(self) -> tuple[OpzioneVista, ...]:
+        from motore.skill import PraticaSkill, _livello_di, skill_correnti
+
+        registro = skill_correnti()
+
+        def _livello_mossa(chiave: str) -> int:
+            if registro is None:
+                return 1
+            for s in registro.catalogo:
+                if s.pratica == PraticaSkill.MOSSA.value and s.mossa == chiave:
+                    return _livello_di(registro, s)
+            return 1
+
         pent = protagonista()[0]
         voci = []
         for i, chiave in enumerate(self._mosse()):
@@ -1029,6 +1043,7 @@ class IstanzaCombattimento:
                 etichetta=_etichetta_mossa_ricca(pent, chiave),
                 tipo=TipoAzione.COMBATTI,
                 abilitata=pagabile,
+                livello=_livello_mossa(chiave),
             ))
         voci.append(OpzioneVista(indice=len(voci), etichetta="Fuggi", tipo=TipoAzione.SCAPPA))
         return tuple(voci)

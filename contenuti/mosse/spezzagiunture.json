@@ -1,0 +1,12 @@
+{
+  "slug": "spezzagiunture",
+  "versione": 1,
+  "tags": ["combattimento", "controllo"],
+  "etichetta": "Spezzagiunture",
+  "effetti": [
+    {"primitivo": "danno", "tipo_danno": "mischia", "potenza": "standard"},
+    {"primitivo": "applica_status", "blocco": "stordito"}
+  ],
+  "costo": "economica",
+  "ricarica": "lunga"
+}

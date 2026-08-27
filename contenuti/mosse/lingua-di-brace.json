@@ -1,0 +1,12 @@
+{
+  "slug": "lingua-di-brace",
+  "versione": 1,
+  "tags": ["magia", "fuoco"],
+  "etichetta": "Lingua di Brace",
+  "effetti": [
+    {"primitivo": "danno", "tipo_danno": "fuoco", "potenza": "pesante", "stile": "magico"},
+    {"primitivo": "applica_status", "blocco": "brucia"}
+  ],
+  "costo": "costosa",
+  "ricarica": "breve"
+}

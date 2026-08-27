@@ -1,0 +1,13 @@
+{
+  "slug": "mano-che-spezza",
+  "versione": 1,
+  "tags": ["combattimento", "controllo"],
+  "nome": "Mano che spezza",
+  "testo": "Sapere dove il corpo si piega, e insistere dove non dovrebbe. Il pubblico distoglie lo sguardo; il sistema no.",
+  "tipo": "attiva",
+  "pratica": "mossa",
+  "mossa": "spezzagiunture",
+  "dominio": "combattimento",
+  "effetto": "potenza_mossa",
+  "intensita": "marcata"
+}
