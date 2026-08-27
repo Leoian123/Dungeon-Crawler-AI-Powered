@@ -53,15 +53,22 @@ def test_G5_status_solo_nel_bucket_sempre_attivo() -> None:
     nominate: gli alias storici `SistemaVeleno`/`SistemaBrucia`/… sono stati ritirati
     proprio perché cablarli *insieme* alla derivazione faceva ticcare due volte lo
     stesso status — un bug silenzioso che raddoppiava il decorso."""
+    from motore.status import SistemaStatus, SistemaTregue
+
     sistemi = sistemi_status()
     assert sistemi, "nessun system di status derivato dalla tabella"
     for sistema in sistemi:
         assert isinstance(sistema, SistemaSempreAttivo)
         assert not isinstance(sistema, SistemaSoloCombattimento)
     # Mappa tipo→sistema INIETTIVA: un solo proprietario per tipo (G-5).
-    tipi = [s.tipo_status for s in sistemi]
+    tipi = [s.tipo_status for s in sistemi if isinstance(s, SistemaStatus)]
     assert len(set(tipi)) == len(tipi), f"due system per lo stesso status: {tipi}"
     assert {Veleno, Brucia, Rigenerazione} <= set(tipi)
+    # Il proprietario delle tregue è UNO e corre PRIMA dei tick di status:
+    # la tregua aperta da una scadenza non si consuma nello stesso turno
+    # (l'ordine è parte del contratto della tregua di scadenza).
+    tregue = [s for s in sistemi if isinstance(s, SistemaTregue)]
+    assert len(tregue) == 1 and isinstance(sistemi[0], SistemaTregue)
 
 
 def test_G5_avanzamento_status_solo_in_status_py() -> None:
@@ -95,6 +102,96 @@ def test_G7_competizione_per_rango(mondo_isolato: str) -> None:
     v.durata = 1
     applica_status(e, Veleno(rango=5, durata=4))
     assert esper.component_for_entity(e, Veleno).durata == 4
+
+
+# --- La tregua di scadenza: il contrappeso del lock deterministico -------------
+
+def _giro(sistemi) -> None:
+    for sistema in sistemi:
+        sistema.run(1)
+
+
+def test_la_tregua_spezza_il_lock_dello_stordimento(mondo_isolato: str) -> None:
+    """Playtest live 2026-08-27: l'Usciere stordiva a ogni colpo base e il
+    giocatore è morto 34→0 agendo UNA volta — col risolutore deterministico
+    (niente proc) lo stun-sul-colpo è un lock perpetuo per costruzione. La
+    tregua di scadenza (tabella + §11) garantisce il respiro: dopo la
+    scadenza, lo stesso status è rifiutato per `STATUS.tregua_negazione`
+    turni — qui il ciclo dell'Usciere diventa stordito/agisci/agisci."""
+    from motore.status import Stordito, afflizione
+    from motore.status import TregueStatus
+
+    e = esper.create_entity()
+    segna_turno_attivo(e)
+    sistemi = sistemi_status()
+
+    agiti = 0
+    storia = []
+    for _round in range(9):
+        # Il turno del nemico: il colpo base porta SEMPRE lo stordimento.
+        applica_status(e, afflizione(Stordito, 1))
+        # Il turno dell'entità: stordita = salta; libera = agisce.
+        stordita = esper.try_component(e, Stordito) is not None
+        storia.append("salta" if stordita else "agisce")
+        if not stordita:
+            agiti += 1
+        _giro(sistemi)
+    # Senza tregua la storia era ["salta"] * 9 (il log del playtest). Con la
+    # tregua a 2 (default §11) il ciclo è salta/agisce/agisce.
+    assert agiti >= 5, f"il lock non è spezzato: {storia}"
+    assert storia[:6] == ["salta", "agisce", "agisce", "salta", "agisce", "agisce"]
+    # E il rifiuto è pulito: nei turni in cui agisce, il componente Stordito
+    # NON esiste (nessun falso «stordito» nei descrittori della proiezione) —
+    # la tregua vive nel suo componente, non in uno status fantasma.
+    assert not esper.has_component(e, Stordito)
+    # E la tregua si ripulisce da sola: a fine ciclo (finestra consumata al
+    # round 9) il componente contabile non resta appeso all'entità.
+    assert not esper.has_component(e, TregueStatus)
+
+
+def test_la_tregua_e_una_foglia_di_calibrazione(mondo_isolato: str, monkeypatch) -> None:
+    """`STATUS.tregua_negazione = 0` (§11) = comportamento storico: nessuna
+    tregua, lo stordimento riattacca subito — la leva è calibrazione."""
+    from motore import calibrazione
+    from motore.status import Stordito, afflizione
+
+    monkeypatch.setitem(calibrazione._OVERRIDE, "STATUS.tregua_negazione", 0)
+    e = esper.create_entity()
+    segna_turno_attivo(e)
+    sistemi = sistemi_status()
+    applica_status(e, afflizione(Stordito, 1))
+    _giro(sistemi)  # scade: durata 1 → 0, nessuna tregua aperta
+    assert applica_status(e, afflizione(Stordito, 1)) is True, (
+        "a tregua spenta lo stordimento riattacca come da storico"
+    )
+
+
+def test_la_tregua_non_tocca_gli_status_di_danno(mondo_isolato: str) -> None:
+    """La tregua vale SOLO per chi la dichiara in tabella (nega-azione): il
+    veleno rientra subito — rifiutarlo cambierebbe il bilanciamento dei DoT."""
+    from motore.status import afflizione
+
+    e = esper.create_entity()
+    segna_turno_attivo(e)
+    sistemi = sistemi_status()
+    applica_status(e, Veleno(rango=1, durata=1))
+    _giro(sistemi)  # scade
+    assert not esper.has_component(e, Veleno)
+    assert applica_status(e, afflizione(Veleno, 1)) is True
+
+
+def test_la_capacita_innata_ignora_la_tregua(mondo_isolato: str) -> None:
+    """La tregua rifiuta le AFFLIZIONI, mai l'attaccarsi di una CAPACITÀ
+    innata (il blocco del catalogo al reveal non è un colpo subito)."""
+    from motore.status import Stordito, afflizione
+
+    e = esper.create_entity()
+    segna_turno_attivo(e)
+    sistemi = sistemi_status()
+    applica_status(e, afflizione(Stordito, 1))
+    _giro(sistemi)  # scade → tregua aperta
+    assert applica_status(e, afflizione(Stordito, 1)) is False  # afflizione: rifiutata
+    assert applica_status(e, Stordito(rango=1, durata=1, innato=True)) is True
 
 
 # --- G-8: un componente per tipo; tipi diversi coesistono e ticcano in parallelo

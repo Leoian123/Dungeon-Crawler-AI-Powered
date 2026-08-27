@@ -649,6 +649,14 @@ _DEFS: tuple[Param, ...] = (
           "custode gracile non si sentiva boss). 1.0 = spento; le ferite del "
           "custode riarruolato restano comunque sue.",
           CAT_CHECK2, "≥1", "float"),
+    Param("STATUS.tregua_negazione", 2, "TREGUA DI SCADENZA degli status che "
+          "negano l'azione (tabella: tregua_scadenza=True, oggi lo Stordito): "
+          "per QUESTI turni dopo la scadenza lo stesso status è rifiutato. Col "
+          "combattimento deterministico un colpo base che storda è un lock "
+          "perpetuo (playtest live 2026-08-27: morte 34→0 agendo una volta); "
+          "a 2 l'afflitto agisce 2 turni su 3 sotto pressione continua. "
+          "0 = tregua spenta (comportamento storico). Vale per entrambi i lati.",
+          CAT_STATUS, "intero ≥0", "int", "turni"),
     # --- Bonifica prosa (2026-08-27): il gate di FORMA sul canale unico ---------
     Param("BONIFICA.retry", 1, "Giri di REGIA del gate anti-slop: a violazione "
           "della tabella REGOLE_SLOP la chiamata si ripete UNA volta con le "

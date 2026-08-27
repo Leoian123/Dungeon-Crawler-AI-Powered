@@ -142,6 +142,15 @@ class SpecStatus:
     blocco: Blocco | None = None
     con_sistema: bool = True
     persistente: bool = True
+    # `tregua_scadenza=True` = alla scadenza lo status lascia una TREGUA sul
+    # bersaglio: lo stesso tipo è RIFIUTATO per `STATUS.tregua_negazione`
+    # turni (§11). È il contrappeso strutturale degli status che NEGANO
+    # l'azione: col combattimento deterministico (niente proc) un colpo base
+    # che storda è un lock perpetuo per costruzione — il playtest live
+    # 2026-08-27 è morto 34→0 agendo UNA volta (l'Usciere ristordiva a ogni
+    # colpo, sempre prima del turno del giocatore). Vale per entrambi i
+    # lati: nemmeno il giocatore concatena stordimenti all'infinito.
+    tregua_scadenza: bool = False
 
 
 # La tabella porta il **comportamento** (chi trasmette, chi ha un system, chi persiste);
@@ -153,7 +162,8 @@ SPEC_STATUS: tuple[SpecStatus, ...] = (
     SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.BRUCIA),
     SpecStatus(Rigenerazione, Valenza.BENEFICO, Risoluzione.MOTORE,
                trasmissibile=False, blocco=Blocco.RIGENERAZIONE),
-    SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.STORDITO),
+    SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.STORDITO,
+               tregua_scadenza=True),
     SpecStatus(Confusione, Valenza.DANNOSO, Risoluzione.AI,
                trasmissibile=False, con_sistema=False, persistente=False),
 )
@@ -244,6 +254,57 @@ def afflizione_da(capacita: Status) -> Status:
     return afflizione(type(capacita), capacita.rango)
 
 
+# --- La tregua di scadenza: il contrappeso degli status che negano l'azione ------
+
+@dataclass
+class TregueStatus:
+    """Le tregue attive sull'entità: nome-status → turni residui di rifiuto.
+
+    Componente TRANSIENTE di combattimento (mai nel tag registry del save: il
+    save in scontro è vietato e fuori scontro la tregua è moot). Scritta da
+    `SistemaStatus` alla scadenza, scalata dal proprietario unico
+    `SistemaTregue`, letta da `applica_status` per rifiutare."""
+
+    voci: dict[str, int]
+
+
+def _in_tregua(entita: int, tipo: type[Status]) -> bool:
+    tregue = esper.try_component(entita, TregueStatus)
+    return tregue is not None and tregue.voci.get(nome_status(tipo), 0) > 0
+
+
+def _apri_tregua(entita: int, tipo: type[Status]) -> None:
+    from .calibrazione import valore
+
+    turni = int(valore("STATUS.tregua_negazione"))
+    if turni <= 0:
+        return  # §11: tregua spenta — comportamento storico
+    tregue = esper.try_component(entita, TregueStatus)
+    if tregue is None:
+        esper.add_component(entita, TregueStatus(voci={}))
+        tregue = esper.component_for_entity(entita, TregueStatus)
+    tregue.voci[nome_status(tipo)] = turni
+
+
+class SistemaTregue(SistemaSempreAttivo):
+    """Proprietario unico dello scorrere delle tregue (stessa cadenza G-24:
+    solo l'entità attiva del giro). Registrato DERIVATO da `sistemi_status`."""
+
+    def run(self, dt: int) -> None:
+        entita = entita_attiva()
+        if entita is None:
+            return
+        tregue = esper.try_component(entita, TregueStatus)
+        if tregue is None:
+            return
+        for nome in list(tregue.voci):
+            tregue.voci[nome] -= 1
+            if tregue.voci[nome] <= 0:
+                del tregue.voci[nome]
+        if not tregue.voci:
+            esper.remove_component(entita, TregueStatus)
+
+
 # --- Applicazione: competizione per rango (G-7) -------------------------------
 
 def applica_status(entita: int, status: Status) -> bool:
@@ -263,6 +324,11 @@ def applica_status(entita: int, status: Status) -> bool:
     innato trasmesso ed effetto di mossa applicavano lo stesso blocco).
     """
     tipo = type(status)
+    if not status.innato and _in_tregua(entita, tipo):
+        # La TREGUA rifiuta: il corpo ha appena scontato questo status e per
+        # qualche turno non lo riprende (contrappeso del lock deterministico).
+        # Il rifiuto è muto come un rinfresco: nessun «Sei stordito!» falso.
+        return False
     residente = esper.try_component(entita, tipo)
     if residente is None:
         esper.add_component(entita, status)
@@ -337,6 +403,9 @@ class SistemaStatus(SistemaSempreAttivo):
         comp.durata -= 1
         if comp.durata <= 0:
             esper.remove_component(entita, self.tipo_status)
+            spec = SPEC_PER_TIPO.get(self.tipo_status)
+            if spec is not None and spec.tregua_scadenza:
+                _apri_tregua(entita, self.tipo_status)
             if self.bus is not None:
                 # La FINE si narra come l'inizio: prima il giocatore leggeva
                 # «Sei avvelenato!» e i tick, mai quando il veleno smetteva.
@@ -367,13 +436,19 @@ class SistemaStatus(SistemaSempreAttivo):
                     )
 
 
-def sistemi_status(bus=None) -> list[SistemaStatus]:
-    """UN system per ogni riga di `SPEC_STATUS` con tick deterministico: è la
-    registrazione derivata — un nuovo status non tocca né il guscio né gli harness
-    (un solo proprietario per tipo, G-5)."""
-    return [
+def sistemi_status(bus=None) -> list[SistemaSempreAttivo]:
+    """UN system per ogni riga di `SPEC_STATUS` con tick deterministico, PIÙ il
+    proprietario delle tregue di scadenza: è la registrazione derivata — un
+    nuovo status non tocca né il guscio né gli harness (G-5)."""
+    sistemi: list[SistemaSempreAttivo] = [
         SistemaStatus(bus, tipo=s.componente) for s in SPEC_STATUS if s.con_sistema
     ]
+    # Il proprietario delle tregue corre PRIMA dei tick di status: la tregua
+    # aperta da una scadenza in questo stesso turno non si consuma subito —
+    # a `STATUS.tregua_negazione = 2` l'afflitto agisce 2 turni su 3 anche
+    # sotto pressione continua (l'ordine è parte del contratto: lucchetto).
+    sistemi.insert(0, SistemaTregue())
+    return sistemi
 
 
 # ⛔ **Gli alias storici sono stati RITIRATI** (`SistemaVeleno`, `SistemaBrucia`,

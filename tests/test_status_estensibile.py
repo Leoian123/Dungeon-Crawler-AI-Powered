@@ -58,11 +58,13 @@ def test_completezza_della_catena_status() -> None:
         assert spec.componente in FLAG_STATUS
         assert spec.componente in PROFILO_STATUS
         assert e_persistente(spec.componente) is spec.persistente
-    # 4) Un sistema di tick per ogni riga con_sistema, col tipo giusto (G-5).
-    tipi_sistemi = [s.tipo_status for s in sistemi_status()]
+    # 4) Un sistema di tick per ogni riga con_sistema, col tipo giusto (G-5) —
+    # più il proprietario delle tregue di scadenza, che non possiede uno
+    # status: possiede il contatore dei rifiuti (tregua_scadenza in tabella).
+    di_tick = [s for s in sistemi_status() if isinstance(s, SistemaStatus)]
+    tipi_sistemi = [s.tipo_status for s in di_tick]
     attesi = [s.componente for s in SPEC_STATUS if s.con_sistema]
     assert tipi_sistemi == attesi
-    assert all(isinstance(s, SistemaStatus) for s in sistemi_status())
     # 5) La trasmissione col colpo è derivata, mai una tupla nel loop.
     assert set(TRASMISSIBILI) == {s.componente for s in SPEC_STATUS if s.trasmissibile}
 
@@ -162,8 +164,9 @@ def test_nessuna_sottoclasse_nominata_di_SistemaStatus() -> None:
 
 def test_i_system_derivati_sono_uno_per_tipo() -> None:
     from motore import sistemi_status
+    from motore.status import SistemaStatus
 
-    tipi = [s.tipo_status for s in sistemi_status()]
+    tipi = [s.tipo_status for s in sistemi_status() if isinstance(s, SistemaStatus)]
     assert len(set(tipi)) == len(tipi), f"due system per lo stesso status: {tipi}"
 
 
