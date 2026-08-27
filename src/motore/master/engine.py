@@ -15,7 +15,13 @@ from typing import Mapping
 from pydantic import BaseModel
 
 from ..fase import Fase, in_combattimento
+from ..tipografia import rifinisci_caporali
 from .rotte import ROTTE, Corsia, Rotta
+
+# I campi di PROSA A VIDEO degli schemi delle rotte (`prosa` nei turni e nei
+# blocchi di scena, `testo` nei Flavor): gli unici che la rifinitura
+# tipografica tocca — mai slug, enum o campi d'authoring.
+_CAMPI_PROSA = ("prosa", "testo")
 
 
 @dataclass
@@ -64,6 +70,13 @@ class MasterEngine:
             conto.chiamate += 1
             candidato = await provider.genera(prompt, rotta.schema, sistema=sistema)
             if candidato is not None:
+                # Rifinitura di FORMA (mai di contenuto): i caporali mischiati
+                # agli apici dritti nella prosa a video (playtest 2026-08-27).
+                # Non è validazione né fallback: il candidato è già conforme.
+                for campo in _CAMPI_PROSA:
+                    valore = getattr(candidato, campo, None)
+                    if isinstance(valore, str):
+                        setattr(candidato, campo, rifinisci_caporali(valore))
                 return candidato
         conto.degradi += 1
         return None

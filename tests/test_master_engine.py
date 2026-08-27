@@ -107,3 +107,36 @@ def test_avvolgi_copre_tutte_le_corsie() -> None:
     prov = FakeProvider([])
     engine = MasterEngine.avvolgi(prov)
     assert all(engine.provider_di(c) is prov for c in Corsia)
+
+
+# --- Rifinitura tipografica della prosa (playtest live 2026-08-27) --------------
+
+def test_rifinisci_caporali_a_bilancio() -> None:
+    """Il finding cinico: il modello apre col caporale e chiude con l'apice
+    dritto. La regola a bilancio ripara chiusure e aperture mischiate; uno
+    stile UNIFORME (solo apici, o nessun dialogo) resta intatto."""
+    from motore.tipografia import rifinisci_caporali
+
+    assert rifinisci_caporali('«Anche i morti hanno sete, ogni tanto."') == (
+        "«Anche i morti hanno sete, ogni tanto.»"
+    )
+    assert rifinisci_caporali('Dice "così» e se ne va.') == "Dice «così» e se ne va."
+    assert rifinisci_caporali("«Già a posto.» Poi tace.") == "«Già a posto.» Poi tace."
+    # Stile uniforme senza caporali: non è un errore, nessun ritocco.
+    assert rifinisci_caporali('Dice "ciao" e basta.') == 'Dice "ciao" e basta.'
+    assert rifinisci_caporali("Nessun dialogo qui.") == "Nessun dialogo qui."
+    assert rifinisci_caporali("") == ""
+    # Anche gli apici curvi rientrano nel bilancio.
+    assert rifinisci_caporali("«Vieni qui” disse.") == "«Vieni qui» disse."
+
+
+def test_engine_rifinisce_la_prosa_del_candidato(mondo_isolato) -> None:
+    """La rifinitura vive nel canale unico: OGNI rotta consegna prosa già
+    rifinita — il chiamante non deve ricordarsene."""
+    _arma_fase()
+    prov = FakeProvider([{"prosa": '«Mezzogiorno."', "entita": {
+        "archetipo": "slime", "grado": "bronzo", "blocchi": [],
+        "nome": "n", "descrizione": "d"}, "durata": "turno"}])
+    engine = MasterEngine.avvolgi(prov)
+    cand = asyncio.run(engine.genera("gm.gating", "p"))
+    assert cand is not None and cand.prosa == "«Mezzogiorno.»"
