@@ -472,6 +472,11 @@ _DEFS: tuple[Param, ...] = (
     Param("DURATA_AZIONE.attraversa", "un_attimo", "Durata del passaggio di zona "
           "(territorio): varcare il confine custodito dal boss battuto.", CAT_TEMPO,
           "una Durata", "scelta", scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
+    Param("DURATA_AZIONE.smaltisci", "turno", "Durata NOMINALE di SMALTISCI "
+          "(«Aspetta che passi»): il costo vero è N passa-turno, uno per tick "
+          "di status da smaltire — la foglia esiste per la completezza della "
+          "tabella enum→durata.", CAT_TEMPO, "una Durata", "scelta",
+          scelte=("turno", "un_attimo", "un_pochino", "un_bel_po")),
     Param("DURATA_AZIONE.apri_box", "un_attimo", "Durata di APRI_BOX (nodo O2). "
           "NOTA: l'apertura NON spende tempo per disegno (il prezzo è arrivare al "
           "sicuro) — la foglia esiste per la completezza della tabella enum→durata "

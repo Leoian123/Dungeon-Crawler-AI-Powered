@@ -18,6 +18,7 @@ const STILE_TIPO: Record<string, string> = {
   attraversa: "border-show/60 bg-show/10 text-show hover:bg-show/20 hover:shadow-[0_0_12px_rgba(34,211,238,0.3)]",
   riposa: "border-sigillo/60 bg-sigillo/10 text-sigillo hover:bg-sigillo/20",
   passa: "border-sigillo/40 bg-sigillo/5 text-sigillo/85 hover:bg-sigillo/15",
+  smaltisci: "border-sigillo/40 bg-sigillo/5 text-sigillo/85 hover:bg-sigillo/15",
 };
 const STILE_DEFAULT =
   "border-torcia/60 bg-torcia/10 text-torcia hover:bg-torcia/20";

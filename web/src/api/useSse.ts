@@ -36,6 +36,16 @@ export function useSse(attivo: boolean) {
       void qc.invalidateQueries({ queryKey: ["partita"] });
       void qc.invalidateQueries({ queryKey: ["crawlers"] });
     });
+    // RIAGGANCIO (playtest a 3 persone, P2): al riavvio dell'host l'EventSource
+    // si riconnette da solo ma gli eventi persi nel buco non tornano — la tab
+    // mostrava «attende il primo turno» con la partita già avanti, finché non
+    // ricaricavi a mano. `open` scatta anche a ogni ri-connessione: si
+    // risincronizza TUTTO lo stato remoto, che gli eventi siano arrivati o no.
+    sorgente.addEventListener("open", () => {
+      void qc.invalidateQueries({ queryKey: ["partita"] });
+      void qc.invalidateQueries({ queryKey: ["thread"] });
+      void qc.invalidateQueries({ queryKey: ["crawlers"] });
+    });
     return () => sorgente.close();
   }, [attivo, qc, setProgresso]);
 }

@@ -3,7 +3,7 @@
 // stato (Zustand), niente router. Verità remota in TanStack Query (snapshot
 // sostituito in blocco, C-4), segnali live via SSE.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useSse } from "./api/useSse";
 import {
@@ -57,6 +57,20 @@ function Partita({ stato }: { stato: StatoPartita }) {
   // In combattimento non si salva (soft-lock al ricarico): il server risponde
   // comunque 409, qui si spengono i bottoni per non far sbattere il giocatore.
   const salvataggioVietato = bloccata || stato.fase === "combattimento";
+
+  // PRIMO TURNO AUTOMATICO (playtest a 3 persone, P2): a partita appena
+  // aperta il thread è vuoto e il dungeon «attende» — il primo reveal si
+  // chiede da solo, UNA volta. Il bottone manuale resta per tutti i casi
+  // successivi (menu svuotato, rilettura).
+  const primoChiesto = useRef(false);
+  const threadVuoto = thread.isSuccess && (thread.data?.post ?? []).length === 0;
+  const senzaMenu = !stato.snapshot || stato.snapshot.opzioni.length === 0;
+  useEffect(() => {
+    if (primoChiesto.current || !threadVuoto || !senzaMenu) return;
+    if (bloccata || terminata) return;
+    primoChiesto.current = true;
+    narrazione.mutate({ versione: stato.versione });
+  }, [threadVuoto, senzaMenu, bloccata, terminata, narrazione, stato.versione]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -112,26 +126,32 @@ function Partita({ stato }: { stato: StatoPartita }) {
           <ChipObiettivi apri={() => setVista("albo")} />
         </aside>
 
-        {vista === "albo" ? (
-          <main className="min-w-0 flex-1">
-            <AlboObiettivi />
-          </main>
-        ) : vista === "registro" ? (
-          <main className="min-w-0 flex-1">
-            <RegistroSkill />
-          </main>
-        ) : (
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <BannerFase fase={stato.fase} />
-          {stato.fase === "combattimento" && stato.snapshot && (
-            // In scontro i descrittori portano anche il NEMICO coi suoi HP.
-            <PannelloStato stato={stato.snapshot.stato} />
+          {vista === "albo" ? (
+            <main className="min-w-0 flex-1">
+              <AlboObiettivi />
+            </main>
+          ) : vista === "registro" ? (
+            <main className="min-w-0 flex-1">
+              <RegistroSkill />
+            </main>
+          ) : (
+            <>
+              <BannerFase fase={stato.fase} />
+              {stato.fase === "combattimento" && stato.snapshot && (
+                // In scontro i descrittori portano anche il NEMICO coi suoi HP.
+                <PannelloStato stato={stato.snapshot.stato} />
+              )}
+
+              <main className="flex-1">
+                <ThreadForum post={thread.data?.post ?? []} />
+              </main>
+            </>
           )}
 
-          <main className="flex-1">
-            <ThreadForum post={thread.data?.post ?? []} />
-          </main>
-
+          {/* La barra delle azioni vive in OGNI vista (playtest a 3 persone,
+              P2: nell'albo/registro il gioco sembrava congelato — la
+              consultazione non deve nascondere lo stato vivo). */}
           <footer className="sticky bottom-0 flex flex-col gap-3 border-t border-pergamena/15 bg-abisso/95 py-3 backdrop-blur">
             <ProgressoGM progresso={progresso} />
             {stato.morto ? (
@@ -165,7 +185,6 @@ function Partita({ stato }: { stato: StatoPartita }) {
             )}
           </footer>
         </div>
-        )}
       </div>
     </div>
   );

@@ -6,6 +6,46 @@ import { useState } from "react";
 import type { GmScelta } from "../api/tipi";
 import { useApriPartita, useAssets } from "../api/query";
 
+// Interruttore ESPLICITO al posto della checkbox nativa (playtest a 3 persone
+// 2026-08-27, P2: lo stato visivo della checkbox sul tema scuro veniva letto
+// al contrario — un giocatore ha giocato la daily credendo di avere il SUO
+// seed, altri due il contrario). Lo stato è una parola, non un pixel.
+function Interruttore({
+  attivo,
+  su,
+  disabled,
+  children,
+}: {
+  attivo: boolean;
+  su: (v: boolean) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => su(!attivo)}
+      className={`flex items-center gap-2 rounded border px-3 py-2 text-left text-sm transition disabled:opacity-40 ${
+        attivo
+          ? "border-torcia bg-torcia/15"
+          : "border-pergamena/25 hover:bg-pergamena/10"
+      }`}
+    >
+      <span
+        className={`shrink-0 rounded-full border px-2 py-0.5 font-hud text-[10px] font-bold uppercase tracking-wider ${
+          attivo
+            ? "border-torcia text-torcia"
+            : "border-pergamena/40 text-pergamena/50"
+        }`}
+      >
+        {attivo ? "attiva" : "spenta"}
+      </span>
+      <span>{children}</span>
+    </button>
+  );
+}
+
 export function CreaCrawler({
   gm,
   onAnnulla,
@@ -37,42 +77,33 @@ export function CreaCrawler({
           className="rounded border border-pergamena/25 bg-abisso px-3 py-2 text-pergamena placeholder:text-pergamena/40 focus:border-torcia/60 focus:outline-none"
         />
       </label>
-      <label className="flex flex-col gap-1 text-sm">
-        Seed della discesa
-        <input
-          type="number"
-          value={seed}
-          disabled={apri.isPending || daily}
-          onChange={(e) => setSeed(Number(e.target.value) || 0)}
-          className="rounded border border-pergamena/25 bg-abisso px-3 py-2 text-pergamena focus:border-torcia/60 focus:outline-none disabled:opacity-40"
-        />
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={daily}
-          disabled={apri.isPending}
-          onChange={(e) => setDaily(e.target.checked)}
-          className="accent-torcia"
-        />
-        <span>
-          <b className="text-torcia">Run del giorno</b> — il seed lo detta la
-          data: stesso dungeon per tutti i crawler di oggi
-        </span>
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={infestata}
-          disabled={apri.isPending}
-          onChange={(e) => setInfestata(e.target.checked)}
-          className="accent-torcia"
-        />
-        <span>
-          <b className="text-torcia">Dungeon infestato</b> — le tracce dei tuoi
-          crawler caduti appaiono come lore
-        </span>
-      </label>
+      {/* Col daily attivo il campo seed SPARISCE (non solo disabilitato):
+          un numero visibile ma ignorato dal server è una promessa falsa. */}
+      {daily ? (
+        <p className="rounded border border-torcia/30 bg-torcia/5 px-3 py-2 text-xs text-pergamena/70">
+          Il seed lo calcola il server dalla data di oggi: stesso dungeon per
+          tutti i crawler del giorno. Il numero effettivo apparirà nella card.
+        </p>
+      ) : (
+        <label className="flex flex-col gap-1 text-sm">
+          Seed della discesa
+          <input
+            type="number"
+            value={seed}
+            disabled={apri.isPending}
+            onChange={(e) => setSeed(Number(e.target.value) || 0)}
+            className="rounded border border-pergamena/25 bg-abisso px-3 py-2 text-pergamena focus:border-torcia/60 focus:outline-none disabled:opacity-40"
+          />
+        </label>
+      )}
+      <Interruttore attivo={daily} su={setDaily} disabled={apri.isPending}>
+        <b className="text-torcia">Run del giorno</b> — il seed lo detta la
+        data: stesso dungeon per tutti i crawler di oggi
+      </Interruttore>
+      <Interruttore attivo={infestata} su={setInfestata} disabled={apri.isPending}>
+        <b className="text-torcia">Dungeon infestato</b> — le tracce dei tuoi
+        crawler caduti appaiono come lore
+      </Interruttore>
       <label className="flex flex-col gap-1 text-sm">
         Stagione dello show
         <select

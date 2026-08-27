@@ -2636,6 +2636,39 @@ class SessioneGioco:
             if puo_passare_turno():
                 passa_turno(self.bus, componi_imboscata=componi_imboscata_scena)
             return
+        if azione.tipo is TipoAzione.SMALTISCI:
+            # «Aspetta che passi» (playtest a 3 persone 2026-08-27): la
+            # tenaglia veleno-blocca-Riposa in UN click — passa-turno finché
+            # i DANNOSI a tempo non scadono. Il dado tira a OGNI tick e
+            # un'imboscata INTERROMPE (il tempo speso resta rischio); il
+            # tetto è il totale dei tick residui degli status (mai un loop
+            # aperto: lo smaltimento ha per costruzione una fine).
+            from motore import (
+                componi_imboscata_scena, in_combattimento, passa_turno,
+                protagonista as _prot, puo_passare_turno,
+            )
+            from motore.status import SPEC_STATUS, Valenza
+
+            def _tick_dannosi_residui() -> int:
+                import esper as _esper
+
+                pent = _prot()[0]
+                totale = 0
+                for spec in SPEC_STATUS:
+                    if spec.valenza is not Valenza.DANNOSO or not spec.con_sistema:
+                        continue
+                    comp = _esper.try_component(pent, spec.componente)
+                    if comp is not None and not comp.innato:
+                        totale += max(0, comp.durata)
+                return totale
+
+            for _ in range(_tick_dannosi_residui()):
+                if not puo_passare_turno() or in_combattimento():
+                    break
+                passa_turno(self.bus, componi_imboscata=componi_imboscata_scena)
+                if in_combattimento() or _tick_dannosi_residui() == 0:
+                    break
+            return
         if azione.tipo is TipoAzione.SCAPPA:
             # Disimpegno: prova su stat PRIMA di ingaggiare (FNC §5.3, tirata dal motore).
             # La destrezza passa dal fold (GR2-3), non da un campo della scheda.

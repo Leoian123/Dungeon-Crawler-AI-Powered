@@ -370,6 +370,86 @@ def test_il_contratto_vieta_gli_esiti_meccanici_in_prosa() -> None:
     assert "mai consegnarli" in _ISTRUZIONE_BLOCCHI
 
 
+def test_aspetta_che_passi_smaltisce_i_dannosi_in_un_click(run_pulita, tmp_path) -> None:
+    """P1 del playtest a 3 persone: la tenaglia veleno-blocca-Riposa rendeva
+    «Aspetta» il tasto più premuto del gioco (Aspetta ×N, poi Riposa). Coi
+    DANNOSI a tempo addosso compare «Aspetta che passi»: un click, tick
+    finché non scadono — col dado d'imboscata vivo a ogni tick."""
+    import esper as _esper
+
+    from contracts import PlayerChoseOption
+    from main import costruisci_sessione
+    from motore import Veleno, applica_status, componi_opzioni_scena
+    from motore.status import afflizione
+
+    sessione = costruisci_sessione(nome="Smalto", seed=5, directory=tmp_path)
+    snap = sessione.avanza()
+    asyncio.run(sessione.prossima_narrazione())
+    # Ripulisci la stanza: il menu di scena pieno vive senza presidiante.
+    from motore import mob_corrente
+
+    mob = mob_corrente()
+    if mob is not None:
+        _esper.delete_entity(mob, immediate=True)
+    etichette = [o.etichetta for o in componi_opzioni_scena()]
+    assert "Aspetta che passi" not in etichette, "senza dannosi la voce tace"
+
+    from motore import protagonista
+
+    pent = protagonista()[0]
+    applica_status(pent, afflizione(Veleno, 1))
+    opzioni = componi_opzioni_scena()
+    per_etichetta = {o.etichetta: o for o in opzioni}
+    assert "Aspetta che passi" in per_etichetta, "coi dannosi la voce compare"
+
+    snap = sessione.avanza()
+    indice = next(i for i, o in enumerate(snap.opzioni)
+                  if o.etichetta == "Aspetta che passi")
+    sessione.coda.accoda(PlayerChoseOption(indice))
+    sessione.avanza()
+    assert not _esper.has_component(pent, Veleno), (
+        "un click deve smaltire il veleno fino alla scadenza"
+    )
+    sessione.esci()
+
+
+def test_la_storia_dei_blocchi_avvisa_della_monotonia(mondo_isolato) -> None:
+    """P1: 5/5 ostili col veleno — il gate non può vietarlo (è in-budget), la
+    regia lo DICE: quando un blocco appare in ≥2 degli ultimi mob, la riga
+    di varietà entra nel prompt del budget. Data-driven, zero chiamate."""
+    import random
+
+    from contracts import Blocco, EntitaGenerata, Grado
+    from motore import (
+        avvia_run, crea_seme, istanzia_entita, prepara_contesto,
+    )
+    from motore.narrazione import costruisci_prompt, proietta_scheda, riga_varieta_blocchi
+    from motore import crea_protagonista
+
+    crea_seme(4)
+    avvia_run(crea_singleton_fase=True)
+    crea_protagonista(destrezza=10, punti_vita=30, id_dominio="carl")
+    assert riga_varieta_blocchi() == "", "senza storia, nessuna riga"
+
+    def _mob(nome: str, blocchi) -> None:
+        istanzia_entita(EntitaGenerata(
+            archetipo="slime", grado=Grado.BRONZO, blocchi=blocchi,
+            nome=nome, descrizione="",
+        ), livello=1)
+
+    _mob("Uno", [Blocco.VELENO])
+    assert riga_varieta_blocchi() == "", "una sola occorrenza non è monotonia"
+    _mob("Due", [Blocco.VELENO])
+    riga = riga_varieta_blocchi()
+    assert "veleno ×2" in riga and "VARIA" in riga
+    # E la riga entra davvero nel prompt del budget.
+    from motore.scheda import protagonista
+
+    budget = prepara_contesto(1, random.Random(7))
+    prompt = costruisci_prompt(budget, proietta_scheda(protagonista()[0]), "voce")
+    assert "veleno ×2" in prompt
+
+
 def test_le_corsie_dichiarate_arrivano_al_modello(run_pulita, tmp_path) -> None:
     """P1 del playtest a 3 persone: `scontro.resoconto` degradava a RIPIEGO in
     7 scontri su 7 LIVE — l'host costruiva un composito per-schema (Flavor →

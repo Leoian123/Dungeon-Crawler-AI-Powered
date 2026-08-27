@@ -24,7 +24,7 @@ narrazione (atomica) ritenta; la modalità-prosa (cosmetica) fallisce in fretta.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import esper
 from pydantic import ValidationError
@@ -160,6 +160,12 @@ def costruisci_prompt(budget: Budget, proiezione: SchedaProiezione, voce: str) -
         "[budget] scegli archetipo/grado/blocchi DENTRO il budget; "
         "non emettere numeri né livello.",
     ]
+    # Anti-monotonia meccanica (playtest a 3 persone: 5/5 ostili col veleno):
+    # la storia dei blocchi recenti è DATO del World — la riga compare solo
+    # quando la ripetizione emerge, e resta regia: il vincolo hard è il gate.
+    varieta = riga_varieta_blocchi()
+    if varieta:
+        righe.append(varieta)
     if budget.anomala:
         righe.append("[anomalia] il dungeon ha tirato fuori scala: questo scontro è un evento.")
     return "\n".join(righe)
@@ -510,7 +516,56 @@ def istanzia_entita(entita: EntitaGenerata, livello: int) -> int:
         # scade, non danneggia il portatore; agisce sul colpo o come passiva.
         componenti.append(cls(rango=rango, durata=DURATA_BLOCCO_DEFAULT, innato=True))
 
+    _registra_blocchi_visti(entita.blocchi)
     return esper.create_entity(*componenti)
+
+
+# --- La storia dei blocchi: anti-monotonia MECCANICA (playtest a 3 persone) -----
+# Il gemello meccanico dell'incipit-fotocopia: il modello pescava VELENO dal
+# budget su 5 ostili su 5 — il gate non può vietarlo (è in-budget), ma la
+# regia può DIRLO. La storia è dato del World (mai persistita: è regia).
+
+@dataclass
+class StoriaBlocchi:
+    """Gli ultimi blocchi materializzati nella run (rolling, componente
+    transiente — il tag registry non lo serializza)."""
+
+    visti: list = field(default_factory=list)
+
+
+_STORIA_FINESTRA = 4
+
+
+def _registra_blocchi_visti(blocchi) -> None:
+    trovato = esper.get_component(StoriaBlocchi)
+    if trovato:
+        storia = trovato[0][1]
+    else:
+        storia = StoriaBlocchi()
+        esper.create_entity(storia)
+    storia.visti.append(tuple(b.value for b in blocchi))
+    del storia.visti[:-_STORIA_FINESTRA]
+
+
+def riga_varieta_blocchi() -> str:
+    """La riga di regia anti-monotonia: "" finché la varietà regge; quando un
+    blocco appare in ≥2 degli ultimi mob, il prompt lo dice — data-driven,
+    zero chiamate, mai un divieto (il budget resta l'unico vincolo hard)."""
+    trovato = esper.get_component(StoriaBlocchi)
+    if not trovato:
+        return ""
+    visti = trovato[0][1].visti
+    conteggi: dict[str, int] = {}
+    for blocchi in visti:
+        for b in set(blocchi):
+            conteggi[b] = conteggi.get(b, 0) + 1
+    ripetuti = sorted(b for b, n in conteggi.items() if n >= 2)
+    if not ripetuti:
+        return ""
+    elenco = ", ".join(f"{b} ×{conteggi[b]}" for b in ripetuti)
+    return (f"[budget] blocchi già in scena negli ultimi nemici: {elenco} — "
+            "VARIA: un piano dove ogni mostro ha lo stesso veleno è un piano "
+            "monotono (anche NESSUN blocco è una scelta).")
 
 
 def materializza_turno(risultato: RisultatoTurno, bus=None) -> int:

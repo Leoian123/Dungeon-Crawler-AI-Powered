@@ -720,6 +720,28 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     aspetta = _lettura_tollerante("passa_turno", puo_passare_turno, False)
     if aspetta:
         opzioni.append(OpzioneScena(tipo=TipoAzione.PASSA, etichetta="Aspetta"))
+        # SMALTISCI («Aspetta che passi», playtest a 3 persone 2026-08-27):
+        # la tenaglia veleno-blocca-Riposa rendeva «Aspetta» il tasto più
+        # premuto del gioco — Aspetta, Aspetta, Aspetta, Riposa. Coi DANNOSI
+        # a tempo addosso, un click solo: tick finché non scadono, col dado
+        # d'imboscata che tira a OGNI tick (il rischio non si sconta).
+        def _dannosi_a_tempo() -> bool:
+            from .scheda import protagonista as _protagonista
+            from .status import SPEC_STATUS, Valenza
+
+            pent = _protagonista()[0]
+            for spec in SPEC_STATUS:
+                if spec.valenza is not Valenza.DANNOSO or not spec.con_sistema:
+                    continue
+                comp = esper.try_component(pent, spec.componente)
+                if comp is not None and not comp.innato:
+                    return True
+            return False
+
+        if _lettura_tollerante("smaltisci", _dannosi_a_tempo, False):
+            opzioni.append(OpzioneScena(
+                tipo=TipoAzione.SMALTISCI, etichetta="Aspetta che passi",
+            ))
     for stanza in uscite():
         opzioni.append(
             OpzioneScena(tipo=TipoAzione.MUOVI, etichetta=f"Vai: stanza {stanza}", stanza=stanza)

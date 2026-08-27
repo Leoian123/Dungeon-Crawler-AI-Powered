@@ -180,6 +180,11 @@ class TipoAzione(SchemaSnello, str, Enum):
     # spina. Di scena come SCENDI: compare SOLO quando è vero (stanza-passaggio
     # e boss di zona sconfitto) — l'AI può nominarlo, mai concederlo.
     ATTRAVERSA = "attraversa"
+    # `SMALTISCI` («Aspetta che passi», playtest a 3 persone 2026-08-27): la
+    # valvola della tenaglia veleno-blocca-Riposa in UN click — tick finché i
+    # dannosi non scadono, col dado d'imboscata che tira a OGNI tick (il
+    # tempo speso resta rischio). Di scena: compare solo coi dannosi addosso.
+    SMALTISCI = "smaltisci"
     # `PASSA` (J §6, acceso 2026-08-12): la valvola del passa-turno — UN tick
     # secco, gli status tickano, il dado tira. Di scena quando è vera
     # (`puo_passare_turno`: narrazione ∧ nessuno unsafe — i DANNOSI non la
