@@ -36,7 +36,20 @@ export function BarraOpzioni({
 
   if (snapshot.opzioni.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col gap-1.5">
+      {/* Scena sociale aperta (playtest 2026-08-27): il menu resta operativo
+          — scegliere è LEGITTIMO e tronca la trattativa nel motore — ma lo
+          stato va DETTO, non lasciato indovinare dal composer sotto. */}
+      {snapshot.scena_aperta && (
+        <span className="font-hud text-[0.7rem] uppercase tracking-widest text-muschio/80">
+          ⚠ trattativa in corso — scegliere un'azione tronca la conversazione
+        </span>
+      )}
+      <div
+        className={`flex flex-wrap gap-2 ${
+          snapshot.scena_aperta ? "opacity-70" : ""
+        }`}
+      >
       {snapshot.opzioni.map((opzione) => (
         // `abilitata === false` = mossa senza mana o in ricarica: la voce RESTA
         // (gli indici non devono ballare fra snapshot), spenta. Il rifiuto vero
@@ -60,6 +73,7 @@ export function BarraOpzioni({
           )}
         </button>
       ))}
+      </div>
     </div>
   );
 }

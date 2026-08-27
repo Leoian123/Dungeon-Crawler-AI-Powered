@@ -73,6 +73,50 @@ def test_doppia_registrazione_e_deregistrazione_inesistente_sollevano() -> None:
         bus.deregistra(EncounterStarted, handler)  # non più presente
 
 
+def test_dispatch_breadth_first_l_evento_annidato_non_scavalca() -> None:
+    """Playtest 2026-08-27: la cronaca scriveva «Nuovo obiettivo» PRIMA di
+    «Hai vinto lo scontro» — l'osservatore-obiettivi (registrato prima della
+    cronaca) pubblicava il suo evento a metà del dispatch della vittoria e il
+    figlio scavalcava il padre. Breadth-first: il padre finisce il SUO giro di
+    ascoltatori, poi parte l'annidato — qualunque sia l'ordine di iscrizione."""
+    bus = BusEventi()
+    ordine: list[str] = []
+
+    # L'osservatore si iscrive PRIMA della cronaca (l'ordine incriminato).
+    def osservatore(evt: CombatResolved) -> None:
+        bus.pubblica(MortePersonaggio(causa="annidato"))
+
+    bus.registra(CombatResolved, osservatore)
+    bus.registra(CombatResolved, lambda evt: ordine.append("padre"))
+    bus.registra(MortePersonaggio, lambda evt: ordine.append("figlio"))
+
+    bus.pubblica(CombatResolved(entita=1, vittoria=True))
+    assert ordine == ["padre", "figlio"], (
+        "l'evento pubblicato da un handler deve accodarsi, non scavalcare"
+    )
+
+
+def test_pubblica_esterna_resta_sincrona_anche_su_catene() -> None:
+    """Al ritorno della `pubblica` più esterna OGNI effetto (anche a catena)
+    è applicato: la coda non perde eventi né li rimanda al giro dopo."""
+    bus = BusEventi()
+    ordine: list[str] = []
+
+    def primo(evt: CombatResolved) -> None:
+        ordine.append("a")
+        bus.pubblica(MortePersonaggio(causa="b"))
+
+    def secondo(evt: MortePersonaggio) -> None:
+        ordine.append(evt.causa)
+        if evt.causa == "b":
+            bus.pubblica(MortePersonaggio(causa="c"))  # catena di 2° grado
+
+    bus.registra(CombatResolved, primo)
+    bus.registra(MortePersonaggio, secondo)
+    bus.pubblica(CombatResolved(entita=1, vittoria=True))
+    assert ordine == ["a", "b", "c"]
+
+
 def test_handler_puo_deregistrarsi_durante_il_dispatch() -> None:
     bus = BusEventi()
     raccolti: list[int] = []

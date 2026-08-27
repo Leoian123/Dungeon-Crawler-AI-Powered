@@ -60,7 +60,9 @@ function Partita({ stato }: { stato: StatoPartita }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Comandi di run SEMPRE in vista (playtest 2026-08-27: Salva scrollava
+          fuori schermo col thread lungo): la riga è sticky in testa. */}
+      <div className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-2 border-b border-pergamena/15 bg-abisso/95 px-4 py-2 backdrop-blur">
         <div className="flex items-center gap-3">
           <nav className="flex gap-1 rounded border border-pergamena/20 p-0.5">
             {(["diario", "albo", "registro"] as const).map((v) => (

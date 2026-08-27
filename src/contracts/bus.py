@@ -36,6 +36,13 @@ class BusEventi:
     def __init__(self) -> None:
         # tipo-di-evento -> lista di handler (riferimenti FORTI, ordine di registrazione).
         self._handlers: dict[type, list[Handler]] = {}
+        # Dispatch BREADTH-FIRST: gli eventi pubblicati DENTRO un handler si
+        # accodano e partono a evento-padre concluso (playtest 2026-08-27: la
+        # cronaca scriveva «Nuovo obiettivo» PRIMA di «Hai vinto lo scontro»
+        # perché l'osservatore-obiettivi, registrato prima, annidava il suo
+        # evento a metà del dispatch della vittoria).
+        self._coda_annidati: list[object] = []
+        self._in_dispatch = False
 
     def registra(self, tipo_evento: type[_E], handler: Handler) -> None:
         """Sottoscrive `handler` agli eventi di tipo ESATTO `tipo_evento`.
@@ -67,9 +74,25 @@ class BusEventi:
         Push, fire-and-forget: chi pubblica non sa chi ascolta. Si itera su una
         copia, così un handler può deregistrarsi durante il dispatch senza rompere
         l'iterazione.
+
+        Il dispatch è breadth-first: un evento pubblicato da un handler NON
+        interrompe il giro in corso — si accoda e parte quando l'evento che
+        l'ha causato ha finito i suoi ascoltatori. La consegna resta sincrona
+        per il chiamante ESTERNO: al ritorno della `pubblica` più esterna la
+        coda è vuota e ogni effetto è applicato.
         """
-        for handler in tuple(self._handlers.get(type(evento), ())):
-            handler(evento)
+        self._coda_annidati.append(evento)
+        if self._in_dispatch:
+            return  # l'evento-padre completa il suo giro, poi tocca a questo
+        self._in_dispatch = True
+        try:
+            while self._coda_annidati:
+                corrente = self._coda_annidati.pop(0)
+                for handler in tuple(self._handlers.get(type(corrente), ())):
+                    handler(corrente)
+        finally:
+            self._in_dispatch = False
+            self._coda_annidati.clear()  # igiene se un handler è esploso
 
     def pulisci(self) -> None:
         """Rimuove tutte le sottoscrizioni (comodo nel teardown dei test)."""
