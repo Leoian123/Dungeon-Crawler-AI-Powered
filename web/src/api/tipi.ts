@@ -125,6 +125,10 @@ export interface CrawlerVista {
 export interface RispostaCrawlers {
   crawlers: CrawlerVista[];
   attiva: { uuid: string; nome: string } | null;
+  // B7.3: la run "attiva" può essere già terminata (morte/vittoria) — l'hub
+  // non deve dire «Run in corso» di una run finita. Opzionali: host vecchi.
+  attiva_morta?: boolean;
+  attiva_vittoria?: boolean;
 }
 
 /** Una skill/mossa: cosa costa, se è pronta e perché no. */

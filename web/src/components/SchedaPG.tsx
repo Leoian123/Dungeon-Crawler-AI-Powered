@@ -52,7 +52,9 @@ function BarraMana({ mana, manaMax }: { mana: number; manaMax: number }) {
 // (il nome pieno resta nel title al passaggio del mouse).
 const SIGLE_DERIVATE: Record<string, string> = {
   attacco: "ATK",
-  difesa: "DEF",
+  // B4: il backend proietta la difesa in UNITÀ DI MITIGAZIONE (def_eff/100,
+  // una cifra decimale) — la sigla dichiara l'unità nuova, non la stat grezza.
+  difesa: "MIT",
   colpo: "COLPO",
   iniziativa: "INIZ",
   evasione: "EVA",

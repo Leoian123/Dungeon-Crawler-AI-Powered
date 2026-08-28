@@ -121,13 +121,29 @@ export function HubCrawler() {
       {runAperta && (
         <div className="flex items-center justify-between rounded-lg border border-torcia/50 bg-torcia/10 px-4 py-3">
           <span>
-            Run in corso: <b className="text-torcia">{attiva.nome}</b>
+            {/* B7.3: una run terminata non è «in corso» — l'etichetta lo dice
+                e il Riprendi porta al thread in sola lettura (come già fa). */}
+            {crawlers.data.attiva_morta ? (
+              <>
+                Ultima run: <b className="text-sangue">{attiva.nome} †</b>
+              </>
+            ) : crawlers.data.attiva_vittoria ? (
+              <>
+                Ultima run: <b className="text-torcia">{attiva.nome} 🏆</b>
+              </>
+            ) : (
+              <>
+                Run in corso: <b className="text-torcia">{attiva.nome}</b>
+              </>
+            )}
           </span>
           <button
             onClick={() => setSezione("gioco")}
             className="rounded bg-torcia px-4 py-1.5 font-bold text-abisso transition hover:bg-torcia/90"
           >
-            Riprendi
+            {crawlers.data.attiva_morta || crawlers.data.attiva_vittoria
+              ? "Rileggi"
+              : "Riprendi"}
           </button>
         </div>
       )}

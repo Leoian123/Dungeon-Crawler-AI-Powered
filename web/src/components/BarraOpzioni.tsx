@@ -6,6 +6,9 @@
 // chiama lo scontro, verde il dialogo, ambra il movimento, azzurro il tempo —
 // il menu si legge a colpo d'occhio, come un HUD.
 
+import { useEffect, useRef, useState } from "react";
+import { useIsMutating } from "@tanstack/react-query";
+
 import type { SnapshotVista } from "../api/tipi";
 import { useScegliOpzione } from "../api/query";
 
@@ -33,7 +36,24 @@ export function BarraOpzioni({
   bloccata: boolean;
 }) {
   const scelta = useScegliOpzione();
-  const disabilitata = bloccata || scelta.isPending;
+  // B7.1 (playtest profondo 2026-08-28): NESSUN click perso — la barra si
+  // spegne per QUALUNQUE richiesta in volo (anche partita da un altro
+  // componente: azione libera, battuta, equip), non solo per la propria
+  // mutation. `useIsMutating` conta tutte le mutation attive del client.
+  const inVolo = useIsMutating() > 0;
+  // B7.2: 150ms di disabilitazione dopo ogni RICOMPOSIZIONE del menu (la
+  // versione cambia ⇒ le voci possono essere slittate di slot): il click
+  // partito per l'opzione di prima non colpisce quella nuova.
+  const [ricomposta, setRicomposta] = useState(false);
+  const primaVersione = useRef(versione);
+  useEffect(() => {
+    if (primaVersione.current === versione) return;
+    primaVersione.current = versione;
+    setRicomposta(true);
+    const timer = setTimeout(() => setRicomposta(false), 150);
+    return () => clearTimeout(timer);
+  }, [versione]);
+  const disabilitata = bloccata || scelta.isPending || inVolo || ricomposta;
 
   if (snapshot.opzioni.length === 0) return null;
   return (
@@ -63,6 +83,12 @@ export function BarraOpzioni({
             STILE_TIPO[opzione.tipo] ?? STILE_DEFAULT
           }`}
         >
+          {/* Lo spinner sul bottone scelto: l'attesa si VEDE dove hai
+              cliccato, non solo nel progresso GM in calce (B7.1). */}
+          {scelta.isPending &&
+            scelta.variables?.indice === opzione.indice && (
+              <span className="mr-1.5 inline-block animate-spin">◌</span>
+            )}
           {opzione.etichetta}
           {/* Il Lv della skill che governa la mossa (nodo S): DATO
               sull'opzione, vestito qui — la pratica si vede al momento

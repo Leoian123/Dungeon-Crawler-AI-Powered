@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 import calibratore_web
 
-from contracts import PlayerChoseOption
+from contracts import PlayerChoseOption, TipoAzione
 from main import (
     MODELLI_ASSET,
     STAGIONE_DEFAULT,
@@ -501,10 +501,15 @@ def crea_app(stato: StatoHost) -> FastAPI:
     @app.get("/api/crawlers")
     async def crawlers() -> dict:
         """L'elenco degli slot (slot = crawler, H §1): la vista dell'hub. Nessuna
-        guardia di sessione: si consulta anche a run aperta."""
+        guardia di sessione: si consulta anche a run aperta. `attiva_terminata`
+        (B7.3, playtest profondo 2026-08-28): con `morto/vittoria` l'hub non
+        deve più dire «Run in corso» di una run finita — l'etichetta diventa
+        «Ultima run» e il Riprendi porta al thread in sola lettura."""
         return {
             "crawlers": [c.model_dump(mode="json") for c in elenca_crawler(stato.directory)],
             "attiva": stato.crawler,
+            "attiva_morta": stato.morto,
+            "attiva_vittoria": stato.vittoria,
         }
 
     @app.delete("/api/crawlers/{uuid}")
@@ -607,6 +612,13 @@ def crea_app(stato: StatoHost) -> FastAPI:
         # è appena passato dalla cronaca tipata — la coda dei non-letti si
         # svuota perché al prossimo load non diventi un doppione.
         sessione.drena_notifiche_obiettivi()
+        if ric.nuovo is not None:
+            # AUTOSAVE ALLA CREAZIONE (B5, playtest profondo 2026-08-28): lo
+            # slot esiste su disco PRIMA del 201 — un crash prima del primo
+            # «Salva» cancellava l'esistenza del personaggio (il primo Ade è
+            # sparito così). Sincrono e non best-effort: se il disco non
+            # scrive, meglio saperlo alla creazione che alla morte.
+            sessione.salva()
         return _stato_partita()
 
     @app.post("/api/partita/esci")
@@ -805,6 +817,25 @@ def crea_app(stato: StatoHost) -> FastAPI:
             )
             # Nodo O4: drenaggio SILENZIOSO — il live è già nella cronaca tipata.
             sessione.drena_notifiche_obiettivi()
+            # AUTOSAVE ai confini naturali di H (B5): transizione di zona/piano
+            # (Attraversa/Scendi) e fine scontro — tutti punti fuori
+            # combattimento, la guardia save-in-combat resta intatta. Il costo
+            # è una scrittura in più per transizione, trascurabile rispetto a
+            # una chiamata LLM. Best-effort: un disco pieno non deve rompere
+            # il turno appena giocato (il save manuale resta la via che parla).
+            scelta_fatta = next(
+                (o for o in corrente.opzioni if o.indice == ric.indice), None
+            )
+            confine = scontro_chiuso or (
+                scelta_fatta is not None
+                and scelta_fatta.tipo in (TipoAzione.ATTRAVERSA, TipoAzione.SCENDI)
+            )
+            if (confine and not stato.morto and not stato.vittoria
+                    and snap.fase == "narrazione" and snap.terminale is None):
+                try:
+                    sessione.salva()
+                except Exception:  # noqa: BLE001
+                    pass
         return _risposta_turno(nuovi)
 
     @app.post("/api/partita/azione/anteprima")

@@ -31,8 +31,10 @@ def _apri(client: TestClient, corpo: dict) -> dict:
 
 def test_ciclo_hub_completo(host) -> None:
     client, _stato = host
-    # Hub vuoto.
-    assert client.get("/api/crawlers").json() == {"crawlers": [], "attiva": None}
+    # Hub vuoto (B7.3: la risposta porta anche lo stato terminale della run attiva).
+    vuoto = client.get("/api/crawlers").json()
+    assert vuoto["crawlers"] == [] and vuoto["attiva"] is None
+    assert vuoto["attiva_morta"] is False and vuoto["attiva_vittoria"] is False
 
     # Nuovo crawler → un turno GM → salva-ed-esci.
     apertura = _apri(client, {"nuovo": {"nome": "Donut", "seed": 1}})
@@ -112,6 +114,35 @@ def test_morte_poi_chiudi_invalida_lo_slot(host) -> None:
     # Permadeath: lo slot è invalidato, si torna all'hub.
     assert client.get("/api/partita").status_code == 404
     assert client.get("/api/crawlers").json()["crawlers"] == []
+
+
+def test_autosave_alla_creazione_lo_slot_esiste_prima_del_primo_salva(host) -> None:
+    """B5 (playtest profondo 2026-08-28): il primo Ade è SPARITO — partita
+    creata, mai salvata, processo caduto ⇒ nessuno slot. Ora lo slot esiste
+    su disco appena il 201 risponde, senza alcun POST /salva."""
+    client, _stato = host
+    apertura = _apri(client, {"nuovo": {"nome": "Ade", "seed": 8}})
+    elenco = client.get("/api/crawlers").json()
+    [voce] = elenco["crawlers"]
+    assert voce["uuid"] == apertura["crawler"]["uuid"]
+    assert voce["etichetta"] == "Ade", (
+        "kill del processo post-creazione: l'hub DEVE elencare lo slot"
+    )
+
+
+def test_hub_post_mortem_dichiara_la_run_terminata(host) -> None:
+    """B7.3: con la run attiva morta l'hub non dice più «Run in corso» —
+    il dato `attiva_morta` arriva al client."""
+    client, stato = host
+    _apri(client, {"nuovo": {"nome": "Caduto", "seed": 1}})
+    _pent, _marker, scheda = protagonista()
+    scheda.punti_vita = 0
+    tick()
+    assert stato.morto is True
+    elenco = client.get("/api/crawlers").json()
+    assert elenco["attiva"]["nome"] == "Caduto"
+    assert elenco["attiva_morta"] is True
+    assert elenco["attiva_vittoria"] is False
 
 
 def test_scheda_party(host) -> None:
