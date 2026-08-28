@@ -422,24 +422,94 @@ def uscite() -> tuple[int, ...]:
 
 def discesa_consentita() -> bool:
     """Gate della discesa: senza mappa (harness/test legacy) la discesa resta libera;
-    con la mappa serve la **scala nella stanza corrente** (G §8.1/§8.3)."""
+    con la mappa serve la **scala nella stanza corrente** (G §8.1/§8.3) E il
+    passaggio concesso (`passaggio_concesso` — lo stesso proprietario di `muovi`:
+    con un ostile vivo non parlamentato la scala non è una fuga gratis, in tregua
+    è aperta come il resto della scena, B1)."""
     m = mappa_corrente()
     if m is None:
         return True
-    return scala_presente()
+    return scala_presente() and passaggio_concesso()
+
+
+# --- Passaggio: UN SOLO proprietario della verità «puoi lasciare la stanza» ----
+
+def passaggio_concesso() -> bool:
+    """Vero se il protagonista può lasciare la stanza corrente (B1, playtest
+    profondo 2026-08-28):
+
+    - nessun mob in stanza → concesso;
+    - mob in TREGUA (`parlamento_riuscito`) e NON custode imbattuto → concesso
+      (lo sbocco del parlamento: la fiction promette «transitus permissus»);
+    - altrimenti negato (con un nemico vivo serve SCAPPA, FNC §5.3; il
+      boss-gate resta combat-only).
+
+    È il PREDICATO UNICO che compositore (`componi_opzioni_scena`) ed esecutori
+    (`muovi`, `discesa_consentita`) leggono: la regressione P0 del 27/08 era
+    esattamente i due lati divergiti — il fix P0-2 aveva aggiornato il
+    compositore («Vai» composto in tregua) ma `muovi()` rifiutava ancora
+    qualunque movimento con un mob vivo, e il click era muto."""
+    ent = mob_corrente()
+    if ent is None:
+        return True
+    em = esper.try_component(ent, EntitaMob)
+    if em is None or not em.parlamento_riuscito:
+        return False
+
+    def _custode_imbattuto() -> bool:
+        from .territorio import (
+            boss_sconfitto, stanza_corrente_e_del_boss, zona_corrente,
+        )
+
+        zona = zona_corrente()
+        return (zona is not None and stanza_corrente_e_del_boss()
+                and not boss_sconfitto(zona))
+
+    # Lettura tollerante (stessa dottrina della composizione): su un World
+    # parziale il territorio può mancare — il degrado registrato vale
+    # «nessun custode», mai un crash dentro un esecutore.
+    return not _lettura_tollerante("passaggio_custode", _custode_imbattuto, False)
+
+
+def stanza_di_ritirata() -> int | None:
+    """La stanza in cui si ARRETRA disimpegnandosi: la minima adiacente
+    (deterministica). È la STESSA per lo «Scappi» di narrazione e per la fuga
+    in combattimento risolta (B2): una prova, un esito, una destinazione.
+    `None` = niente mappa o stanza senza uscite."""
+    m = mappa_corrente()
+    if m is None:
+        return None
+    adiacenze = m[1].piano.adiacenze.get(m[1].stanza_corrente, ())
+    return min(adiacenze) if adiacenze else None
+
+
+def arretra() -> int | None:
+    """Esegue la RITIRATA: sposta il protagonista in `stanza_di_ritirata`
+    SENZA passare da `muovi` (che col mob in stanza rifiuterebbe — e arretrare
+    È il caso col mob in stanza). Il mob resta registrato alla sua stanza,
+    ferite comprese: rivisitarla significa ritrovarlo. Ritorna la stanza di
+    arrivo, o `None` se non c'è mappa/uscita (harness, stanze isolate)."""
+    m = mappa_corrente()
+    ritirata = stanza_di_ritirata()
+    if m is None or ritirata is None:
+        return None
+    m[1].stanza_corrente = ritirata
+    return ritirata
 
 
 # --- Movimento: intento → sistema (Canale A, solo-narrazione) ------------------
 
 def muovi(stanza: int) -> bool:
-    """Sposta nella stanza `stanza` se adiacente e senza nemico che ingaggia.
+    """Sposta nella stanza `stanza` se adiacente e col passaggio concesso.
     Ritorna True se il movimento è avvenuto. Il motore dispone: niente teletrasporto,
-    niente fuga gratis (con un nemico vivo serve SCAPPA, FNC §5.3)."""
+    niente fuga gratis (con un nemico vivo serve SCAPPA, FNC §5.3) — ma la TREGUA
+    del parlamentato apre il passaggio (`passaggio_concesso`, proprietario unico:
+    la stessa verità che compone «Vai» nel menu, B1)."""
     m = mappa_corrente()
     if m is None:
         return False
     mappa = m[1]
-    if mob_corrente() is not None:
+    if not passaggio_concesso():
         return False
     if stanza not in mappa.piano.adiacenze.get(mappa.stanza_corrente, ()):
         return False
@@ -468,6 +538,33 @@ class OpzioneScena:
     etichetta: str
     stanza: int | None = None
     zona: str | None = None
+
+
+# ORDINE STABILE del menu di scena (B7.2, playtest profondo 2026-08-28): le
+# voci cambiavano indice e posizione fra un aggiornamento e l'altro (Riposa
+# che si inseriva sopra Aspetta) e il giocatore colpiva l'opzione sbagliata
+# mirando a quella di prima. Slot fissi PER TIPO: ingaggio/parola in testa,
+# tempo (Aspetta → Aspetta che passi → Riposa) al centro, MOVIMENTO sempre in
+# fondo (Vai → Scendi → Attraversa). L'ordine è un contratto di presentazione:
+# una voce può comparire o sparire, mai saltare di corsia.
+_SLOT_MENU: dict[TipoAzione, int] = {
+    TipoAzione.COMBATTI: 0,
+    TipoAzione.SCAPPA: 1,
+    TipoAzione.PARLAMENTA: 2,
+    TipoAzione.APRI_BOX: 3,
+    TipoAzione.PASSA: 4,
+    TipoAzione.SMALTISCI: 5,
+    TipoAzione.RIPOSA: 6,
+    TipoAzione.MUOVI: 7,
+    TipoAzione.SCENDI: 8,
+    TipoAzione.ATTRAVERSA: 9,
+}
+
+
+def _ordina_scena(opzioni: list[OpzioneScena]) -> tuple[OpzioneScena, ...]:
+    """Ordina le voci sugli slot fissi (sort STABILE: dentro lo stesso tipo
+    l'ordine di composizione resta — le uscite di `MUOVI` restano crescenti)."""
+    return tuple(sorted(opzioni, key=lambda o: _SLOT_MENU.get(o.tipo, 99)))
 
 
 # --- Degradi di composizione: la scena tollera un World parziale, ma non TACE ---
@@ -537,17 +634,7 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
             em = esper.try_component(mob_corrente(), EntitaMob)
             return em is not None and em.parlamento_riuscito
 
-        def _e_il_custode() -> bool:
-            from .territorio import (
-                boss_sconfitto, stanza_corrente_e_del_boss, zona_corrente,
-            )
-
-            zona = zona_corrente()
-            return (zona is not None and stanza_corrente_e_del_boss()
-                    and not boss_sconfitto(zona))
-
         tregua = _lettura_tollerante("tregua", _tregua_col_presidiante, False)
-        custode = _lettura_tollerante("custode", _e_il_custode, False)
         con_mob: list[OpzioneScena] = [
             OpzioneScena(
                 tipo=TipoAzione.COMBATTI,
@@ -575,7 +662,10 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
                 tipo=TipoAzione.PARLAMENTA,
                 etichetta=f"Parlamenta — {nome}" if nome else "Parlamenta",
             ))
-        if tregua and not custode:
+        # STESSO proprietario dell'esecutore (B1): l'opzione si compone se e
+        # solo se `muovi`/la discesa la onorerebbero — mai più i due lati
+        # divergiti (il «Vai» muto del playtest profondo 2026-08-28).
+        if _lettura_tollerante("passaggio", passaggio_concesso, False):
             if scala_presente():
                 con_mob.append(OpzioneScena(
                     tipo=TipoAzione.SCENDI, etichetta="Scendi la scala",
@@ -585,7 +675,7 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
                     tipo=TipoAzione.MUOVI,
                     etichetta=f"Vai: stanza {stanza}", stanza=stanza,
                 ))
-        return tuple(con_mob)
+        return _ordina_scena(con_mob)
     opzioni: list[OpzioneScena] = []
     # PARLAMENTA col PNG INTERPELLABILE (2026-08-16): solo le categorie che
     # rompono il divieto del menu (maestro di gilda, manager — il verbale
@@ -695,13 +785,24 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     # coda e la fabbrica può onorarla — l'opzione compare quando è VERA.
     def _etichetta_box() -> str:
         from .fabbrica import fabbrica_attiva
-        from .obiettivi import prossima_box
+        from .obiettivi import grado_apertura, prossima_box
 
         if tipo_stanza_corrente() is not TipoStanza.SAFE_ROOM:
             return ""
         box = prossima_box()
         if box is None or fabbrica_attiva() is None:
             return ""
+        # L'etichetta legge la STESSA funzione dell'apertura (B6, playtest
+        # profondo 2026-08-28: «Armi di Bronzo» che si apriva d'Argento — il
+        # conio e l'apertura leggevano due verità). E la scalata si MOSTRA
+        # invece di nasconderla: tenere le box per i piani bassi è una leva
+        # strategica che il giocatore deve poter scoprire dal menu.
+        aperto = grado_apertura(box)
+        if aperto != box.grado:
+            return (
+                f"Apri box — {box.categoria.capitalize()} "
+                f"({box.grado.capitalize()} → {aperto.capitalize()} qui)"
+            )
         return (
             f"Apri box — {box.categoria.capitalize()} "
             f"di {box.grado.capitalize()}"
@@ -746,7 +847,7 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         opzioni.append(
             OpzioneScena(tipo=TipoAzione.MUOVI, etichetta=f"Vai: stanza {stanza}", stanza=stanza)
         )
-    return tuple(opzioni)
+    return _ordina_scena(opzioni)
 
 
 # --- Persistenza: lo slot `esplorazione` del save (H) --------------------------

@@ -151,6 +151,13 @@ class SpecStatus:
     # colpo, sempre prima del turno del giocatore). Vale per entrambi i
     # lati: nemmeno il giocatore concatena stordimenti all'infinito.
     tregua_scadenza: bool = False
+    # Il DESCRITTORE diegetico per la scheda/proiezione («avvelenato»,
+    # «in fiamme»): B3 del playtest profondo 2026-08-28 — la proiezione
+    # derivava i descrittori da un elenco cablato di tre status e il Brucia
+    # era invisibile (si moriva di un DoT che la scheda non mostrava). La
+    # tabella è l'unico proprietario: un nuovo status è visibile per
+    # costruzione. "" = status senza descrittore (non compare in scheda).
+    descrittore: str = ""
 
 
 # La tabella porta il **comportamento** (chi trasmette, chi ha un system, chi persiste);
@@ -158,14 +165,18 @@ class SpecStatus:
 # Erano letterali qui: gli ultimi numeri di bilanciamento fuori dal catalogo, invisibili
 # alla console e non tarabili senza toccare il codice.
 SPEC_STATUS: tuple[SpecStatus, ...] = (
-    SpecStatus(Veleno, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.VELENO),
-    SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.BRUCIA),
+    SpecStatus(Veleno, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.VELENO,
+               descrittore="avvelenato"),
+    SpecStatus(Brucia, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.BRUCIA,
+               descrittore="in fiamme"),
     SpecStatus(Rigenerazione, Valenza.BENEFICO, Risoluzione.MOTORE,
-               trasmissibile=False, blocco=Blocco.RIGENERAZIONE),
+               trasmissibile=False, blocco=Blocco.RIGENERAZIONE,
+               descrittore="in rigenerazione"),
     SpecStatus(Stordito, Valenza.DANNOSO, Risoluzione.MOTORE, blocco=Blocco.STORDITO,
-               tregua_scadenza=True),
+               tregua_scadenza=True, descrittore="stordito"),
     SpecStatus(Confusione, Valenza.DANNOSO, Risoluzione.AI,
-               trasmissibile=False, con_sistema=False, persistente=False),
+               trasmissibile=False, con_sistema=False, persistente=False,
+               descrittore="confuso"),
 )
 
 SPEC_PER_TIPO: dict[type[Status], SpecStatus] = {s.componente: s for s in SPEC_STATUS}
@@ -175,6 +186,15 @@ def nome_status(tipo: type[Status]) -> str:
     """Il nome-dato stabile del tipo (chiave delle foglie §11 e dei tag di save)."""
     spec = SPEC_PER_TIPO.get(tipo)
     return spec.blocco.value if spec is not None and spec.blocco else tipo.__name__.lower()
+
+
+# slug → descrittore diegetico, DERIVATO dalla tabella (B3): la mappa cablata
+# che viveva in main.py (`_participio_status`) era il terzo proprietario della
+# stessa verità — assorbita qui. I consumatori (proiezione scheda, cronaca)
+# leggono questa, mai un elenco proprio.
+DESCRITTORI_STATUS: dict[str, str] = {
+    nome_status(s.componente): s.descrittore for s in SPEC_STATUS if s.descrittore
+}
 
 
 # --- Derivazioni (mai una seconda dichiarazione) --------------------------------

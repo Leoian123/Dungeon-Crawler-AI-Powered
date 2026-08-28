@@ -30,6 +30,7 @@ from motore import (
     SistemaCrollo,
     Veleno,
     componi_opzioni_scena,
+    mappa_corrente,
     mob_corrente,
     nome_mob_corrente,
     protagonista,
@@ -200,12 +201,21 @@ def test_la_fuga_non_distrugge_il_mob_della_stanza(run_pulita, tmp_path) -> None
     ent = mob_corrente()
     assert ent is not None, "il mob della stanza dev'essere arruolato nello scontro"
 
+    _e, mappa = mappa_corrente()
+    stanza_del_mob = mappa.stanza_corrente
     snap = _fuggi_finche_riesce(sessione, snap)
 
     assert esper.entity_exists(ent), "la fuga ha DISTRUTTO il mob della stanza"
+    # B2 (playtest profondo 2026-08-28): la fuga riuscita ARRETRA — sei nella
+    # stanza di ritirata, il mob resta registrato alla SUA stanza.
+    assert mappa.stanza_corrente != stanza_del_mob, "la fuga deve portare fuori"
+    from motore import EntitaMob as _EM
+
+    assert esper.component_for_entity(ent, _EM).stanza == stanza_del_mob
+    # Rivisitare la stanza significa ritrovarlo: bloccata, non liberata.
+    mappa.stanza_corrente = stanza_del_mob
     assert mob_corrente() == ent, "il mob ha perso il legame con la sua stanza"
     assert nome_mob_corrente() == "Spugna Argentata"
-    # Il nemico è ancora lì: la stanza resta bloccata, non liberata.
     etichette_scena = [o.etichetta for o in componi_opzioni_scena()]
     assert etichette_scena[0].startswith("Combatti") and etichette_scena[1] == "Scappi"
     # Congedato però non è più un combattente ingaggiato (nessuna effimera residua).
@@ -221,6 +231,8 @@ def test_le_ferite_del_mob_sopravvivono_alla_fuga(run_pulita, tmp_path) -> None:
     )
     snap = _apri_scontro(sessione)
     ent = mob_corrente()
+    _e, mappa = mappa_corrente()
+    stanza_del_mob = mappa.stanza_corrente
     sessione.coda.accoda(PlayerChoseOption(0))  # un round di botte
     snap = sessione.avanza()
     feriti = esper.component_for_entity(ent, PuntiVita)
@@ -230,7 +242,11 @@ def test_le_ferite_del_mob_sopravvivono_alla_fuga(run_pulita, tmp_path) -> None:
     snap = _fuggi_finche_riesce(sessione, snap)
 
     assert esper.component_for_entity(ent, PuntiVita).attuali == ferita
-    # E al RI-ingaggio il pool non torna pieno.
+    # E al RI-ingaggio (B2: la fuga arretra — si torna dal mob apposta) il
+    # pool non torna pieno.
+    mappa.stanza_corrente = stanza_del_mob
+    sessione._sincronizza_scena()
+    snap = sessione._snapshot_corrente()
     indice = next(o.indice for o in snap.opzioni if o.etichetta.startswith("Combatti"))
     sessione.coda.accoda(PlayerChoseOption(indice))
     sessione.avanza()

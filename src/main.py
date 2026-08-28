@@ -65,8 +65,10 @@ from contracts import (
     StagioneRisolta,
     TipoDanno,
     DiscesaPiano,
+    DisimpegnoFallito,
     Durata,
     EncounterStarted,
+    ParlamentoRisolto,
     EntitaGenerata,
     FattiScontro,
     IntentoEsplorazione,
@@ -1225,6 +1227,12 @@ class SessioneGioco:
         self._istanza: IstanzaCombattimento | None = None
         self._fatti_scontro: FattiScontro | None = None  # handoff scontro→GM
         self._fatti_epitaffio: FattiScontro | None = None  # fatti della morte (Fase 5)
+        # SCAMBI CUMULATI per nemico (B7.5, playtest profondo 2026-08-28):
+        # l'epitaffio contava solo l'ULTIMO ingaggio («un solo scambio» per una
+        # lotta di 5+ su due ingaggi). Contatore di sessione, solo flavor: non
+        # persiste nel save — dopo un load riparte, e l'epitaffio degrada al
+        # conteggio dell'ultimo ingaggio (il comportamento storico).
+        self._scambi_per_nemico: dict[str, int] = {}
         self._nome_mob = ""
         self._imboscata_in_corso = False  # lo scontro aperto è un'imboscata (Sit.5)
         self._mossa_su_visitata: int | None = None  # debito-tick del backtracking
@@ -1848,6 +1856,15 @@ class SessioneGioco:
             f"{fatti.nemico or 'il dungeon'} ha chiuso lo scontro in "
             f"{fatti.turni} scambi.",
         ]
+        # La lotta VERA può essere stata su più ingaggi (B7.5: «un solo
+        # scambio» per un boss affrontato due volte): il cumulato entra nel
+        # prompt come fatto, l'AI lo veste — mai numeri inventati.
+        cumulati = self._scambi_per_nemico.get(fatti.nemico or "", 0)
+        if cumulati > fatti.turni:
+            righe.append(
+                f"[fine] La lotta completa contro {fatti.nemico} è durata "
+                f"{cumulati} scambi su più ingaggi (fughe e rientri compresi)."
+            )
         # Il nemico che ti ha ucciso merita la sua descrizione (guardia sul nome:
         # niente lore stantia di uno scontro precedente).
         em = self._dettagli_nemico
@@ -1934,6 +1951,13 @@ class SessioneGioco:
             self._istanza.chiudi()
             self._istanza = None
             self._imboscata_in_corso = False
+            if self._fatti_scontro is not None and self._fatti_scontro.nemico:
+                # Il conto CUMULATO degli scambi con questo avversario (B7.5):
+                # lo legge l'epitaffio quando la lotta vera fu su più ingaggi.
+                self._scambi_per_nemico[self._fatti_scontro.nemico] = (
+                    self._scambi_per_nemico.get(self._fatti_scontro.nemico, 0)
+                    + self._fatti_scontro.turni
+                )
             if self._fatti_scontro is not None and self._fatti_scontro.vittoria:
                 self._deposita_bottino()
                 # Il deposito è già avvenuto: la VESTIZIONE è dovuta solo se c'è
@@ -2403,7 +2427,13 @@ class SessioneGioco:
                 "attacco": attacco(pent),
                 "iniziativa": iniziativa(pent),
                 "colpo": atk_eff(pent),
-                "difesa": def_eff(pent),
+                # In UNITÀ DI MITIGAZIONE, non in centesimi (B4): `def_eff` è
+                # centesimi per contratto (§5.2, il danno converte /100) e la
+                # scheda la mostrava grezza accanto a derivate intere — DEF 238
+                # sembrava un bug di bilanciamento. Il motore non si tocca: è
+                # presentazione. Una cifra decimale: combacia con la
+                # mitigazione piatta del check 2 su un colpo che connette.
+                "difesa": round(def_eff(pent) / 100, 1),
                 # Evasione/accuratezza sono GRANDEZZE (stat × coefficiente di
                 # geometria, §5.3-§5.4), non probabilità: si mostrano arrotondate.
                 # Due accuratezze, due stili: marziale (Des) e magica (Int).
@@ -2493,6 +2523,16 @@ class SessioneGioco:
             if esito is None:
                 self.ultimo_rifiuto = "Ha già smesso di ascoltarti."
                 return
+            if esito.classe:
+                # Il gate FRESCO ha tirato: la riga-fatto va sul canale eventi
+                # (B7.4, playtest profondo 2026-08-28 — prima l'esito viveva
+                # solo nel rifiuto dell'host e nel fascicolo GM: la prova più
+                # informativa della rotta sociale era muta in cronaca). Il
+                # convinto che riascolta (classe "") non ri-tira e non ristampa.
+                self.bus.pubblica(ParlamentoRisolto(
+                    nemico=nome_mob_corrente(), classe=esito.classe,
+                    ascoltato=esito.riuscito,
+                ))
             if not esito.riuscito:
                 # Il fallito è fallito (anti-pesca sociale): la voce non si
                 # ricompone mai più per questo mob. La riga del motore lo dice.
@@ -2675,7 +2715,8 @@ class SessioneGioco:
             pent, _m, _scheda = protagonista()
             # La classe la impone il MOB della scena (il suo `Grado`), non una costante:
             # disimpegnarsi da uno slime di bronzo e da un boss non è la stessa impresa.
-            if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), classe_disimpegno()):
+            _classe_dis = classe_disimpegno()
+            if tenta_disimpegno(stat_eff(pent, StatId.DESTREZZA), _classe_dis):
                 # RITIRATA UNIVERSALE (playtest 2026-08-12 — era il solo
                 # anti-softlock del custode, ora vale per OGNI mob): il
                 # disimpegno non dissolve MAI il nemico — tu ARRETRI nella
@@ -2686,18 +2727,32 @@ class SessioneGioco:
                 # comprato pure il riposo. La stanza resta bloccata:
                 # rivisitarla significa ritrovarlo (ferite comprese, come
                 # per la fuga in combattimento).
-                _e, _mappa = mappa_corrente()
-                ritirata = min(_mappa.piano.adiacenze[_mappa.stanza_corrente])
+                # La destinazione e lo spostamento sono del MOTORE (`arretra`,
+                # B2): la STESSA ritirata della fuga in combattimento — qui
+                # viveva una copia del `min(adiacenze)`, due proprietari.
+                from motore import arretra
+
+                nemico_dis = nome_mob_corrente()
+                ritirata = arretra()
                 # La ritirata PARLA (playtest round 2): l'evento porta la stanza
                 # in cui arretri — la cronaca lo dice, non lo scopri dal numero.
                 self.bus.pubblica(DisimpegnoScena(
-                    nemico=nome_mob_corrente(), ritirata_in=ritirata,
+                    nemico=nemico_dis,
+                    ritirata_in=ritirata if ritirata is not None else -1,
                 ))
-                _mappa.stanza_corrente = ritirata
                 from motore.calibrazione import DURATA_AZIONE as _DURATE
 
                 spendi_tempo(self.bus, _DURATE[TipoAzione.SCAPPA])
                 return
+            # Il disimpegno FALLITO ha la sua riga-fatto (B2, playtest profondo
+            # 2026-08-28): prima sfociava in `EncounterStarted` senza una
+            # parola — lo scontro si riapriva indistinguibile da un misclick,
+            # e «nessun click muto» è una linea rossa. La riga esce PRIMA
+            # dell'ingaggio, così la cronaca legge causa → effetto.
+            self.bus.pubblica(DisimpegnoFallito(
+                nemico=nome_mob_corrente(),
+                classe=getattr(_classe_dis, "value", str(_classe_dis)),
+            ))
         # Combatti (o disimpegno fallito): l'incontro è il nemico DELLA STANZA, arruolato
         # col suo profilo calibrato (Primarie/Corredo/Resistenze). Il fallback per scalari
         # resta solo per robustezza (scena senza mob registrato). Lo scontro è pilotato
@@ -2874,10 +2929,11 @@ def _riga_status_applicato(e: object) -> str:
 
 
 def _participio_status(status: str) -> str:
-    return {
-        "veleno": "avvelenato", "brucia": "in fiamme",
-        "stordito": "stordito", "rigenerazione": "in rigenerazione",
-    }.get(status, status)
+    """Il descrittore diegetico dalla TABELLA UNICA (B3): qui viveva la terza
+    copia della mappa slug→descrittore — assorbita in `SPEC_STATUS`."""
+    from motore.status import DESCRITTORI_STATUS
+
+    return DESCRITTORI_STATUS.get(status, status)
 
 
 def _riga_effetto_status(e: object) -> str:
@@ -2938,7 +2994,10 @@ def _nota_fattura(e: object) -> str:
 
 def _riga_risolto(e: object) -> str:
     if getattr(e, "fuga", False):
-        return "Ti disimpegni: fuga riuscita, lo scontro si dissolve."
+        # «si dissolve» era la lettera di FNC §5.3, superata due volte: il mob
+        # resta (ritirata universale) e ora la fuga ARRETRA (B2) — la riga
+        # successiva (`DisimpegnoScena`) dice dove sei finito.
+        return "Ti disimpegni: fuga riuscita, lo scontro si chiude."
     if getattr(e, "vittoria", False):
         return "Hai vinto lo scontro."
     return "Lo scontro si chiude."
@@ -2986,6 +3045,18 @@ _MAPPA_EVENTI: tuple[tuple[type, Callable[[object], str]], ...] = (
     (CrolloDungeon, lambda e: (
         f"Il dungeon perde la pazienza: tutto trema, tutti sanguinano "
         f"(-{getattr(e, 'danno', 0)} HP a testa).")),
+    # B2/B7.4 (playtest profondo 2026-08-28): il rifiuto e il gate non sono
+    # mai muti — la prova del motore lascia una riga-fatto in cronaca.
+    (DisimpegnoFallito, lambda e: (
+        f"⚄ Disimpegno contro classe {getattr(e, 'classe', '') or '?'}: "
+        f"fallito — {getattr(e, 'nemico', '') or 'il nemico'} ti riaggancia.")),
+    (ParlamentoRisolto, lambda e: (
+        f"⚄ Parlamento contro classe {getattr(e, 'classe', '') or '?'}: "
+        + ("ascoltato — "
+           f"{getattr(e, 'nemico', '') or 'il mob'} ti concede la parola."
+           if getattr(e, "ascoltato", False) else
+           "rifiutato — "
+           f"{getattr(e, 'nemico', '') or 'il mob'} non ti ascolterà mai più."))),
     (DisimpegnoScena, lambda e: (
         f"Ti ritiri nella stanza {e.ritirata_in}: "
         f"{getattr(e, 'nemico', '') or 'il nemico'} resta dov’è."

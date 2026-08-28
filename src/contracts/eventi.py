@@ -127,9 +127,11 @@ class CrolloDungeon(EventoDominio):
 
 @dataclass(frozen=True)
 class DisimpegnoScena(EventoDominio):
-    """Disimpegno riuscito in fase di NARRAZIONE (FNC §4): RITIRATA universale
-    (2026-08-12) — tu arretri nella stanza adiacente, il nemico resta alla sua.
-    Il disimpegno fallito non ha un evento proprio: sfocia in `EncounterStarted`.
+    """Disimpegno/ritirata RIUSCITI: tu arretri nella stanza adiacente, il
+    nemico resta alla sua (RITIRATA universale, 2026-08-12). Lo emettono sia
+    lo «Scappi» di narrazione sia la fuga in combattimento risolta (B2,
+    playtest profondo 2026-08-28): una prova, un esito — la fuga riuscita È
+    il disimpegno, e la cronaca dice dove sei finito.
 
     `ritirata_in` = la stanza in cui arretri (-1 = ignota, retro-compat): la
     cronaca DEVE dire dove sei finito — prima la ritirata era muta e te ne
@@ -137,6 +139,36 @@ class DisimpegnoScena(EventoDominio):
 
     nemico: str = ""
     ritirata_in: int = -1
+
+
+@dataclass(frozen=True)
+class DisimpegnoFallito(EventoDominio):
+    """Il disimpegno di NARRAZIONE è FALLITO: la prova contro la classe del
+    mob non è passata e lo scontro si riapre (`EncounterStarted` segue).
+
+    Rivede la decisione storica «il disimpegno fallito non ha un evento
+    proprio» (playtest profondo 2026-08-28, B2): senza questa riga-fatto il
+    rifiuto era muto — lo scontro si riapriva indistinguibile da un misclick,
+    e «nessun click muto» è una linea rossa. `classe` è la classe di prova
+    imposta dal grado del mob ("" = ignota)."""
+
+    nemico: str = ""
+    classe: str = ""
+
+
+@dataclass(frozen=True)
+class ParlamentoRisolto(EventoDominio):
+    """Il GATE del parlamento si è espresso (prova di carisma contro la classe
+    del grado del mob, tirata dal motore all'apertura scena — B7.4, playtest
+    profondo 2026-08-28). Prima la prova non produceva riga-fatto sul canale
+    eventi: l'esito viveva solo nel rifiuto dell'host e nel fascicolo GM.
+
+    `ascoltato=True` = gate superato (tregua del parlamentato); l'evento esce
+    solo per la prova FRESCA — il convinto che riascolta non ri-tira."""
+
+    nemico: str = ""
+    classe: str = ""
+    ascoltato: bool = False
 
 
 @dataclass(frozen=True)

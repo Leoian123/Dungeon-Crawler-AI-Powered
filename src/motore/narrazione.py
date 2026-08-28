@@ -65,7 +65,7 @@ from .mosse import MOSSE_DEFAULT
 from .prove import prova_riuscita
 from .scheda import Scheda
 from .statistiche import REGISTRY_STAT, Primarie, Visibilita, stat_eff
-from .status import Rigenerazione, Stordito, Veleno
+from .status import SPEC_STATUS
 
 # --- Politica di retry, selezionata dallo SCHEMA (F §5.1, F-8) -----------------
 
@@ -106,12 +106,16 @@ def proietta_scheda(entita_protagonista: int) -> SchedaProiezione:
         descrittori.append("ferito")
     else:
         descrittori.append("integro")
-    if esper.try_component(entita_protagonista, Veleno) is not None:
-        descrittori.append("avvelenato")
-    if esper.try_component(entita_protagonista, Stordito) is not None:
-        descrittori.append("stordito")
-    if esper.try_component(entita_protagonista, Rigenerazione) is not None:
-        descrittori.append("in rigenerazione")
+    # Gli status si derivano dalla TABELLA UNICA (`SPEC_STATUS`, B3 del
+    # playtest profondo 2026-08-28): qui viveva un elenco cablato di tre
+    # status e il Brucia era invisibile — Ade è sceso a 1/30 smaltendo un DoT
+    # che la scheda non mostrava. Componente presente ⇒ il suo descrittore:
+    # un nuovo status è visibile per costruzione, mai per manutenzione.
+    for spec in SPEC_STATUS:
+        if not spec.descrittore:
+            continue
+        if esper.try_component(entita_protagonista, spec.componente) is not None:
+            descrittori.append(spec.descrittore)
 
     # Primarie filtrate per visibilità (GR2-9): PALESE → valore effettivo; VALORE_NASCOSTO
     # → solo il nome; ESISTENZA_NEGATA → omessa del tutto. Ordine stabile dal registry.

@@ -215,7 +215,12 @@ class SchedaVista(BaseModel):
     descrittori: tuple[str, ...] = ()
     primarie: Mapping[str, int] = {}
     primarie_occulte: tuple[str, ...] = ()
-    derivate: Mapping[str, int] = {}
+    # `float`, non `int` (B4, playtest profondo 2026-08-28): la difesa si
+    # proietta in UNITÀ DI MITIGAZIONE (`def_eff/100`, una cifra decimale) —
+    # esposta grezza in centesimi accanto a derivate in scala intera sembrava
+    # un bug di bilanciamento (DEF 238 con danni invariati). Le altre derivate
+    # restano interi (un `int` è un `float` valido per Pydantic e per JSON).
+    derivate: Mapping[str, float] = {}
     livello: int = 1
     tick_piano: int = 0
 

@@ -92,7 +92,11 @@ def test_scendi_solo_con_la_scala(mondo_isolato) -> None:
     m.stanza_corrente = next(iter(m.piano.discese))  # sulla scala
     m.visitate.add(m.stanza_corrente)
     opzioni = componi_opzioni_scena()
-    assert opzioni[0].tipo is TipoAzione.SCENDI  # la scala rende visibile Scendi
+    # La scala rende visibile Scendi — nel suo SLOT (B7.2: ordine stabile per
+    # tipo, il movimento in fondo con Vai prima di Scendi).
+    tipi = [o.tipo for o in opzioni]
+    assert TipoAzione.SCENDI in tipi
+    assert tipi.index(TipoAzione.SCENDI) > tipi.index(TipoAzione.MUOVI)
     assert all(o.stanza is not None for o in opzioni if o.tipo is TipoAzione.MUOVI)
 
 

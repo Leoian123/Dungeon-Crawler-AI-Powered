@@ -269,10 +269,14 @@ class EsitoParlamento:
     """Il verdetto del tentativo: fatti del motore, mai del modello.
 
     `riga_fatto` è la riga deterministica per la cronaca (il tiro non è mai
-    muto — stessa dottrina dello snodo di scena)."""
+    muto — stessa dottrina dello snodo di scena). `classe` è la classe di
+    prova imposta dal grado del mob quando il gate è stato TIRATO ("" = il
+    convinto che riascolta: nessuna seconda prova) — la porta dell'host la
+    usa per la riga-fatto tipata (`ParlamentoRisolto`, B7.4)."""
 
     riuscito: bool
     riga_fatto: str
+    classe: str = ""
 
 
 def puo_parlamentare(ent: int) -> bool:
@@ -332,7 +336,9 @@ def tenta_parlamento(ent: int) -> EsitoParlamento | None:
         f"parlamento con {em.nome}: prova {classe.value} su carisma — "
         f"{esito.grado.value} (margine {esito.margine:+d})"
     )
-    return EsitoParlamento(riuscito=esito.riuscita, riga_fatto=riga)
+    return EsitoParlamento(
+        riuscito=esito.riuscita, riga_fatto=riga, classe=classe.value,
+    )
 
 
 def registra_rifiuto_parlamento(nome: str, esito: EsitoParlamento,

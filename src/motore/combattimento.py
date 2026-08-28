@@ -22,6 +22,7 @@ from contracts import (
     ClasseProva,
     ColpoInferto,
     CombatResolved,
+    DisimpegnoScena,
     EncounterStarted,
     MortePersonaggio,
     StatId,
@@ -684,10 +685,33 @@ class SistemaTurnoCombattimento(SistemaSoloCombattimento):
             _pent, _marker, pscheda = protagonista()
             if not pscheda.vivo or pscheda.punti_vita <= 0:
                 return
+        # LA FUGA RIUSCITA È IL DISIMPEGNO (B2, playtest profondo 2026-08-28):
+        # il motore ARRETRA il protagonista nella stanza di ritirata come parte
+        # della risoluzione — una prova, un esito. Prima la fuga chiudeva
+        # l'istanza lasciandoti NELLA stanza del nemico: l'unica uscita era lo
+        # «Scappi» di narrazione, una SECONDA prova contro la classe del mob —
+        # contro un boss quasi sempre persa, e ogni ciclo fuga→scappi costava
+        # il colpo d'opportunità (il tritacarne di Evil Ash: 54→0 HP senza mai
+        # poter lasciare la stanza). Il mob resta registrato alla sua stanza
+        # con le ferite; senza mappa/uscite (harness) la ritirata degrada a
+        # no-op — il comportamento storico.
+        nome_nemico = next(
+            (_nome_pubblico(n) for n in _nemici_vivi()), ""
+        )
+        from .mappa import arretra  # import locale: la mappa resta a monte
+
+        ritirata = arretra()
         self.bus.pubblica(CombatResolved(
             entita=attivo, vittoria=False, fuga=True,
             grado_nemico=stato.grado_massimo,
         ))
+        if ritirata is not None:
+            # La ritirata PARLA (stessa riga-fatto dello «Scappi» di scena):
+            # pubblicata DOPO `CombatResolved` — il flip a NARRAZIONE è già
+            # avvenuto e la cronaca legge «scontro chiuso, ti ritiri in N».
+            self.bus.pubblica(DisimpegnoScena(
+                nemico=nome_nemico, ritirata_in=ritirata,
+            ))
 
     @staticmethod
     def _scala_ricariche(entita: int) -> None:

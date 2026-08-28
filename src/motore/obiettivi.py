@@ -342,6 +342,15 @@ def _grado_conio_scalato(grado_box: str) -> str:
     return grado_box
 
 
+def grado_apertura(box: BoxChiusa) -> str:
+    """Il grado con cui la box SI APRIREBBE qui e ora: la STESSA
+    `_grado_conio_scalato` dell'apertura, esposta come lettura pura (B6,
+    playtest profondo 2026-08-28 — l'etichetta del menu usava il grado di
+    conio, l'apertura quello scalato: due letture della stessa promessa).
+    Etichetta e `BoxAperta` coincidono per costruzione."""
+    return _grado_conio_scalato(box.grado)
+
+
 def prossima_box() -> BoxChiusa | None:
     """La prossima box in coda (FIFO: la prima guadagnata è la prima aperta).
     Sola lettura: comporre il menu non consuma niente."""
