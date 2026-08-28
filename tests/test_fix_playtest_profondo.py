@@ -523,3 +523,322 @@ def test_b72_il_menu_ha_slot_stabili_movimento_in_fondo(mondo_isolato) -> None:
         _SLOT_MENU[t] for t in (TipoAzione.MUOVI, TipoAzione.SCENDI,
                                 TipoAzione.ATTRAVERSA)
     ), "il movimento vive in fondo, sempre"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Appendice — i difetti del rigiro di collaudo (run «Kora», 2026-08-28): B8-B11
+# ════════════════════════════════════════════════════════════════════════════
+
+# --- B8 · le opzioni di ZONA si compongono (e funzionano) anche in tregua -------
+
+def test_b8_il_vicolo_parlato_non_e_una_sacca(run_pulita, tmp_path) -> None:
+    """L'oracolo di Kora: nel vicolo, mob della porta in TREGUA — «Torna
+    sulla via principale» è composta E funzionante: mai più costretti a
+    uccidere chi ti ha appena concesso il passo."""
+    from main import costruisci_sessione
+    from motore import dissolvi_mob
+    from motore.territorio import (
+        Zona,
+        attraversa,
+        deviazione_consentita,
+        e_di_spina,
+        rigenera_mappa_zona,
+        stato_territorio,
+        zona_corrente,
+    )
+
+    sessione = costruisci_sessione(
+        nome="Kora", seed=8, directory=tmp_path,
+        stagione=stagione_sintetica(piani=[piano_territoriale(1)], slug="s-vicolo"),
+    )
+    asyncio.run(sessione.prossima_narrazione())
+    if mob_corrente() is not None:
+        dissolvi_mob()
+
+    # LAB: ci si porta in un VICOLO (sorella della zona di spina corrente) —
+    # il teletrasporto dell'harness, non la via di gioco: qui si prova il
+    # menu del rientro, non il campionamento delle laterali.
+    quartiere = zona_corrente()
+    laterale = Zona(
+        tier=quartiere.tier,
+        percorso=quartiere.percorso[:-1] + (quartiere.percorso[-1] + 1,),
+    )
+    assert not e_di_spina(laterale, 1), "premessa: la sorella non è di spina"
+    stato_territorio().zona_corrente = laterale.chiave
+    rigenera_mappa_zona(1, laterale)
+    segna_visitata()
+
+    ent = _mob_in_stanza(parlamentato=False)
+    etichette = [o.etichetta for o in componi_opzioni_scena()]
+    assert "Torna sulla via principale" not in etichette, (
+        "col mob NON parlamentato il rientro resta chiuso"
+    )
+
+    esper.component_for_entity(ent, EntitaMob).parlamento_riuscito = True
+    opzioni = componi_opzioni_scena()
+    rientro = next(
+        (o for o in opzioni if o.etichetta == "Torna sulla via principale"), None
+    )
+    assert rientro is not None, "in tregua il rientro dal vicolo SI COMPONE"
+    # La coppia compositore-esecutore (stessa lezione di B1): l'opzione
+    # composta, se scelta, CAMBIA zona.
+    assert deviazione_consentita(rientro.zona) is True
+    assert attraversa(sessione.bus, rientro.zona) is True
+    assert zona_corrente().chiave == rientro.zona, "il rientro MUOVE davvero"
+    sessione.esci()
+
+
+def test_b8_il_varco_di_spina_in_tregua_resta_dietro_il_boss_gate(
+    run_pulita, tmp_path
+) -> None:
+    """Il gregario in tregua sulla stanza-passaggio non apre il varco che
+    solo il boss battuto apre; a boss battuto, la tregua non lo chiude."""
+    from main import costruisci_sessione
+    from motore import dissolvi_mob, registra_boss_sconfitto
+    from motore.territorio import (
+        attraversa,
+        attraversamento_consentito,
+        stanza_passaggio_di,
+        zona_corrente,
+    )
+
+    sessione = costruisci_sessione(
+        nome="Varco", seed=8, directory=tmp_path,
+        stagione=stagione_sintetica(piani=[piano_territoriale(1)], slug="s-varco"),
+    )
+    asyncio.run(sessione.prossima_narrazione())
+    if mob_corrente() is not None:
+        dissolvi_mob()
+    _e, mappa = mappa_corrente()
+    zona = zona_corrente()
+    # Il custode presidia PROPRIO il varco (per disegno): la stanza-passaggio
+    # è la stanza-boss — il caso più duro per la tregua.
+    mappa.stanza_corrente = stanza_passaggio_di(zona, mappa.piano)
+    segna_visitata()
+    _mob_in_stanza(parlamentato=True)
+
+    # Boss VIVO: né composto né consentito — la tregua non scavalca il gate
+    # (il mob parlato nella stanza del custode imbattuto È il boss-gate).
+    assert attraversamento_consentito() is False
+    assert not [
+        o for o in componi_opzioni_scena()
+        if o.tipo is TipoAzione.ATTRAVERSA and o.zona is None
+    ]
+
+    # Boss BATTUTO: il gregario in tregua non chiude il varco.
+    registra_boss_sconfitto()
+    avanti = [
+        o for o in componi_opzioni_scena()
+        if o.tipo is TipoAzione.ATTRAVERSA and o.zona is None
+    ]
+    assert avanti, "a boss battuto e tregua attiva l'Attraversa si compone"
+    assert attraversamento_consentito() is True
+    prima = zona.chiave
+    assert attraversa(sessione.bus) is True
+    assert zona_corrente().chiave != prima, "l'Attraversa composto MUOVE davvero"
+    sessione.esci()
+
+
+# --- B9.1 · la durata residua dei dannosi si vede (solo dal giocatore) ----------
+
+def test_b91_la_scheda_conta_i_tick_e_l_ai_no(run_pulita, tmp_path) -> None:
+    from main import costruisci_sessione
+    from motore import proietta_scheda
+    from motore.status import Brucia, afflizione
+
+    sessione = costruisci_sessione(nome="Conto", seed=3, directory=tmp_path)
+    pent = protagonista()[0]
+    brucia = afflizione(Brucia, 1)
+    brucia.durata = 3
+    esper.add_component(pent, brucia)
+
+    assert "in fiamme (3)" in sessione.scheda().descrittori, (
+        "il giocatore fa la matematica PRIMA di decidere (B9.1)"
+    )
+    brucia.durata = 1
+    assert "in fiamme (1)" in sessione.scheda().descrittori, "il conteggio scala"
+    # G-13 intatto: la proiezione per l'AI resta senza numeri.
+    for d in proietta_scheda(pent).descrittori:
+        assert not any(ch.isdigit() for ch in d), f"numero nella proiezione AI: {d!r}"
+    sessione.esci()
+
+
+# --- B9.2 · la fabbrica conia i consumabili (il canale ha una fonte viva) -------
+
+def test_b92_la_fabbrica_conia_il_tonico_e_si_beve(run_pulita, tmp_path) -> None:
+    """Con le basi «consumabile» nella fabbrica della stagione, il conio
+    produce un Consumabile VIVO: entra in catalogo, `/usa` lo beve (cura
+    applicata, oggetto consumato). Era il canale completo senza fonti:
+    40+ oggetti in tre run profonde, zero cure."""
+    import random as _random
+
+    from main import costruisci_sessione
+    from motore import assicura_zaino, fabbrica_attiva, usa_consumabile
+    from motore.consumabili import Consumabile
+    from motore.fabbrica import conia_procedurale
+    from motore.oggetti import assicura_coniati, catalogo_oggetti_correnti
+
+    sessione = costruisci_sessione(nome="Cure", seed=3, directory=tmp_path)
+    assert any(
+        b.tipo == "consumabile" for b in fabbrica_attiva().basi
+    ), "la stagione-1 ha le basi consumabili (B9.2)"
+
+    attivo = conia_procedurale(
+        _random.Random(7), "bronzo", tipi_base=("consumabile",)
+    )
+    assert attivo is not None and attivo.tipo == "consumabile"
+    assert attivo.effetto in {"cura", "ristoro_mana", "antidoto"}
+
+    pent = protagonista()[0]
+    assicura_coniati(pent).voci.append(attivo)
+    assicura_zaino(pent).fonti.append(attivo.slug)
+    vivo = catalogo_oggetti_correnti()[attivo.slug]
+    assert isinstance(vivo, Consumabile), "il coniato traduce in Consumabile"
+
+    if attivo.effetto == "cura":
+        _p, _m, scheda = protagonista()
+        scheda.punti_vita = max(1, scheda.punti_vita - 10)
+        prima = scheda.punti_vita
+        ok, dettaglio = usa_consumabile(pent, attivo.slug, sessione.bus)
+        assert ok, dettaglio
+        assert scheda.punti_vita > prima, "la cura muove gli HP"
+        assert attivo.slug not in assicura_zaino(pent).fonti, "monouso"
+    sessione.esci()
+
+
+def test_b92_oracolo_di_kora_col_tonico_si_sopravvive(run_pulita, tmp_path) -> None:
+    """Il test che racconta la tenaglia: HP = 3 tick di Brucia, smaltimento
+    in un click. SENZA cura è morte matematica; CON un tonico in zaino la
+    stessa sequenza sopravvive."""
+    import esper as _esper
+
+    from contracts import PlayerChoseOption
+    from main import costruisci_sessione
+    from motore import (
+        CATALOGO_CONSUMABILI, applica_status, assicura_zaino, usa_consumabile,
+    )
+    from motore.calibrazione import DELTA_PER_RANGO
+    from motore.status import Brucia, afflizione
+
+    danno_tick = abs(int(DELTA_PER_RANGO.get("brucia", 0)))
+    assert danno_tick > 0, "premessa: il Brucia morde (§11)"
+
+    def _sequenza(con_tonico: bool) -> bool:
+        """True se il crawler è vivo alla fine. Stesso seed, stessa sequenza."""
+        directory = tmp_path / ("con" if con_tonico else "senza")
+        sessione = costruisci_sessione(nome="Kora", seed=5, directory=directory)
+        asyncio.run(sessione.prossima_narrazione())
+        if mob_corrente() is not None:
+            _esper.delete_entity(mob_corrente(), immediate=True)
+        pent, _m, scheda = protagonista()
+        brucia = afflizione(Brucia, 1)
+        brucia.durata = 3
+        applica_status(pent, brucia)
+        scheda.punti_vita = 3 * danno_tick  # esattamente i tick della tenaglia
+        if con_tonico:
+            assert "tonico-di-latta" in CATALOGO_CONSUMABILI
+            assicura_zaino(pent).fonti.append("tonico-di-latta")
+            ok, dettaglio = usa_consumabile(pent, "tonico-di-latta", sessione.bus)
+            assert ok, dettaglio
+        sessione._sincronizza_scena()
+        snap = sessione._snapshot_corrente()
+        indice = next(
+            o.indice for o in snap.opzioni if o.etichetta == "Aspetta che passi"
+        )
+        sessione.coda.accoda(PlayerChoseOption(indice))
+        sessione.avanza()
+        vivo = protagonista()[2].vivo
+        if vivo:
+            sessione.esci()
+        return vivo
+
+    assert _sequenza(con_tonico=False) is False, (
+        "senza cure la tenaglia è morte matematica (la fine di Kora)"
+    )
+    assert _sequenza(con_tonico=True) is True, (
+        "con un tonico in zaino la stessa sequenza sopravvive"
+    )
+
+
+# --- B10 · il riferimento-boss vale solo nella stanza del custode ---------------
+
+def test_b10_il_boss_autorato_non_fa_il_riempitivo(mondo_isolato) -> None:
+    """Turno con `riferimento` a uno slug SOLO-boss: su una stanza qualunque
+    il gate rifiuta (fallback deterministico); sulla stanza del custode
+    resta accettato. Mai più due DJ Rigor Mortis nella stessa città."""
+    from contracts import Grado as _G
+    from motore import Budget, valida_turno
+    from motore.design import riferimento_solo_boss
+    from motore.territorio import boss_della_zona, stanza_boss_di, zona_corrente
+    from tests.narr_helpers import turno as turno_h
+
+    _arma_mondo()
+    segna_visitata()
+    zona = zona_corrente()
+    boss = boss_della_zona(1, zona)
+    assert boss is not None
+    assert riferimento_solo_boss(boss.slug) is True, (
+        "premessa: il custode non è in cast/spawn — è SOLO roster boss"
+    )
+
+    bud = Budget(
+        livello=1, gradi_ammessi=frozenset(_G),
+        blocchi_ammessi=frozenset(), archetipo_default="slime",
+        archetipi_ammessi=frozenset({"slime"}),
+    )
+    candidato = turno_h(blocchi=())
+    candidato = candidato.model_copy(update={
+        "entita": candidato.entita.model_copy(update={"riferimento": boss.slug})
+    })
+
+    _e, mappa = mappa_corrente()
+    assert mappa.stanza_corrente != stanza_boss_di(zona, mappa.piano)
+    assert valida_turno(candidato, bud) is None, (
+        "il boss reclutato come riempitivo è FUORI budget: fallback"
+    )
+
+    mappa.stanza_corrente = stanza_boss_di(zona, mappa.piano)
+    assert valida_turno(candidato, bud) is not None, (
+        "nella stanza del custode il riferimento resta legittimo"
+    )
+
+
+# --- B11 · il necrologio fuori-combattimento conserva i momenti -----------------
+
+def test_b11_la_morte_fuori_scontro_eredita_i_momenti(run_pulita, tmp_path) -> None:
+    from contracts import EffettoStatus, FattiScontro, Terminale
+    from main import costruisci_sessione
+    from motore import tick as _tick
+
+    sessione = costruisci_sessione(
+        nome="Kora", seed=8, directory=tmp_path,
+        stagione=stagione_sintetica(piani=[piano_territoriale(1)], slug="s-necro"),
+    )
+    asyncio.run(sessione.prossima_narrazione())
+    # L'ultimo scontro (chiuso in FUGA) ha avuto i suoi momenti: l'harness
+    # li fissa come farebbe l'istanza alla chiusura.
+    sessione._fatti_ultimo_scontro = FattiScontro(
+        vittoria=False, turni=4, hp_persi=39, nemico="Evil Ash", fuga=True,
+        momenti=("primo sangue: il crawler colpisce Evil Ash",),
+    )
+    # Il DoT morde fuori dallo scontro (l'evento vero del bus)...
+    sessione.bus.pubblica(EffettoStatus(bersaglio="", status="brucia", delta_hp=-5))
+    # ...e uccide: il death-check del motore pubblica MortePersonaggio.
+    protagonista()[2].punti_vita = 0
+    _tick()
+    assert sessione.guscio.terminale is Terminale.SCONFITTA
+
+    fatti = sessione._fatti_epitaffio
+    assert fatti is not None, "la morte fuori-scontro compone i fatti (B11)"
+    assert fatti.nemico == "Evil Ash", "l'attribuzione al carnefice regge"
+    assert "primo sangue: il crawler colpisce Evil Ash" in fatti.momenti, (
+        "i momenti della lotta vera sopravvivono alla fuga"
+    )
+    assert any("spento dal Brucia" in m for m in fatti.momenti), (
+        "la chiusa sintetica dice di cosa sei morto"
+    )
+    esito = sessione._componi_esito()
+    assert esito is not None and esito["causa"] == "Evil Ash"
+    assert any("primo sangue" in m for m in esito["momenti"]), (
+        "il necrologio in bacheca riceve i momenti"
+    )

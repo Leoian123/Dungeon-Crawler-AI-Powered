@@ -692,9 +692,13 @@ def stanza_corrente_e_del_boss() -> bool:
 # --- Attraversamento: UN solo proprietario dell'avanzamento zona ----------------
 
 def attraversamento_consentito() -> bool:
-    """Il gate del passaggio: stanza-passaggio ∧ boss di zona sconfitto ∧ nessun
-    nemico vivo ∧ esiste una zona successiva (nella tana c'è la scala, non il
-    passaggio). Falso senza territorio (piani piatti: nessun attraversamento)."""
+    """Il gate del passaggio: stanza-passaggio ∧ boss di zona sconfitto ∧
+    passaggio concesso ∧ esiste una zona successiva (nella tana c'è la scala,
+    non il passaggio). Falso senza territorio (piani piatti: nessun
+    attraversamento). Il check sul nemico è `passaggio_concesso` (B8): la
+    STESSA verità di `muovi`/discesa — il gregario in tregua sulla
+    stanza-passaggio non chiude il varco che il boss battuto ha aperto."""
+    from .mappa import passaggio_concesso
     from .piano import livello_corrente
 
     zona = zona_corrente()
@@ -703,7 +707,7 @@ def attraversamento_consentito() -> bool:
         return False
     if m[1].stanza_corrente != stanza_passaggio_di(zona, m[1].piano):
         return False
-    if mob_corrente() is not None:
+    if not passaggio_concesso():
         return False
     if not boss_sconfitto(zona):
         return False
@@ -759,15 +763,17 @@ def _despawna_mob_di_zona() -> None:
 
 def deviazione_consentita(destinazione: str) -> bool:
     """Il gate delle DEVIAZIONI (laterali e ritorni): si devia dalla PARTENZA
-    della zona, senza nemico in stanza, verso una destinazione che la scena ha
+    della zona, col passaggio concesso (B8: la tregua apre anche il rientro —
+    il vicolo parlato non è una sacca), verso una destinazione che la scena ha
     davvero composto — mai un teletrasporto da chiave arbitraria."""
+    from .mappa import passaggio_concesso
     from .piano import livello_corrente
 
     corrente = zona_corrente()
     m = mappa_corrente()
     if corrente is None or m is None or territorio_attivo() is None:
         return False
-    if m[1].stanza_corrente != m[1].piano.partenza or mob_corrente() is not None:
+    if m[1].stanza_corrente != m[1].piano.partenza or not passaggio_concesso():
         return False
     livello = livello_corrente()
     lecite = {z.chiave for z in zone_laterali(livello)}

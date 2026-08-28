@@ -118,7 +118,42 @@ def test_zaino_e_scheda_dalla_ui() -> None:
             assert not app._morto and app.fase_corrente == "narrazione"
             zaino = app.sessione.scheda().zaino
             assert zaino, "la vittoria non ha depositato il bottino nello zaino"
-            fonte_drop = zaino[0]              # il drop per grado pesca dal pool
+            # Il drop può essere un CONSUMABILE (B9.2: anche i tonici escono
+            # dalla fabbrica) — qui si dimostra il flusso INDOSSA, quindi si
+            # sceglie un indossabile; se il bottino non ne ha, l'arnia ne
+            # conia uno (il canale equip resta quello sotto test).
+            import random as _random
+
+            from motore import (
+                Consumabile,
+                assicura_zaino,
+                catalogo_oggetti_correnti,
+                protagonista,
+            )
+            from motore.fabbrica import conia_procedurale
+            from motore.oggetti import assicura_coniati
+
+            indossabili = [
+                f for f in zaino
+                if not isinstance(catalogo_oggetti_correnti().get(f), Consumabile)
+            ]
+            if not indossabili:
+                attivo = conia_procedurale(
+                    _random.Random(3), "bronzo",
+                    tipi_base=("arma", "armatura", "accessorio"),
+                )
+                pent = protagonista()[0]
+                assicura_coniati(pent).voci.append(attivo)
+                borsa = assicura_zaino(pent)
+                # Lo scambio tiene la borsa a UNA voce (la vista della TUI di
+                # test è piccola: un bottone in più finisce fuori schermo).
+                borsa.fonti[:] = [
+                    f for f in borsa.fonti
+                    if not isinstance(catalogo_oggetti_correnti().get(f), Consumabile)
+                ]
+                borsa.fonti.append(attivo.slug)
+                indossabili = [attivo.slug]
+            fonte_drop = indossabili[0]        # il drop per grado pesca dal pool
 
             await pilot.press("z")             # inventario nel menu
             await pilot.pause()

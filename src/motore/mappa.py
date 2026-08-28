@@ -615,6 +615,73 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     m = mappa_corrente()
     if m is None or not stanza_visitata():
         return ()
+
+    def _opzioni_zona() -> list[OpzioneScena]:
+        """Le opzioni di ZONA (varco di spina + deviazioni/rientro), condivise
+        fra i due rami (B8, rigiro Kora 2026-08-28: vivevano solo nel ramo
+        senza-mob e il vicolo diventava una SACCA per chi parlava col mob
+        della porta — l'unica uscita era ucciderlo). Il rientro dal vicolo
+        non ha boss-gate; il varco di spina porta già la sua guardia
+        (`attraversamento_consentito`: boss battuto) e si nega da solo."""
+        from .territorio import (
+            attraversamento_consentito,
+            e_di_spina,
+            insegna_laterale,
+            zona_corrente,
+            zona_di_spina_del_tier,
+            zona_successiva,
+            zone_laterali,
+        )
+
+        fuori: list[OpzioneScena] = []
+        varco = _lettura_tollerante("varco", attraversamento_consentito, False)
+        if varco:
+            from .piano import livello_corrente
+
+            prossima = zona_successiva(livello_corrente())
+            dove = prossima.tier.value if prossima is not None else "oltre"
+            fuori.append(OpzioneScena(
+                tipo=TipoAzione.ATTRAVERSA, etichetta=f"Attraversa: verso {dove}"
+            ))
+
+        # DEVIAZIONI (Fase 6): dalla PARTENZA della zona, le sorelle laterali
+        # (zone lazy: nascono dal loro seed alla prima entrata) o il RITORNO
+        # sulla spina.
+        def _deviazioni() -> list[OpzioneScena]:
+            from .piano import livello_corrente
+
+            interne: list[OpzioneScena] = []
+            zona = zona_corrente()
+            alla_partenza = (
+                zona is not None and m[1].stanza_corrente == m[1].piano.partenza
+            )
+            if not alla_partenza:
+                return interne
+            livello = livello_corrente()
+            if e_di_spina(zona, livello):
+                for laterale in zone_laterali(livello):
+                    # L'etichetta è DIEGETICA: prima portava l'indice interno
+                    # (`percorso[-1]`) fra parentesi — un numero di struttura
+                    # dati stampato al giocatore. L'insegna disambigua le
+                    # sorelle restando dentro la finzione.
+                    interne.append(OpzioneScena(
+                        tipo=TipoAzione.ATTRAVERSA,
+                        etichetta=f"Deviazione: {insegna_laterale(laterale)}",
+                        zona=laterale.chiave,
+                    ))
+            else:
+                rientro = zona_di_spina_del_tier(zona.tier, livello)
+                if rientro is not None:
+                    interne.append(OpzioneScena(
+                        tipo=TipoAzione.ATTRAVERSA,
+                        etichetta="Torna sulla via principale",
+                        zona=rientro.chiave,
+                    ))
+            return interne
+
+        fuori.extend(_lettura_tollerante("deviazioni", _deviazioni, []))
+        return fuori
+
     if mob_corrente() is not None:
         # Il menu DICE chi c'è (playtest round 2: rivisitare la stanza del mob
         # congedato dava un «Combatti» cieco): il nome è verità del World.
@@ -675,6 +742,10 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
                     tipo=TipoAzione.MUOVI,
                     etichetta=f"Vai: stanza {stanza}", stanza=stanza,
                 ))
+            # ANCHE le opzioni di ZONA (B8): la tregua che apre i «Vai» apre
+            # pure il rientro dal vicolo e le deviazioni — prima vivevano solo
+            # nel ramo senza-mob e il vicolo parlato era una sacca.
+            con_mob.extend(_opzioni_zona())
         return _ordina_scena(con_mob)
     opzioni: list[OpzioneScena] = []
     # PARLAMENTA col PNG INTERPELLABILE (2026-08-16): solo le categorie che
@@ -696,63 +767,10 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
         ))
     if scala_presente():
         opzioni.append(OpzioneScena(tipo=TipoAzione.SCENDI, etichetta="Scendi la scala"))
-    # ATTRAVERSA (territorio): il varco verso la zona successiva — compare SOLO
-    # quando è VERO (stanza-passaggio, boss battuto, nessun nemico). Import
-    # locale: la mappa resta l'autorità dentro la zona, il territorio sopra.
-    from .territorio import (
-        attraversamento_consentito,
-        e_di_spina,
-        zona_corrente,
-        zona_di_spina_del_tier,
-        zona_successiva,
-        zone_laterali,
-    )
-
-    varco = _lettura_tollerante("varco", attraversamento_consentito, False)
-    if varco:
-        from .piano import livello_corrente
-
-        prossima = zona_successiva(livello_corrente())
-        dove = prossima.tier.value if prossima is not None else "oltre"
-        opzioni.append(OpzioneScena(
-            tipo=TipoAzione.ATTRAVERSA, etichetta=f"Attraversa: verso {dove}"
-        ))
-    # DEVIAZIONI (Fase 6): dalla PARTENZA della zona, le sorelle laterali (zone
-    # lazy: nascono dal loro seed alla prima entrata) o il RITORNO sulla spina.
-    def _deviazioni() -> list[OpzioneScena]:
-        from .piano import livello_corrente
-        from .territorio import insegna_laterale
-
-        fuori: list[OpzioneScena] = []
-        zona = zona_corrente()
-        alla_partenza = (
-            zona is not None and m[1].stanza_corrente == m[1].piano.partenza
-        )
-        if not alla_partenza:
-            return fuori
-        livello = livello_corrente()
-        if e_di_spina(zona, livello):
-            for laterale in zone_laterali(livello):
-                # L'etichetta è DIEGETICA: prima portava l'indice interno
-                # (`percorso[-1]`) fra parentesi — «Deviazione: quartiere vicino
-                # (0)» — cioè un numero di struttura dati stampato al giocatore.
-                # L'insegna disambigua le sorelle restando dentro la finzione.
-                fuori.append(OpzioneScena(
-                    tipo=TipoAzione.ATTRAVERSA,
-                    etichetta=f"Deviazione: {insegna_laterale(laterale)}",
-                    zona=laterale.chiave,
-                ))
-        else:
-            rientro = zona_di_spina_del_tier(zona.tier, livello)
-            if rientro is not None:
-                fuori.append(OpzioneScena(
-                    tipo=TipoAzione.ATTRAVERSA,
-                    etichetta="Torna sulla via principale",
-                    zona=rientro.chiave,
-                ))
-        return fuori
-
-    opzioni.extend(_lettura_tollerante("deviazioni", _deviazioni, []))
+    # ATTRAVERSA + DEVIAZIONI: la stessa lettura condivisa del ramo con-mob
+    # (B8) — il varco compare SOLO quando è VERO (stanza-passaggio, boss
+    # battuto, passaggio concesso); le deviazioni solo dalla partenza.
+    opzioni.extend(_opzioni_zona())
     # RIPOSA compare solo quando è VERA (stanza sicura + downtime lecito, J §5):
     # come SCENDI/MUOVI, la compone il motore dalla scena, mai l'AI dal testo.
     from .tempo import puo_downtime  # locale: nessun ciclo mappa↔tempo

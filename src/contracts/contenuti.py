@@ -346,16 +346,24 @@ class OggettoAsset(_Asset):
 class ParteBase(BaseModel):
     """Il CORPO di un oggetto della fabbrica (stile BL3, in piccolo): la forma
     fisica — tipo, e i campi che quel tipo esige. Il nome è la testa del nome
-    composto («Lama …», «Elmo …»)."""
+    composto («Lama …», «Elmo …»).
+
+    `tipo="consumabile"` (B9.2, rigiro Kora 2026-08-28: il canale consumabili
+    era completo ma NESSUNA fonte lo alimentava — 40+ oggetti in tre run
+    profonde, zero cure): la base nomina l'`effetto` dal vocabolario chiuso e
+    la fabbrica conia tonici/antidoti come ogni altro pezzo — drop e box
+    inclusi. Il TOMO resta fuori: insegna una mossa specifica, è contenuto
+    autorato (asset `OggettoAsset`), mai un conio."""
 
     model_config = _FROZEN
 
     nome: str = Field(min_length=1)
-    tipo: Literal["armatura", "arma", "accessorio"]
+    tipo: Literal["armatura", "arma", "accessorio", "consumabile"]
     slot: SlotEquip | None = None         # armatura
     categoria: CategoriaArmatura | None = None
     taglia: Taglia = Taglia.MEDIA
     sede: SedeAccessorio | None = None    # accessorio
+    effetto: EffettoConsumabile | None = None  # consumabile
 
     @model_validator(mode="after")
     def _coerente(self) -> "ParteBase":
@@ -364,6 +372,20 @@ class ParteBase(BaseModel):
             raise ValueError(f"parte base {self.nome!r}: armatura senza slot/categoria validi")
         if self.tipo == "accessorio" and self.sede is None:
             raise ValueError(f"parte base {self.nome!r}: accessorio senza sede")
+        if self.tipo == "consumabile":
+            if self.effetto is None:
+                raise ValueError(
+                    f"parte base {self.nome!r}: consumabile senza effetto"
+                )
+            if self.effetto is EffettoConsumabile.TOMO:
+                raise ValueError(
+                    f"parte base {self.nome!r}: il TOMO non si conia — insegna "
+                    "una mossa specifica, è un asset autorato"
+                )
+        elif self.effetto is not None:
+            raise ValueError(
+                f"parte base {self.nome!r}: `effetto` vale solo per i consumabili"
+            )
         return self
 
 

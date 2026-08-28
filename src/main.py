@@ -1227,6 +1227,15 @@ class SessioneGioco:
         self._istanza: IstanzaCombattimento | None = None
         self._fatti_scontro: FattiScontro | None = None  # handoff scontro→GM
         self._fatti_epitaffio: FattiScontro | None = None  # fatti della morte (Fase 5)
+        # L'ULTIMO scontro chiuso, comunque sia finito (B11, rigiro Kora
+        # 2026-08-28): la morte FUORI dal combattimento (il DoT smaltito dopo
+        # la fuga) perdeva i «momenti» del necrologio — il primo sangue della
+        # lotta vera c'era stato, ma i fatti dell'epitaffio non venivano mai
+        # conservati per gli scontri chiusi in fuga.
+        self._fatti_ultimo_scontro: FattiScontro | None = None
+        # L'ultimo DoT che ha morso il protagonista (slug status, "" = mai):
+        # è il fatto per il momento sintetico della morte fuori banda.
+        self._ultimo_dot = ""
         # SCAMBI CUMULATI per nemico (B7.5, playtest profondo 2026-08-28):
         # l'epitaffio contava solo l'ULTIMO ingaggio («un solo scambio» per una
         # lotta di 5+ su due ingaggi). Contatore di sessione, solo flavor: non
@@ -1277,6 +1286,10 @@ class SessioneGioco:
         # Imboscata (Sit.5): un EncounterStarted che NON ha aperto questa sessione
         # (il dado-evento del tempo) deve comunque avere la sua istanza.
         self.bus.registra(EncounterStarted, self._su_incontro_esterno)
+        # B11: i fatti della morte FUORI dal combattimento — l'ultimo DoT che
+        # morde e il terminale senza scontro aperto compongono l'epitaffio.
+        self.bus.registra(EffettoStatus, self._su_effetto_status)
+        self.bus.registra(MortePersonaggio, self._su_morte_fuori_scontro)
         # Obiettivi (nodo O): l'osservatore ascolta il bus DI QUESTA sessione
         # (per-guscio: muore col suo bus) e valuta il catalogo della run
         # corrente — se non è montato, ogni fatto è un no-op.
@@ -1290,6 +1303,38 @@ class SessioneGioco:
         scontro, un epitaffio solo per morte — anche se il fatto ripassa)."""
         if tipo not in self._prosa_dovuta:
             self._prosa_dovuta.append(tipo)
+
+    def _su_effetto_status(self, e: EffettoStatus) -> None:
+        """L'ultimo DoT che morde il PROTAGONISTA (B11): il fatto minimo per
+        dire di cosa sei morto quando la morte arriva fuori dallo scontro."""
+        if e.bersaglio == "" and e.delta_hp < 0:
+            self._ultimo_dot = e.status
+
+    def _su_morte_fuori_scontro(self, _evento: MortePersonaggio) -> None:
+        """La morte FUORI dal combattimento (il DoT smaltito dopo la fuga —
+        la fine di Kora, B11) compone i fatti dell'epitaffio che il ramo di
+        `avanza` non vedrà mai: i momenti dell'ULTIMO scontro chiuso (la
+        lotta vera c'è stata) più la chiusa sintetica del DoT. In scontro
+        non fa nulla: lì i fatti li chiude l'istanza, freschi."""
+        if in_combattimento() or self._fatti_epitaffio is not None:
+            return
+        base = self._fatti_ultimo_scontro
+        momenti = list(base.momenti) if base is not None else []
+        if self._ultimo_dot:
+            momenti.append(
+                f"spento dal {self._ultimo_dot.capitalize()} fuori dallo "
+                "scontro, a ferite ancora aperte"
+            )
+        self._fatti_epitaffio = FattiScontro(
+            vittoria=False,
+            turni=base.turni if base is not None else 0,
+            hp_persi=base.hp_persi if base is not None else 0,
+            nemico=(base.nemico if base is not None else "") or self._nome_mob,
+            fuga=base.fuga if base is not None else False,
+            custode=False,
+            momenti=tuple(momenti),
+        )
+        self._segna_prosa(TipoProsa.EPITAFFIO)
 
     @classmethod
     def nuova(
@@ -1851,11 +1896,21 @@ class SessioneGioco:
         fatti = self._fatti_epitaffio
         if fatti is None:
             return None
-        righe = [
-            f"[fine] Il crawler {self.etichetta or 'senza nome'} è morto: "
-            f"{fatti.nemico or 'il dungeon'} ha chiuso lo scontro in "
-            f"{fatti.turni} scambi.",
-        ]
+        if fatti.fuga:
+            # Morte FUORI dallo scontro (B11): la fuga era riuscita, ma ciò
+            # che l'avversario ha lasciato addosso ha finito il lavoro.
+            righe = [
+                f"[fine] Il crawler {self.etichetta or 'senza nome'} è morto "
+                f"FUORI dallo scontro: si era ritirato da "
+                f"{fatti.nemico or 'il dungeon'} dopo {fatti.turni} scambi, "
+                "e quel che gli era rimasto addosso lo ha raggiunto.",
+            ]
+        else:
+            righe = [
+                f"[fine] Il crawler {self.etichetta or 'senza nome'} è morto: "
+                f"{fatti.nemico or 'il dungeon'} ha chiuso lo scontro in "
+                f"{fatti.turni} scambi.",
+            ]
         # La lotta VERA può essere stata su più ingaggi (B7.5: «un solo
         # scambio» per un boss affrontato due volte): il cumulato entra nel
         # prompt come fatto, l'AI lo veste — mai numeri inventati.
@@ -1948,6 +2003,9 @@ class SessioneGioco:
             # Chiusura dell'istanza di combattimento: i FATTI passano al prossimo
             # turno GM (risolvi prima, narra dopo — FNC §5.2).
             self._fatti_scontro = self._istanza.fatti()
+            # CONSERVATI comunque sia finita (B11): la morte fuori-scontro
+            # che segue una fuga eredita i momenti della lotta vera.
+            self._fatti_ultimo_scontro = self._fatti_scontro
             self._istanza.chiudi()
             self._istanza = None
             self._imboscata_in_corso = False
@@ -2410,7 +2468,9 @@ class SessioneGioco:
         `primarie` = solo PALESI (effettive), occulte per nome, fortuna MAI."""
         self._guardia_aperta()
         pent, marker, scheda = protagonista()
-        proiezione = proietta_scheda(pent)
+        # `con_durate`: la vista del giocatore dice QUANTI tick restano ai
+        # dannosi («in fiamme (2)», B9.1) — la proiezione AI resta senza numeri.
+        proiezione = proietta_scheda(pent, con_durate=True)
         return SchedaVista(
             uuid=marker.id_dominio,
             nome=self.etichetta,
@@ -2893,7 +2953,8 @@ class SessioneGioco:
             # al tick vivo (`tN` in coda ai descrittori) — due orologi in
             # disaccordo nello stesso pannello (caccia 2026-08-16).
             extra.append(f"tempo: {self.ultimo_messaggio.tempo.etichetta}")
-        return (hp, *proietta_scheda(pent).descrittori, *extra)
+        # Pannello del GIOCATORE: le durate dei dannosi si dicono (B9.1).
+        return (hp, *proietta_scheda(pent, con_durate=True).descrittori, *extra)
 
 
 # --- Cronaca del bus: eventi di dominio → righe di testo (headless, read-only) ----
@@ -3307,6 +3368,7 @@ def _fabbrica_a_attiva(fabbrica) -> "FabbricaAttiva | None":
                 categoria=b.categoria.value if b.categoria is not None else None,
                 taglia=b.taglia.value,
                 sede=b.sede.value if b.sede is not None else None,
+                effetto=b.effetto.value if b.effetto is not None else "",
             )
             for b in fabbrica.basi
         ),

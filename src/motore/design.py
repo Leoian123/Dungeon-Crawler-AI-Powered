@@ -140,6 +140,10 @@ class BaseAttiva:
     categoria: str | None = None
     taglia: str = "media"
     sede: str | None = None
+    # L'effetto del CONSUMABILE (B9.2, vocabolario chiuso del contratto):
+    # "" = non è un consumabile. Additivo con default: i freeze vecchi
+    # round-trippano invariati.
+    effetto: str = ""
 
 
 @dataclass(frozen=True)
@@ -310,7 +314,11 @@ def mob_del_cast(slug: str) -> MobAttivo | None:
 
     Col territorio attivo il "cast" della run include anche i ROSTER BOSS e le
     voci delle tabelle di spawn: sono contenuto del piano a tutti gli effetti —
-    il gate li riconosce come riferimenti legittimi (2026-08-10)."""
+    il gate li riconosce come riferimenti legittimi (2026-08-10). ⚠️ La
+    decisione è stata RAFFINATA (B10, rigiro Kora 2026-08-28): il riferimento
+    a uno slug SOLO-boss è spazialmente vincolato alla stanza del custode —
+    il vincolo lo impone il gate (`riferimento_solo_boss` + posizione), non
+    questa risoluzione, che resta la pura appartenenza al contenuto."""
     piano = design_piano_corrente()
     if piano is None:
         return None
@@ -338,6 +346,45 @@ def mob_del_cast(slug: str) -> MobAttivo | None:
             if candidato is not None and candidato.slug == slug:
                 return candidato
     return None
+
+
+def riferimento_solo_boss(slug: str) -> bool:
+    """Vero se lo slug risolve SOLO dai roster boss (autorati o il boss
+    procedurale della zona corrente) — mai dal cast né dalle tabelle di spawn.
+
+    È il predicato del vincolo spaziale di B10 (rigiro Kora 2026-08-28: DUE
+    DJ Rigor Mortis nella stessa città — il GM live aveva reclutato il boss
+    autorato come riempitivo di una stanza qualunque, e il resoconto ha
+    incoronato «custode del varco» quello sbagliato): il gate accetta un
+    riferimento solo-boss SOLO nella stanza del custode. Un mob presente
+    anche in cast/spawn resta legittimo ovunque: la sua identità non è
+    esclusiva del varco."""
+    piano = design_piano_corrente()
+    if piano is None:
+        return False
+    if any(mob.slug == slug for mob in piano.cast):
+        return False
+    if piano.territorio is None:
+        return False
+    if any(
+        voce.mob.slug == slug
+        for voci in piano.territorio.spawn.values() for voce in voci
+    ):
+        return False
+    if any(
+        mob.slug == slug
+        for roster in piano.territorio.boss.values() for mob in roster
+    ):
+        return True
+    from .piano import livello_corrente
+    from .territorio import boss_della_zona, zona_corrente
+
+    zona = zona_corrente()
+    if zona is not None:
+        candidato = boss_della_zona(livello_corrente(), zona)
+        if candidato is not None and candidato.slug == slug:
+            return True
+    return False
 
 
 # I campi override che toccano le resistenze: nel profilo diventano voci del dict.

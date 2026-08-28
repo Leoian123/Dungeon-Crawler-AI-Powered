@@ -10,7 +10,10 @@
     {"nome": "Guanto", "tipo": "armatura", "slot": "mano_dx", "categoria": "leggera", "taglia": "piccola"},
     {"nome": "Lama", "tipo": "arma"},
     {"nome": "Anello", "tipo": "accessorio", "sede": "dita"},
-    {"nome": "Amuleto", "tipo": "accessorio", "sede": "collo"}
+    {"nome": "Amuleto", "tipo": "accessorio", "sede": "collo"},
+    {"nome": "Tonico", "tipo": "consumabile", "effetto": "cura"},
+    {"nome": "Fiala", "tipo": "consumabile", "effetto": "ristoro_mana"},
+    {"nome": "Antidoto", "tipo": "consumabile", "effetto": "antidoto"}
   ],
   "famiglie": [
     {"nome": "del Becchino", "descrizione": "Manifattura funeraria: robusta, silenziosa, con l'odore del lavoro ben fatto.", "modificatori": [{"stat": "costituzione", "fascia": "lieve"}]},

@@ -90,14 +90,22 @@ DESCRIZIONE_NEUTRA = "Una presenza generica, abbozzata dal dungeon."
 
 # --- Proiezione di sola lettura della scheda (G §6.6, G-13) -------------------
 
-def proietta_scheda(entita_protagonista: int) -> SchedaProiezione:
+def proietta_scheda(
+    entita_protagonista: int, *, con_durate: bool = False
+) -> SchedaProiezione:
     """Costruisce il DTO di sola lettura dallo stato VIVO (G-13; Gruppo 2 §2.4/GR2-9).
 
     L'AI riceve `("ferito", "avvelenato")` + le primarie **filtrate per visibilità**, MAI
     un componente ECS vivo. È il motore — non l'AI — a derivare i descrittori e ad
     applicare il filtro: il registry `REGISTRY_STAT` vive QUI (motore), il DTO in
     `contracts` riceve mappe già filtrate (membrana C-3).
-    """
+
+    `con_durate=True` (B9.1, rigiro Kora 2026-08-28): i descrittori delle
+    AFFLIZIONI a tempo portano i tick residui — «in fiamme (2)» — così il
+    giocatore fa la matematica della tenaglia PRIMA di decidere (la soglia di
+    fuga giusta era invisibile e la scoprivi morendo). È per le superfici del
+    GIOCATORE (scheda, pannello): la proiezione per l'AI resta senza numeri
+    (G-13, default False)."""
     scheda = esper.component_for_entity(entita_protagonista, Scheda)
     descrittori: list[str] = []
     if not scheda.vivo:
@@ -114,7 +122,12 @@ def proietta_scheda(entita_protagonista: int) -> SchedaProiezione:
     for spec in SPEC_STATUS:
         if not spec.descrittore:
             continue
-        if esper.try_component(entita_protagonista, spec.componente) is not None:
+        comp = esper.try_component(entita_protagonista, spec.componente)
+        if comp is None:
+            continue
+        if con_durate and not comp.innato and comp.durata > 0:
+            descrittori.append(f"{spec.descrittore} ({comp.durata})")
+        else:
             descrittori.append(spec.descrittore)
 
     # Primarie filtrate per visibilità (GR2-9): PALESE → valore effettivo; VALORE_NASCOSTO
@@ -270,10 +283,23 @@ def valida_turno(
     # Senza un piano attivo (harness, save legacy) il vincolo non esiste: il
     # riferimento resta un'annotazione inerte (la materializzazione lo ignora).
     if eg.riferimento is not None:
-        from .design import design_piano_corrente
+        from .design import design_piano_corrente, riferimento_solo_boss
 
-        if design_piano_corrente() is not None and mob_del_cast(eg.riferimento) is None:
-            return None
+        if design_piano_corrente() is not None:
+            if mob_del_cast(eg.riferimento) is None:
+                return None
+            # VINCOLO SPAZIALE del boss (B10, rigiro Kora 2026-08-28): il
+            # riferimento a uno slug SOLO-boss vale nella stanza del custode
+            # — fuori da lì è un rifiuto come ogni riferimento illegale (il
+            # GM live reclutava il boss autorato come riempitivo: due DJ
+            # Rigor Mortis nella stessa città, e il resoconto incoronava
+            # quello sbagliato). Il reveal ordinario non ha bisogno di
+            # inventare abitanti: il mob-atteso del copione glielo passa già.
+            if riferimento_solo_boss(eg.riferimento):
+                from .territorio import stanza_corrente_e_del_boss
+
+                if not stanza_corrente_e_del_boss():
+                    return None
 
     # Clamp d'ingresso al combattimento (C3): la durata è ricondotta a TURNO.
     if ingresso_combattimento and cand.durata != Durata.TURNO:

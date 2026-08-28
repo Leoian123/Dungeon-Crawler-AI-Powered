@@ -158,6 +158,10 @@ def _assembla(base, famiglia, affissi, grado: str, suffisso: str,
         grado=grado,
         descrizione=descr,
         qualita=qualita,
+        # L'effetto del consumabile viaggia dalla BASE al pezzo coniato
+        # (B9.2): `oggetto_da_asset` lo traduce in un `Consumabile` vivo —
+        # tonici e antidoti escono dalla stessa catena di lame ed elmi.
+        effetto=getattr(base, "effetto", "") or "",
         slot=base.slot,
         categoria=base.categoria,
         taglia=base.taglia,
