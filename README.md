@@ -17,7 +17,7 @@ contenuto; ogni esito lo arbitra il motore, seeded e replay-safe.
 | `start.bat` | Primo setup (venv + dipendenze) e demo headless (driver di riferimento). |
 | `gioca_web.bat` | **GIOCA dal browser**: compila la SPA se manca, avvia l'host (127.0.0.1:8017, SPA + API sulla stessa origine) e apre il browser. Flag: `--dev` (Vite con HMR), `--fake` (vieta il GM live), `--porta N`, `--senza-browser`. |
 | `gioca.bat` | La TUI Textual (host opt-in; `pip install textual`). Flag: `--seed N`, `--riprendi [uuid]`, `--daily`, `--infestata`, `--live`/`--fake`. Tasti: `a` azione libera, `z` zaino, `c` scheda, `b` bacheca, `s` salva. |
-| `calibra.bat` | Console di calibrazione web (catalogo §11; anche nel GM mode della SPA). |
+| *(calibrazione)* | Nel **GM mode della SPA** (`gioca_web.bat` → Game Master → Calibrazione): catalogo §11 completo, override, anteprima nemici. Unica console admin — `calibra.bat` è stato ritirato (era il doppione standalone della stessa pagina). |
 | `banco_nemici.bat` | Banco di prova generazione nemici (confronto fra modelli LLM). |
 | `misura_run.bat` | Misura della vincibilità: politiche × seed, offline, riproducibile. |
 | `genera_stagione.bat` | Authoring AI del piano-mondo (dry-run; `--applica` scrive). |

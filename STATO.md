@@ -44,13 +44,16 @@ il pacchetto `src/adattatore/` è stato **rimosso** e il game engine è **headle
 ancora scelta: si innesterà più avanti, *fuori* dal motore (vedi §4.4).
 
 > **Precisazione, per non far cancellare file vivi a nessuno:** Textual NON è sparito
-> dal repo — sopravvive in **due host/tool opt-in** fuori dal motore:
-> `src/gioco_textual.py` (la UI di gioco lanciata da `gioca.bat`, vedi §6) e
-> `src/calibratore.py` (console admin). Entrambi importano Textual **lazy**, pilotano il
-> motore solo via porte/`contracts`, sono testati (`test_gioco_textual.py`,
-> `test_calibratore_console.py`) e sono **esentati esplicitamente** dal lint di membrana
+> dal repo — sopravvive in **un host/tool opt-in** fuori dal motore:
+> `src/gioco_textual.py` (la UI di gioco lanciata da `gioca.bat`, vedi §6). Importa
+> Textual **lazy**, pilota il motore solo via porte/`contracts`, è testato
+> (`test_gioco_textual.py`) ed è **esentato esplicitamente** dal lint di membrana
 > (`_HOST_OPZIONALI` in `test_membrana_vista.py`). "Headless" significa: il MOTORE non
 > dipende da alcuna UI — non che nessun file sotto `src/` la tocchi.
+> (La console TUI di calibrazione `calibratore.py` e la pagina standalone di
+> `calibratore_web` sono state RITIRATE su questo branch: erano doppioni a scope
+> minore della pagina Calibrazione del GM mode nella SPA — una sola superficie
+> admin. `calibratore_web.py` resta come BACKEND di servizio dell'host web.)
 
 ### Cosa resta valido e cosa è superato su questo branch
 
@@ -831,7 +834,7 @@ authoring successive.
   discesa (seeded, mai dall'orologio) sui piani piatti; il terminale di vittoria è
   condizionato alla stagione congelata, non alla libreria su disco.
 - **Tutti i numeri §11 vivono in `motore/calibrazione.py`** (catalogo + override), con
-  la console (`calibra.bat`, TUI/CLI/web) come superficie di taratura. I default del
+  la pagina Calibrazione del GM mode (SPA) come superficie di taratura. I default del
   protagonista (`CARL.*`, `HP_DEFAULT`) arrivano al gioco reale lungo tutta la catena
   (`crea_protagonista` → `nuova_partita` → `SessioneGioco.nuova`): nessun literal nel
   composition root.
@@ -965,8 +968,10 @@ e09f27e  Ritorno a headless: rimozione dell'adattatore Textual
 
 > **La regola del travaso:** dal laboratorio al prodotto passano solo `src/contracts`,
 > `src/motore`, `src/guscio`, `src/main.py`, gli strumenti del motore a sole stdlib
-> (`banco_nemici.py`, `calibratore_web.py`, `genera_stagione.py`), gli host opt-in (`gioco_textual.py`,
-> `calibratore.py`), `contenuti/` e i test **non** `test_host_web_*`. Non passano mai:
+> (`banco_nemici.py`, `calibratore_web.py`, `genera_stagione.py`), l'host opt-in
+> (`gioco_textual.py`), `contenuti/` e i test **non** `test_host_web_*`. Le console di
+> calibrazione sono BRANCH-LOCALI: il cuore tiene le sue (TUI + standalone, è senza
+> SPA), qui vive solo il backend + la pagina del GM mode. Non passano mai:
 > `src/host_web/`, `web/`, e le dipendenze che si portano dietro. Se un giorno un test
 > del motore avesse bisogno di `httpx`, quello è il segnale che qualcosa di host è
 > colato dentro. Modello di consegna deciso: **web app** (Steam rimandato); licenza
@@ -997,8 +1002,8 @@ zero vittorie» (pre-loot, harness mai versionato) si rilancia oggi con un coman
 > design). Il sostentamento, la ritirata e il riposo FUNZIONANO tutti: quello
 > che resta non è struttura, sono i **numeri** — curve `K_RANGO_HP/DANNO` ai
 > gradi alti, recupero del riposo, `PROB_DROP`/pesi, margine di fuga — cioè
-> esattamente la **taratura fine §11**, tarabile da console (`calibra.bat`)
-> senza toccare codice, con `misura_run.bat` come oracolo del prima/dopo.
+> esattamente la **taratura fine §11**, tarabile dalla pagina Calibrazione del
+> GM mode senza toccare codice, con `misura_run.bat` come oracolo del prima/dopo.
 > (Nota di lettura: `test_corredo_di_riferimento_raggiungibile` verifica la
 > filiera in vitro con `PROB_DROP=1` — la vincibilità in partita la dice solo
 > questa misura.)
@@ -1084,8 +1089,8 @@ contenuto autorale.
 Il passo ora è la RIFINITURA: il giocatore vero sceglie gli scontri e usa i
 vicoli — le run manuali arrivano più in là della politica; leve residue in
 canna: `K_RANGO_DANNO` 0.4→0.3 (con `test_ttk` come rete), fasce del canale
-mosse, margine di fuga. Tutte da console (`calibra.bat`) con `misura_run.bat`
-come oracolo del prima/dopo.
+mosse, margine di fuga. Tutte dalla pagina Calibrazione del GM mode, con
+`misura_run.bat` come oracolo del prima/dopo.
 
 Più avanti, sull'asse mappa: la **generazione a chunk «stile sudoku»** (zone
 enormi per costruzione lazy: griglia di chunk seeded per cella, vincoli di zona
@@ -1305,9 +1310,9 @@ va ritoccata per rispecchiare la realtà del branch headless:
 ## 6. Comandi utili
 
 ```bash
-# Giocare con la UI Textual (host opt-in) / calibrare dal browser — launcher a un click
+# Giocare con la UI Textual (host opt-in) — launcher a un click
 ./gioca.bat
-./calibra.bat
+# Calibrare: gioca_web.bat → GM mode → Calibrazione (unica console admin)
 
 # Authoring AI del piano-mondo (dry-run; --applica scrive, il diff git è la promozione)
 ./genera_stagione.bat

@@ -12,7 +12,7 @@ così le stat e lo storage non sono falsi positivi.
     `Effetto`/`Azione` (`motore/azione.py`) — il "lego" da sbloccare guardando i modelli. Per
     ora NON sono validate dal motore: l'output le marca esplicitamente come SPERIMENTALI.
 
-Questo modulo è un **host/tool** (come `main.py`/`calibratore.py`): importa motore+contracts+
+Questo modulo è un **host/tool** (come `main.py`/`calibratore_web.py`): importa motore+contracts+
 provider, vive a livello root, non importa una UI né `tests/`.
 
 Uso:

@@ -132,7 +132,8 @@ function AnteprimaNemico({ archetipo, gradi }: { archetipo: string; gradi: strin
           <Kv k="atk_eff" v={a.atk_eff} />
           <Kv k="def_eff (cent.)" v={a.def_eff_centesimi} />
           <Kv k="eva_eff" v={a.eva_eff} />
-          <Kv k="acc_eff" v={a.acc_eff} />
+          <Kv k="acc_fis_eff" v={a.acc_fis_eff} />
+          <Kv k="acc_mag_eff" v={a.acc_mag_eff} />
           <Kv
             k="geometria"
             v={`${a.geometria.armatura} / ${a.geometria.taglia} / ${a.geometria.arma}`}

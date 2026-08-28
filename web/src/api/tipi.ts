@@ -467,7 +467,10 @@ export interface AnteprimaMob {
   atk_eff: number;
   def_eff_centesimi: number;
   eva_eff: number;
-  acc_eff: number;
+  // Due accuratezze, due stili (marziale/magica): `acc_eff` unica non esiste
+  // più dallo split degli stili — il campo morto rendeva "undefined" in UI.
+  acc_fis_eff: number;
+  acc_mag_eff: number;
   resistenze_mult: Record<string, number>;
   geometria: { armatura: string; taglia: string; arma: string };
 }
