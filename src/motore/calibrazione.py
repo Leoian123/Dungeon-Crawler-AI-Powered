@@ -121,47 +121,58 @@ def _archetipi_defs() -> tuple[Param, ...]:
     """Genera le foglie di catalogo per ogni archetipo: stat base + geometria + resistenze
     (13 per archetipo). La `spiegazione` di ogni foglia è il testo d'impatto che console/UI
     mostrano — così *tutta* la parte numerica di un'entità è dato editabile, non codice."""
+    def _genitivo(disp: str) -> str:
+        """«di lo Slime» non è italiano: la preposizione si articola col nome."""
+        for articolo, articolata in (
+            ("lo ", "dello "), ("l'", "dell'"), ("gli ", "degli "),
+            ("la ", "della "), ("le ", "delle "), ("il ", "del "), ("i ", "dei "),
+        ):
+            if disp.startswith(articolo):
+                return articolata + disp[len(articolo):]
+        return "di " + disp
+
     out: list[Param] = []
     for nome, disp, cat, d in _ARCH_PROFILI_DEFAULT:
+        gen = _genitivo(disp)
         out += [
             Param(f"ARCH.{nome}.destrezza_base", d["destrezza_base"],
-                  f"Destrezza base di {disp}: iniziativa ed evasione (nel vettore: +rango per grado).",
+                  f"Destrezza base {gen}: iniziativa ed evasione (nel vettore: +rango per grado).",
                   cat, "intero ≥1", "int"),
             Param(f"ARCH.{nome}.pv_base", d["pv_base"],
-                  f"PV base di {disp} (→ Costituzione, scala con grado·livello).", cat, "intero ≥1", "int"),
+                  f"PV base {gen} (→ Costituzione, scala con grado·livello).", cat, "intero ≥1", "int"),
             Param(f"ARCH.{nome}.danno_base", d["danno_base"],
-                  f"Danno base di {disp} (→ Forza, scala con grado·livello).", cat, "intero ≥1", "int"),
+                  f"Danno base {gen} (→ Forza, scala con grado·livello).", cat, "intero ≥1", "int"),
             Param(f"ARCH.{nome}.intelligenza_base", d["intelligenza_base"],
-                  f"Intelligenza base di {disp}: accuratezza magica (nel vettore: +rango). "
+                  f"Intelligenza base {gen}: accuratezza magica (nel vettore: +rango). "
                   "Prima era un proxy della Destrezza.", cat, "intero ≥1", "int"),
             Param(f"ARCH.{nome}.difesa_base", d["difesa_base"],
-                  f"Difesa base di {disp} in centesimi: mitigazione piatta d'armatura (0 = nudo). "
+                  f"Difesa base {gen} in centesimi: mitigazione piatta d'armatura (0 = nudo). "
                   "Flat, non scala col grado.", cat, "intero ≥0", "int", "centesimi"),
             Param(f"ARCH.{nome}.saggezza_base", d["saggezza_base"],
-                  f"Saggezza base di {disp}: stat nascosta (nel vettore: +rango).", cat, "intero ≥1", "int"),
+                  f"Saggezza base {gen}: stat nascosta (nel vettore: +rango).", cat, "intero ≥1", "int"),
             Param(f"ARCH.{nome}.fortuna_base", d["fortuna_base"],
-                  f"Fortuna base di {disp}: usata nei tiri (nel vettore: +rango).", cat, "intero ≥1", "int"),
+                  f"Fortuna base {gen}: usata nei tiri (nel vettore: +rango).", cat, "intero ≥1", "int"),
             Param(f"ARCH.{nome}.armatura", d["armatura"],
-                  f"Categoria d'armatura di {disp}: la mobilità che diventa evasione "
+                  f"Categoria d'armatura {gen}: la mobilità che diventa evasione "
                   "(veste = massima, pesante = minima).", cat, "una chiave di m_armatura",
                   "scelta", scelte=_SCELTE_ARMATURA),
             Param(f"ARCH.{nome}.taglia", d["taglia"],
-                  f"Taglia di {disp}: più piccola = schiva di più (fattore m_taglia).",
+                  f"Taglia {gen}: più piccola = schiva di più (fattore m_taglia).",
                   cat, "una chiave di m_taglia", "scelta", scelte=_SCELTE_TAGLIA),
             Param(f"ARCH.{nome}.arma", d["arma"],
-                  f"Arma di {disp}: coeff. di accuratezza (arma vs portatore). Precisa ≠ forte: "
+                  f"Arma {gen}: coeff. di accuratezza (arma vs portatore). Precisa ≠ forte: "
                   "muove il colpire, non il danno.", cat, "una chiave di coeff_acc",
                   "scelta", scelte=_SCELTE_ARMA),
             Param(f"ARCH.{nome}.res.mischia", d["res_mischia"],
-                  f"Resistenza/vulnerabilità di {disp} al danno da MISCHIA, in punti % "
+                  f"Resistenza/vulnerabilità {gen} al danno da MISCHIA, in punti % "
                   "(valore <0 resiste, >0 vulnerabile, 0 neutro).", cat,
                   "punti %; <0 resiste, >0 vulnerabile"),
             Param(f"ARCH.{nome}.res.fuoco", d["res_fuoco"],
-                  f"Resistenza/vulnerabilità di {disp} al danno da FUOCO, in punti % "
+                  f"Resistenza/vulnerabilità {gen} al danno da FUOCO, in punti % "
                   "(valore <0 resiste, >0 vulnerabile, 0 neutro).", cat,
                   "punti %; <0 resiste, >0 vulnerabile"),
             Param(f"ARCH.{nome}.res.veleno", d["res_veleno"],
-                  f"Resistenza/vulnerabilità di {disp} al danno da VELENO, in punti % "
+                  f"Resistenza/vulnerabilità {gen} al danno da VELENO, in punti % "
                   "(valore <0 resiste, >0 vulnerabile, 0 neutro).", cat,
                   "punti %; <0 resiste, >0 vulnerabile"),
         ]
