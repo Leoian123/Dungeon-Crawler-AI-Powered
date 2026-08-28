@@ -34,7 +34,6 @@ from pathlib import Path
 
 from contracts import (
     BossGenerato,
-    LottoBossGenerati,
     MobAsset,
     TabellaProceduraleGen,
     TabellaSpawnGenerata,

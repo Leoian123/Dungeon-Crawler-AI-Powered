@@ -1,6 +1,6 @@
 """Host web — calibrazione (GM mode): la vista del catalogo §11, gli override via
 API (imposta/azzera/salva) e l'anteprima coi numeri derivati FRESCHI. L'host non
-importa il motore: passa dal backend del calibatore (`calibratore_web`)."""
+importa il motore: passa dal backend del calibratore (`calibratore_web`)."""
 
 from __future__ import annotations
 

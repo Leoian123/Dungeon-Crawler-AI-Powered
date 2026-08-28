@@ -462,7 +462,6 @@ def componi_fascicolo(
     from .territorio import (
         boss_della_zona,
         boss_sconfitto,
-        pesca_spawn,
         stanza_corrente_e_del_boss,
         zona_corrente,
     )

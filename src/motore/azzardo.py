@@ -45,7 +45,6 @@ replay resta intatto (FNC §9).
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 from contracts import StatId

@@ -4,7 +4,8 @@
 Tre cose vivono qui:
   1. **Il catalogo** (`CATALOGO`): per ogni placeholder, valore di default, **spiegazione**
      («cosa dovrebbe essere»), dominio/range suggerito, categoria, unità. È il contenuto che
-     la console admin (`src/calibratore.py`) mostra e gestisce.
+     le console admin degli HOST mostrano e gestiscono (il backend condiviso è
+     `calibratore_web`; quale UI lo vesta dipende dal branch — SPA, web locale o TUI).
   2. **Gli override**: un file JSON *gitignored* (`calibrazione.overrides.json`, o il path in
      `DCC_CALIBRAZIONE_OVERRIDE`) caricato **all'import**. I valori editati valgono dal
      **prossimo avvio** del motore; il sorgente resta coi default (reversibile).

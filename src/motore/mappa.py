@@ -519,7 +519,8 @@ def muovi(stanza: int) -> bool:
 
 class SistemaMovimento(SistemaSoloNarrazione):
     """Consuma `PlayerSiMuove` (solo in NARRAZIONE) e applica il movimento sulla mappa.
-    Un intento non valido (non adiacente, nemico presente) è consumato senza effetto."""
+    Un intento non valido (non adiacente, passaggio negato da `passaggio_concesso`)
+    è consumato senza effetto."""
 
     def run(self, dt: int) -> None:
         for intento in consuma_messaggi(PlayerSiMuove):
@@ -609,8 +610,10 @@ def componi_opzioni_scena() -> tuple[OpzioneScena, ...]:
     """Il menu di narrazione come **verità della scena** (mai cablato nel port):
 
     - stanza non ancora visitata → `()` (l'host deve chiedere un turno di narrazione);
-    - nemico vivo → COMBATTI / SCAPPA (l'ingaggio blocca il movimento);
-    - altrimenti → SCENDI se c'è la scala + MUOVI per ogni uscita.
+    - nemico vivo → COMBATTI / SCAPPA (+ PARLAMENTA se mai tentato); in TREGUA
+      (`passaggio_concesso`, B1/B8) si aggiungono movimento e opzioni di zona;
+    - altrimenti → tempo/riposo/box quando sono VERI + SCENDI/MUOVI/ATTRAVERSA.
+    L'ordine è a SLOT FISSI (`_SLOT_MENU`, B7.2: movimento sempre in fondo).
     Senza mappa ritorna `()` (nessuna scena da comporre)."""
     m = mappa_corrente()
     if m is None or not stanza_visitata():

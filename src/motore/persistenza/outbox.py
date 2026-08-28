@@ -108,19 +108,8 @@ def consuma_proposta(directory: Path, uuid: str, id_proposta: str) -> dict | Non
     return trovata
 
 
-def consuma_proposte(directory: Path, uuid: str) -> list[dict]:
-    """Move-on-read: rinomina il file e ritorna il contenuto — il cruscotto
-    non rilegge mai due volte, e la run (se ancora viva) riparte da vuoto."""
-    percorso = path_outbox(directory, uuid)
-    if not percorso.exists():
-        return []
-    consumato = percorso.with_suffix(".consumate.jsonl")
-    percorso.replace(consumato)
-    proposte = []
-    with consumato.open(encoding="utf-8") as f:
-        for riga in f:
-            try:
-                proposte.append(json.loads(riga))
-            except Exception:
-                continue
-    return proposte
+# ⛔ `consuma_proposte` (il move-on-read IN BLOCCO dell'intero outbox) è stato
+# RITIRATO: il cruscotto W2 è nato a grana fine — l'admin promuove/scarta
+# proposta per proposta (`consuma_proposta`), mai «tutte in un colpo» — e la
+# via in blocco non ha mai avuto un chiamante. Un consumo bulk futuro passerà
+# comunque dal puntuale (stessa semantica, un id alla volta).
